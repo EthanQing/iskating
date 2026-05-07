@@ -1,5 +1,5 @@
 <template>
-  <div id="app" class="dark-app">
+  <div id="app" class="dark-app" :class="{ 'sidebar-hidden': !sidebarVisible }">
     <aside class="sidebar">
       <div class="logo">iSkating Coach</div>
       <button
@@ -15,9 +15,49 @@
 
     <main class="content">
       <header class="topbar">
-        <h1>{{ currentTitle }}</h1>
-        <div class="status-chip" :class="{ on: isRecording }">
-          {{ isRecording ? '训练记录中' : '待机中' }}
+        <div class="brand-block">
+          <div class="brand-logo">❄</div>
+          <div class="brand-text">
+            <div class="brand-title">冰刃智训</div>
+            <div class="brand-subtitle">iSkating Coche</div>
+          </div>
+          <div class="brand-divider"></div>
+          <div class="session-module">
+            <div class="session-logo">⛸</div>
+            <div class="session-info">
+              <div class="session-title">训练轮次Session</div>
+              <div class="session-subtitle">自由滑训练-第3次</div>
+            </div>
+          </div>
+          <div class="brand-divider"></div>
+          <div class="session-module">
+            <div class="session-logo">🕒</div>
+            <div class="session-info">
+              <div class="session-title">日期/时间Data/Time</div>
+              <div class="session-subtitle">2026-05-20 16：28：34</div>
+            </div>
+          </div>
+          <div class="brand-divider"></div>
+          <div class="session-module">
+            <div class="session-logo">⚙</div>
+            <div class="session-info">
+              <div class="session-title">系统状态 System Status</div>
+              <div class="session-subtitle status-ok">运行中（正常）</div>
+            </div>
+          </div>
+          <div class="brand-divider"></div>
+          <div class="session-module">
+            <div class="session-logo model-logo">AI</div>
+            <div class="session-info">
+              <div class="session-title">模型状态 Status</div>
+              <div class="session-subtitle status-ok">已就绪（v2.3.1）</div>
+            </div>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <button class="btn ghost" @click="sidebarVisible = !sidebarVisible">
+            {{ sidebarVisible ? '隐藏侧栏' : '显示侧栏' }}
+          </button>
         </div>
       </header>
 
@@ -62,34 +102,7 @@
                 <div class="score-fill" :style="{ width: realtimeScore + '%' }"></div>
               </div>
             </div>
-
-            <div class="actions">
-              <button class="btn primary" @click="toggleRecord">
-                {{ isRecording ? '停止记录' : '开始记录' }}
-              </button>
-              <button class="btn" @click="saveRecord">保存训练记录</button>
-              <button class="btn" @click="showSettings = !showSettings">设置</button>
-            </div>
             <div v-if="lastSavedAt" class="save-tip">最近保存：{{ lastSavedAt }}</div>
-
-            <div v-if="showSettings" class="settings-box">
-              <div class="setting-item">
-                <label>模型精度</label>
-                <select v-model="settings.modelPrecision">
-                  <option value="high">高精度</option>
-                  <option value="balanced">均衡</option>
-                  <option value="fast">高速</option>
-                </select>
-              </div>
-              <div class="setting-item">
-                <label>帧率</label>
-                <select v-model="settings.fps">
-                  <option :value="24">24 FPS</option>
-                  <option :value="30">30 FPS</option>
-                  <option :value="60">60 FPS</option>
-                </select>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -116,6 +129,49 @@
                 <span class="bone left-leg"></span>
                 <span class="bone right-leg"></span>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ops-column">
+          <div class="ops-card">
+            <button class="op-btn start" @click="startCapture">
+              <span class="op-icon">▶</span>
+              <span class="op-text">开始采集</span>
+            </button>
+            <button class="op-btn" @click="pauseCapture">
+              <span class="op-icon">⏸</span>
+              <span class="op-text">暂停</span>
+            </button>
+            <button class="op-btn" @click="stopCapture">
+              <span class="op-icon">⏹</span>
+              <span class="op-text">停止</span>
+            </button>
+            <button class="op-btn" @click="saveRecord">
+              <span class="op-icon">💾</span>
+              <span class="op-text">保存记录</span>
+            </button>
+            <button class="op-btn" @click="showSettings = !showSettings">
+              <span class="op-icon">⚙</span>
+              <span class="op-text">系统设置</span>
+            </button>
+          </div>
+          <div v-if="showSettings" class="settings-box ops-settings">
+            <div class="setting-item">
+              <label>模型精度</label>
+              <select v-model="settings.modelPrecision">
+                <option value="high">高精度</option>
+                <option value="balanced">均衡</option>
+                <option value="fast">高速</option>
+              </select>
+            </div>
+            <div class="setting-item">
+              <label>帧率</label>
+              <select v-model="settings.fps">
+                <option :value="24">24 FPS</option>
+                <option :value="30">30 FPS</option>
+                <option :value="60">60 FPS</option>
+              </select>
             </div>
           </div>
         </div>
@@ -180,9 +236,11 @@ export default {
         { key: 'suggestion', label: '动作纠正与建议' }
       ],
       activePage: 'capture',
+      sidebarVisible: true,
       cameras: Array.from({ length: 12 }, (_, i) => ({ id: i + 1 })),
       selectedCamera: 1,
       isRecording: false,
+      isPaused: false,
       durationSec: 0,
       actionCount: 0,
       realtimeScore: 90,
@@ -198,13 +256,9 @@ export default {
     }
   },
   computed: {
-    currentTitle() {
-      var map = {
-        capture: '实时姿态捕捉界面',
-        history: '训练历史与分析界面',
-        suggestion: '动作纠正与训练建议界面'
-      }
-      return map[this.activePage]
+    activeNavLabel() {
+      var active = this.navItems.find(item => item.key === this.activePage)
+      return active ? active.label : ''
     },
     historyStats() {
       if (!this.trainingRecords.length) {
@@ -291,15 +345,28 @@ export default {
       var ss = String(sec % 60).padStart(2, '0')
       return mm + ':' + ss
     },
-    toggleRecord() {
-      if (this.isRecording) {
+    startCapture() {
+      if (this.isRecording && !this.isPaused) return
+      this.isRecording = true
+      this.isPaused = false
+      if (this.timer) clearInterval(this.timer)
+      this.timer = setInterval(this.tick, 1000)
+    },
+    pauseCapture() {
+      if (!this.isRecording || this.isPaused) return
+      this.isPaused = true
+      if (this.timer) {
         clearInterval(this.timer)
         this.timer = null
-        this.isRecording = false
-        return
       }
-      this.isRecording = true
-      this.timer = setInterval(this.tick, 1000)
+    },
+    stopCapture() {
+      if (this.timer) {
+        clearInterval(this.timer)
+        this.timer = null
+      }
+      this.isRecording = false
+      this.isPaused = false
     },
     tick() {
       this.durationSec += 1
@@ -361,12 +428,24 @@ body,
   display: grid;
   grid-template-columns: 220px 1fr;
   height: 100%;
+  transition: grid-template-columns 0.25s ease;
+}
+
+.dark-app.sidebar-hidden {
+  grid-template-columns: 0 1fr;
 }
 
 .sidebar {
   border-right: 1px solid #1b2230;
   background: #090b0f;
   padding: 18px 12px;
+  overflow: hidden;
+  transition: all 0.25s ease;
+}
+
+.dark-app.sidebar-hidden .sidebar {
+  padding: 0;
+  border-right: none;
 }
 
 .logo {
@@ -405,9 +484,103 @@ body,
   margin-bottom: 12px;
 }
 
-.topbar h1 {
+.brand-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  background: linear-gradient(135deg, #213c64, #0f1d33);
+  border: 1px solid #3d6ba8;
+  color: #dfeeff;
+}
+
+.brand-title {
   font-size: 20px;
-  margin: 0;
+  font-weight: 700;
+  color: #eaf2ff;
+  line-height: 1.1;
+}
+
+.brand-subtitle {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #8ea9cc;
+}
+
+.brand-divider {
+  width: 1px;
+  height: 42px;
+  background: #7fb6ff66;
+  margin: 0 4px 0 6px;
+}
+
+.session-module {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.session-logo {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  border: 1px solid #5f8fc7;
+  background: #11223b;
+  color: #cfe6ff;
+}
+
+.model-logo {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #d9ebff;
+  border-color: #6ea3e6;
+  background: #122845;
+}
+
+.session-title {
+  font-size: 12px;
+  color: #9dc3f5;
+  line-height: 1.1;
+}
+
+.session-subtitle {
+  margin-top: 3px;
+  font-size: 13px;
+  color: #e8f2ff;
+  line-height: 1.1;
+}
+
+.status-ok {
+  color: #63e28b;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.page-chip {
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: #9ec4ff;
+  border: 1px solid #31578f;
+  background: #10203a;
 }
 
 .status-chip {
@@ -425,7 +598,7 @@ body,
 
 .capture-page {
   display: grid;
-  grid-template-columns: minmax(360px, 1.1fr) minmax(640px, 1.9fr);
+  grid-template-columns: minmax(340px, 1fr) minmax(560px, 1.8fr) minmax(150px, 0.45fr);
   gap: 14px;
 }
 
@@ -563,6 +736,55 @@ body,
   gap: 10px;
 }
 
+.ops-column {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.ops-card {
+  border: 2px solid #dce6f8;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25), 0 0 18px rgba(220, 230, 248, 0.2);
+  background: #0f141d;
+  border-radius: 12px;
+  padding: 12px 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.op-btn {
+  width: 100%;
+  min-height: 78px;
+  border: 1px solid #324258;
+  background: #121a27;
+  color: #d7e4fb;
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.op-btn.start {
+  border-color: #4a84d3;
+  background: #173764;
+}
+
+.op-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.op-text {
+  font-size: 12px;
+}
+
+.ops-settings {
+  border-color: #dce6f8;
+}
+
 .focus-preview,
 .metrics,
 .summary-card,
@@ -650,6 +872,10 @@ body,
   background: #1e57b3;
   border-color: #2f7ff5;
   color: #fff;
+}
+
+.btn.ghost {
+  background: #111823;
 }
 
 .settings-box {
@@ -761,6 +987,11 @@ body,
 
 @media (max-width: 1360px) {
   .capture-page {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .ops-column {
+    grid-column: 1 / -1;
     grid-template-columns: 1fr;
   }
 }
@@ -790,6 +1021,10 @@ body,
 
   .camera-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .capture-page {
+    grid-template-columns: 1fr;
   }
 
   .summary-grid {
