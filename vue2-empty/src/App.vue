@@ -98,18 +98,7 @@
                 <div class="card-head">CAM {{ pad(cam.id) }}</div>
                 <div class="preview-window">
                   <div class="video-label">实时视频流</div>
-                  <div class="skeleton-overlay">
-                    <span class="joint head"></span>
-                    <span class="joint shoulder-l"></span>
-                    <span class="joint shoulder-r"></span>
-                    <span class="joint hip-l"></span>
-                    <span class="joint hip-r"></span>
-                    <span class="joint knee-l"></span>
-                    <span class="joint knee-r"></span>
-                    <span class="bone torso"></span>
-                    <span class="bone left-leg"></span>
-                    <span class="bone right-leg"></span>
-                  </div>
+                  <video class="cam-video" src="/train.mp4" autoplay muted loop playsinline></video>
                 </div>
               </div>
             </div>
@@ -926,6 +915,13 @@ body,
   font-size: 12px;
   color: #90a1bb;
   z-index: 2;
+}
+
+.cam-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .main-preview-image {
