@@ -70,107 +70,144 @@
       </header>
 
       <section v-if="activePage === 'capture'" class="capture-page">
-        <div class="control-panel">
-          <div class="focus-preview">
-            <div class="focus-headline">
-              <div class="main-view-title">主视图视频</div>
-              <div class="focus-title">当前来源：CAM {{ pad(selectedCamera) }}</div>
-            </div>
-            <div class="preview-window large">
-              <div class="video-label">主视图预览</div>
-              <img class="main-preview-image" src="/skating.png" alt="主视图预览" />
+        <div class="capture-top-row">
+          <div class="capture-col left-col">
+            <div class="control-panel">
+              <div class="focus-preview">
+                <div class="focus-headline">
+                  <div class="main-view-title">主视图视频</div>
+                  <div class="focus-title">当前来源：CAM {{ pad(selectedCamera) }}</div>
+                </div>
+                <div class="preview-window large">
+                  <div class="video-label">主视图预览</div>
+                  <img class="main-preview-image" src="/skating.png" alt="主视图预览" />
+                </div>
+              </div>
             </div>
           </div>
 
-          <div class="metrics">
-            <div class="metric action-metric">
-              <div class="label">动作计数</div>
-              <div class="value">{{ actionCount }}</div>
-            </div>
-            <div class="metric">
-              <div class="label">训练时长</div>
-              <div class="value">{{ formatTime(durationSec) }}</div>
-            </div>
-            <div class="metric score-metric">
-              <div class="label">实时评分 / 反馈</div>
-              <div class="score-line">
-                <span>{{ realtimeScore }}/100</span>
-                <span>{{ feedbackText }}</span>
+          <div class="capture-col middle-col">
+            <div class="camera-grid">
+              <div
+                v-for="cam in cameras"
+                :key="cam.id"
+                class="camera-card"
+                :class="{ selected: selectedCamera === cam.id }"
+                @click="selectedCamera = cam.id"
+              >
+                <div class="card-head">CAM {{ pad(cam.id) }}</div>
+                <div class="preview-window">
+                  <div class="video-label">实时视频流</div>
+                  <div class="skeleton-overlay">
+                    <span class="joint head"></span>
+                    <span class="joint shoulder-l"></span>
+                    <span class="joint shoulder-r"></span>
+                    <span class="joint hip-l"></span>
+                    <span class="joint hip-r"></span>
+                    <span class="joint knee-l"></span>
+                    <span class="joint knee-r"></span>
+                    <span class="bone torso"></span>
+                    <span class="bone left-leg"></span>
+                    <span class="bone right-leg"></span>
+                  </div>
+                </div>
               </div>
-              <div class="score-bar">
-                <div class="score-fill" :style="{ width: realtimeScore + '%' }"></div>
+            </div>
+
+            <div class="insight-card trajectory-card">
+              <div class="insight-title">三维轨迹</div>
+              <div class="trajectory-view">
+                <span class="axis x"></span>
+                <span class="axis y"></span>
+                <span class="axis z"></span>
+                <span class="track-line t1"></span>
+                <span class="track-line t2"></span>
+                <span class="track-line t3"></span>
               </div>
             </div>
-            <div v-if="lastSavedAt" class="save-tip">最近保存：{{ lastSavedAt }}</div>
+          </div>
+
+          <div class="capture-col right-col">
+            <div class="ops-column">
+              <div class="ops-card">
+                <button class="op-btn start" @click="startCapture">
+                  <span class="op-icon">▶</span>
+                  <span class="op-text">开始采集</span>
+                </button>
+                <button class="op-btn pause" @click="pauseCapture">
+                  <span class="op-icon">⏸</span>
+                  <span class="op-text">暂停</span>
+                </button>
+                <button class="op-btn" @click="stopCapture">
+                  <span class="op-icon">⏹</span>
+                  <span class="op-text">停止</span>
+                </button>
+                <button class="op-btn" @click="saveRecord">
+                  <span class="op-icon">💾</span>
+                  <span class="op-text">保存记录</span>
+                </button>
+                <button class="op-btn" @click="showSettings = !showSettings">
+                  <span class="op-icon">⚙</span>
+                  <span class="op-text">系统设置</span>
+                </button>
+              </div>
+              <div v-if="showSettings" class="settings-box ops-settings">
+                <div class="setting-item">
+                  <label>模型精度</label>
+                  <select v-model="settings.modelPrecision">
+                    <option value="high">高精度</option>
+                    <option value="balanced">均衡</option>
+                    <option value="fast">高速</option>
+                  </select>
+                </div>
+                <div class="setting-item">
+                  <label>帧率</label>
+                  <select v-model="settings.fps">
+                    <option :value="24">24 FPS</option>
+                    <option :value="30">30 FPS</option>
+                    <option :value="60">60 FPS</option>
+                  </select>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div class="camera-grid">
-          <div
-            v-for="cam in cameras"
-            :key="cam.id"
-            class="camera-card"
-            :class="{ selected: selectedCamera === cam.id }"
-            @click="selectedCamera = cam.id"
-          >
-            <div class="card-head">CAM {{ pad(cam.id) }}</div>
-            <div class="preview-window">
-              <div class="video-label">实时视频流</div>
-              <div class="skeleton-overlay">
-                <span class="joint head"></span>
-                <span class="joint shoulder-l"></span>
-                <span class="joint shoulder-r"></span>
-                <span class="joint hip-l"></span>
-                <span class="joint hip-r"></span>
-                <span class="joint knee-l"></span>
-                <span class="joint knee-r"></span>
-                <span class="bone torso"></span>
-                <span class="bone left-leg"></span>
-                <span class="bone right-leg"></span>
+        <div class="capture-low-row">
+          <div class="insight-card keypoint-card">
+            <div class="insight-title">关键点置信度</div>
+            <div class="confidence-list">
+              <div class="confidence-item" v-for="item in keypointConfidence" :key="item.name">
+                <span class="k-name">{{ item.name }}</span>
+                <div class="k-bar">
+                  <div class="k-fill" :style="{ width: item.score + '%' }"></div>
+                </div>
+                <span class="k-score">{{ item.score }}%</span>
               </div>
             </div>
           </div>
-        </div>
-
-        <div class="ops-column">
-          <div class="ops-card">
-            <button class="op-btn start" @click="startCapture">
-              <span class="op-icon">▶</span>
-              <span class="op-text">开始采集</span>
-            </button>
-            <button class="op-btn pause" @click="pauseCapture">
-              <span class="op-icon">⏸</span>
-              <span class="op-text">暂停</span>
-            </button>
-            <button class="op-btn" @click="stopCapture">
-              <span class="op-icon">⏹</span>
-              <span class="op-text">停止</span>
-            </button>
-            <button class="op-btn" @click="saveRecord">
-              <span class="op-icon">💾</span>
-              <span class="op-text">保存记录</span>
-            </button>
-            <button class="op-btn" @click="showSettings = !showSettings">
-              <span class="op-icon">⚙</span>
-              <span class="op-text">系统设置</span>
-            </button>
-          </div>
-          <div v-if="showSettings" class="settings-box ops-settings">
-            <div class="setting-item">
-              <label>模型精度</label>
-              <select v-model="settings.modelPrecision">
-                <option value="high">高精度</option>
-                <option value="balanced">均衡</option>
-                <option value="fast">高速</option>
-              </select>
-            </div>
-            <div class="setting-item">
-              <label>帧率</label>
-              <select v-model="settings.fps">
-                <option :value="24">24 FPS</option>
-                <option :value="30">30 FPS</option>
-                <option :value="60">60 FPS</option>
-              </select>
+          <div class="insight-card low-metrics-card">
+            <div class="insight-title">训练状态统计</div>
+            <div class="metrics">
+              <div class="metric action-metric">
+                <div class="label">动作计数</div>
+                <div class="value">{{ actionCount }}</div>
+              </div>
+              <div class="metric">
+                <div class="label">训练时长</div>
+                <div class="value">{{ formatTime(durationSec) }}</div>
+              </div>
+              <div class="metric score-metric">
+                <div class="label">实时评分 / 反馈</div>
+                <div class="score-line">
+                  <span>{{ realtimeScore }}/100</span>
+                  <span>{{ feedbackText }}</span>
+                </div>
+                <div class="score-bar">
+                  <div class="score-fill" :style="{ width: realtimeScore + '%' }"></div>
+                </div>
+              </div>
+              <div v-if="lastSavedAt" class="save-tip">最近保存：{{ lastSavedAt }}</div>
             </div>
           </div>
         </div>
@@ -251,7 +288,14 @@ export default {
         fps: 30
       },
       trainingRecords: [],
-      lastSavedAt: ''
+      lastSavedAt: '',
+      keypointConfidence: [
+        { name: '头部', score: 96 },
+        { name: '肩部', score: 93 },
+        { name: '髋部', score: 91 },
+        { name: '膝部', score: 89 },
+        { name: '踝部', score: 87 }
+      ]
     }
   },
   computed: {
@@ -606,8 +650,30 @@ body,
 
 .capture-page {
   display: grid;
+  grid-template-rows: auto auto;
+  gap: 14px;
+  align-items: start;
+}
+
+.capture-top-row {
+  display: grid;
   grid-template-columns: minmax(500px, 1.56fr) minmax(460px, 1.26fr) minmax(104px, 0.18fr);
   gap: 14px;
+  align-items: stretch;
+}
+
+.capture-low-row {
+  display: grid;
+  grid-template-columns: minmax(500px, 1.56fr) minmax(460px, 1.26fr) minmax(104px, 0.18fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.capture-col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 100%;
 }
 
 .camera-grid {
@@ -757,6 +823,148 @@ body,
   flex-direction: column;
   gap: 10px;
   height: 100%;
+}
+
+.insight-card {
+  border: 1px solid #1d2737;
+  background: #0f141d;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.keypoint-card {
+  grid-column: 1 / 2;
+  min-height: 188px;
+}
+
+.low-metrics-card {
+  grid-column: 2 / 4;
+  min-height: 188px;
+}
+
+.low-metrics-card .metrics {
+  margin-top: 0;
+}
+
+.trajectory-card {
+  min-height: 188px;
+}
+
+.insight-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #eaf2ff;
+  margin-bottom: 10px;
+}
+
+.confidence-list {
+  display: grid;
+  gap: 8px;
+}
+
+.confidence-item {
+  display: grid;
+  grid-template-columns: 56px 1fr 44px;
+  align-items: center;
+  gap: 8px;
+}
+
+.k-name,
+.k-score {
+  font-size: 12px;
+  color: #9eb2d0;
+}
+
+.k-score {
+  text-align: right;
+}
+
+.k-bar {
+  width: 100%;
+  height: 7px;
+  border-radius: 999px;
+  background: #212b3b;
+  overflow: hidden;
+}
+
+.k-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2d8cff, #63e1ff);
+}
+
+.trajectory-view {
+  position: relative;
+  height: 134px;
+  border: 1px solid #26334a;
+  border-radius: 10px;
+  background:
+    linear-gradient(to right, rgba(103, 139, 194, 0.12) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(103, 139, 194, 0.12) 1px, transparent 1px),
+    #101724;
+  background-size: 24px 24px, 24px 24px, auto;
+  overflow: hidden;
+}
+
+.axis,
+.track-line {
+  position: absolute;
+  display: block;
+}
+
+.axis {
+  height: 2px;
+  transform-origin: left center;
+  background: #88a8d8;
+  opacity: 0.9;
+}
+
+.axis.x {
+  left: 16px;
+  bottom: 18px;
+  width: 120px;
+}
+
+.axis.y {
+  left: 16px;
+  bottom: 18px;
+  width: 82px;
+  transform: rotate(-73deg);
+}
+
+.axis.z {
+  left: 16px;
+  bottom: 18px;
+  width: 86px;
+  transform: rotate(28deg);
+}
+
+.track-line {
+  height: 2px;
+  border-radius: 999px;
+  background: #8fd2ff;
+  box-shadow: 0 0 8px rgba(143, 210, 255, 0.8);
+}
+
+.track-line.t1 {
+  width: 140px;
+  left: 74px;
+  top: 56px;
+  transform: rotate(-14deg);
+}
+
+.track-line.t2 {
+  width: 120px;
+  left: 136px;
+  top: 66px;
+  transform: rotate(17deg);
+}
+
+.track-line.t3 {
+  width: 98px;
+  left: 216px;
+  top: 78px;
+  transform: rotate(-11deg);
 }
 
 .ops-card {
@@ -1031,13 +1239,17 @@ body,
 }
 
 @media (max-width: 1360px) {
-  .capture-page {
-    grid-template-columns: 1fr 1fr;
+  .capture-top-row,
+  .capture-low-row {
+    grid-template-columns: 1fr;
   }
 
-  .ops-column {
-    grid-column: 1 / -1;
-    grid-template-columns: 1fr;
+  .keypoint-card {
+    grid-column: auto;
+  }
+
+  .low-metrics-card {
+    grid-column: auto;
   }
 }
 
@@ -1068,7 +1280,8 @@ body,
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .capture-page {
+  .capture-top-row,
+  .capture-low-row {
     grid-template-columns: 1fr;
   }
 
