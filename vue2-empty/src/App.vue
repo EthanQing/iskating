@@ -174,14 +174,13 @@
 
         <div class="capture-low-row">
           <div class="insight-card keypoint-card">
-            <div class="insight-title">关键点置信度</div>
-            <div class="confidence-list">
-              <div class="confidence-item" v-for="item in keypointConfidence" :key="item.name">
-                <span class="k-name">{{ item.name }}</span>
-                <div class="k-bar">
-                  <div class="k-fill" :style="{ width: item.score + '%' }"></div>
-                </div>
-                <span class="k-score">{{ item.score }}%</span>
+            <div class="insight-title">运动员3D姿态</div>
+            <div class="pose-grid">
+              <div class="pose-item">
+                <img src="/pose-a.png" alt="运动员A的3D姿态" />
+              </div>
+              <div class="pose-item">
+                <img src="/pose-b.png" alt="运动员B的3D姿态" />
               </div>
             </div>
           </div>
@@ -284,14 +283,7 @@ export default {
         fps: 30
       },
       trainingRecords: [],
-      lastSavedAt: '',
-      keypointConfidence: [
-        { name: '头部', score: 96 },
-        { name: '肩部', score: 93 },
-        { name: '髋部', score: 91 },
-        { name: '膝部', score: 89 },
-        { name: '踝部', score: 87 }
-      ]
+      lastSavedAt: ''
     }
   },
   computed: {
@@ -710,7 +702,7 @@ body,
 }
 
 .content {
-  padding: 16px;
+  padding: 24px 16px 16px;
   overflow: auto;
 }
 
@@ -718,7 +710,7 @@ body,
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 22px;
 }
 
 .brand-block {
@@ -861,7 +853,8 @@ body,
   grid-template-columns: minmax(500px, 1.56fr) minmax(460px, 1.26fr) minmax(104px, 0.18fr);
   gap: 14px;
   align-items: stretch;
-  max-height: 180px;
+  height: 240px;
+  max-height: 240px;
 }
 
 .capture-col {
@@ -1084,34 +1077,36 @@ body,
   margin-bottom: 10px;
 }
 
-.confidence-list {
+.pose-grid {
   display: grid;
-  gap: 6px;
-}
-
-.confidence-item {
-  display: grid;
-  grid-template-columns: 56px 1fr 44px;
-  align-items: center;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
+  height: 130px;
 }
 
-.k-name,
-.k-score {
-  font-size: 11px;
-  color: #9eb2d0;
-}
-
-.k-score {
-  text-align: right;
-}
-
-.k-bar {
-  width: 100%;
-  height: 6px;
-  border-radius: 999px;
-  background: #212b3b;
+.pose-item {
+  border: 1px solid #26344b;
+  border-radius: 8px;
   overflow: hidden;
+  height: 100%;
+  background:
+    radial-gradient(
+      circle at center,
+      #f6f9fc 0%,
+      #f3f8fc 76%,
+      rgba(229, 238, 247, 0.72) 92%,
+      rgba(206, 221, 236, 0.42) 98%,
+      rgba(171, 190, 211, 0.16) 100%
+    );
+}
+
+.pose-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+  background: transparent;
+  display: block;
 }
 
 .stat-row {
@@ -1139,12 +1134,6 @@ body,
   background: #1f2735;
   border-radius: 999px;
   overflow: hidden;
-}
-
-.k-fill {
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #2d8cff, #63e1ff);
 }
 
 .trajectory-view {
