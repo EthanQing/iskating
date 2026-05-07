@@ -121,7 +121,7 @@
                 <button class="tri-btn" type="button" @click="collapseTrajectory">▼</button>
               </div>
               <div class="trajectory-view">
-                <img class="track-image" src="/track.png" alt="三维轨迹" />
+                <img class="track-image" src="/track-main.png" alt="三维轨迹" />
               </div>
             </div>
           </div>
@@ -970,7 +970,8 @@ body,
 .track-image {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  object-position: center;
   display: block;
 }
 
