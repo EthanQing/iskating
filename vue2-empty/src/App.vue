@@ -188,26 +188,21 @@
           </div>
           <div class="insight-card low-metrics-card">
             <div class="insight-title">训练状态统计</div>
-            <div class="metrics">
-              <div class="metric action-metric">
-                <div class="label">动作计数</div>
-                <div class="value">{{ actionCount }}</div>
-              </div>
-              <div class="metric">
-                <div class="label">训练时长</div>
-                <div class="value">{{ formatTime(durationSec) }}</div>
-              </div>
-              <div class="metric score-metric">
-                <div class="label">实时评分 / 反馈</div>
-                <div class="score-line">
-                  <span>{{ realtimeScore }}/100</span>
-                  <span>{{ feedbackText }}</span>
-                </div>
-                <div class="score-bar">
-                  <div class="score-fill" :style="{ width: realtimeScore + '%' }"></div>
-                </div>
-              </div>
-              <div v-if="lastSavedAt" class="save-tip">最近保存：{{ lastSavedAt }}</div>
+            <div class="stat-row">
+              <span>动作计数</span>
+              <strong>{{ actionCount }}</strong>
+            </div>
+            <div class="stat-row">
+              <span>训练时长</span>
+              <strong>{{ formatTime(durationSec) }}</strong>
+            </div>
+            <div class="stat-row">
+              <span>实时评分 / 反馈</span>
+              <strong>{{ realtimeScore }}/100 · {{ feedbackText }}</strong>
+            </div>
+            <div v-if="lastSavedAt" class="save-tip compact">最近保存：{{ lastSavedAt }}</div>
+            <div class="mini-score-bar">
+              <div class="score-fill" :style="{ width: realtimeScore + '%' }"></div>
             </div>
           </div>
         </div>
@@ -667,6 +662,7 @@ body,
   grid-template-columns: minmax(500px, 1.56fr) minmax(460px, 1.26fr) minmax(104px, 0.18fr);
   gap: 14px;
   align-items: stretch;
+  max-height: 180px;
 }
 
 .capture-col {
@@ -674,6 +670,16 @@ body,
   flex-direction: column;
   gap: 14px;
   min-height: 100%;
+}
+
+.capture-top-row .left-col .control-panel {
+  height: 100%;
+}
+
+.capture-top-row .left-col .focus-preview {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .camera-grid {
@@ -713,6 +719,12 @@ body,
   height: 340px;
   border: 2px solid #dce6f8;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25), 0 0 18px rgba(220, 230, 248, 0.25);
+}
+
+.capture-top-row .left-col .preview-window.large {
+  flex: 1;
+  height: auto;
+  min-height: 520px;
 }
 
 .video-label {
@@ -834,16 +846,19 @@ body,
 
 .keypoint-card {
   grid-column: 1 / 2;
-  min-height: 188px;
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
 }
 
 .low-metrics-card {
   grid-column: 2 / 4;
-  min-height: 188px;
-}
-
-.low-metrics-card .metrics {
-  margin-top: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
+  display: grid;
+  grid-auto-rows: min-content;
+  gap: 6px;
 }
 
 .trajectory-card {
@@ -859,7 +874,7 @@ body,
 
 .confidence-list {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .confidence-item {
@@ -871,7 +886,7 @@ body,
 
 .k-name,
 .k-score {
-  font-size: 12px;
+  font-size: 11px;
   color: #9eb2d0;
 }
 
@@ -881,9 +896,36 @@ body,
 
 .k-bar {
   width: 100%;
-  height: 7px;
+  height: 6px;
   border-radius: 999px;
   background: #212b3b;
+  overflow: hidden;
+}
+
+.stat-row {
+  border: 1px solid #223047;
+  border-radius: 8px;
+  background: #111925;
+  padding: 5px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+  color: #9eb2d0;
+}
+
+.stat-row strong {
+  font-size: 14px;
+  color: #e7edf7;
+  font-weight: 700;
+}
+
+.mini-score-bar {
+  width: 100%;
+  height: 6px;
+  background: #1f2735;
+  border-radius: 999px;
   overflow: hidden;
 }
 
@@ -1112,6 +1154,10 @@ body,
   color: #8db2ef;
 }
 
+.save-tip.compact {
+  font-size: 11px;
+}
+
 .btn {
   border: 1px solid #2b3447;
   background: #141b27;
@@ -1242,6 +1288,10 @@ body,
   .capture-top-row,
   .capture-low-row {
     grid-template-columns: 1fr;
+  }
+
+  .capture-low-row {
+    max-height: none;
   }
 
   .keypoint-card {
