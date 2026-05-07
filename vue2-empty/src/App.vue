@@ -86,8 +86,8 @@
             </div>
           </div>
 
-          <div class="capture-col middle-col">
-            <div class="camera-grid">
+          <div class="capture-col middle-col" :class="{ expanded: trajectoryExpanded }">
+            <div v-show="!trajectoryExpanded" class="camera-grid">
               <div
                 v-for="cam in cameras"
                 :key="cam.id"
@@ -114,11 +114,11 @@
               </div>
             </div>
 
-            <div class="insight-card trajectory-card">
+            <div class="insight-card trajectory-card" :class="{ expanded: trajectoryExpanded }">
               <div class="insight-title">三维轨迹</div>
               <div class="trajectory-corner-controls">
-                <button class="tri-btn" type="button">▲</button>
-                <button class="tri-btn" type="button">▼</button>
+                <button class="tri-btn" type="button" @click="expandTrajectory">▲</button>
+                <button class="tri-btn" type="button" @click="collapseTrajectory">▼</button>
               </div>
               <div class="trajectory-view">
                 <img class="track-image" src="/track.png" alt="三维轨迹" />
@@ -267,6 +267,7 @@ export default {
       ],
       activePage: 'capture',
       sidebarVisible: true,
+      trajectoryExpanded: false,
       cameras: Array.from({ length: 12 }, (_, i) => ({ id: i + 1 })),
       selectedCamera: 1,
       isRecording: false,
@@ -404,6 +405,12 @@ export default {
       }
       this.isRecording = false
       this.isPaused = false
+    },
+    expandTrajectory() {
+      this.trajectoryExpanded = true
+    },
+    collapseTrajectory() {
+      this.trajectoryExpanded = false
     },
     tick() {
       this.durationSec += 1
@@ -863,6 +870,18 @@ body,
 .trajectory-card {
   min-height: 188px;
   position: relative;
+}
+
+.middle-col.expanded .trajectory-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.trajectory-card.expanded .trajectory-view {
+  flex: 1;
+  height: auto;
+  min-height: 520px;
 }
 
 .insight-title {
