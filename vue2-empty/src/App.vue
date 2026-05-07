@@ -138,7 +138,7 @@
               <span class="op-icon">▶</span>
               <span class="op-text">开始采集</span>
             </button>
-            <button class="op-btn" @click="pauseCapture">
+            <button class="op-btn pause" @click="pauseCapture">
               <span class="op-icon">⏸</span>
               <span class="op-text">暂停</span>
             </button>
@@ -793,7 +793,7 @@ body,
 }
 
 .op-icon {
-  font-size: 20px;
+  font-size: 28px;
   line-height: 1;
 }
 
