@@ -471,10 +471,14 @@ export default {
       var straightLen = Math.max(70, w * 0.22)
       var trackRadius = Math.max(38, h * 0.29)
 
-      // 背景
-      var bg = ctx.createLinearGradient(0, 0, 0, h)
-      bg.addColorStop(0, '#f4f8fb')
-      bg.addColorStop(1, '#eaf2f9')
+      // 背景：中心亮、四周渐隐入黑色
+      ctx.fillStyle = '#0b0f16'
+      ctx.fillRect(0, 0, w, h)
+      var bg = ctx.createRadialGradient(cx, cy, Math.min(w, h) * 0.12, cx, cy, Math.max(w, h) * 0.62)
+      bg.addColorStop(0, '#f6f9fc')
+      bg.addColorStop(0.55, '#edf4fa')
+      bg.addColorStop(0.78, 'rgba(177, 198, 221, 0.34)')
+      bg.addColorStop(1, 'rgba(11, 15, 22, 0.96)')
       ctx.fillStyle = bg
       ctx.fillRect(0, 0, w, h)
 
@@ -490,8 +494,8 @@ export default {
       }
 
       // 赛道层
-      drawOval(straightLen, trackRadius + 26, '#1c5b9e', 8)
-      drawOval(straightLen, trackRadius + 18, '#d2e4f6', 3)
+      drawOval(straightLen, trackRadius + 26, '#1c5b9e', 5)
+      drawOval(straightLen, trackRadius + 18, '#d2e4f6', 2)
       drawOval(straightLen, trackRadius + 6, '#a5c9f1', 1)
       drawOval(straightLen, trackRadius - 6, '#a5c9f1', 1)
       drawOval(straightLen, trackRadius - 28, '#f0433d', 1)
@@ -526,7 +530,7 @@ export default {
         points.push({ x: cx + straightLen + Math.cos(a) * r, y: cy + Math.sin(a) * r })
       }
 
-      ctx.lineWidth = Math.max(6, Math.min(12, h * 0.08))
+      ctx.lineWidth = Math.max(3.5, Math.min(6.5, h * 0.045))
       ctx.lineCap = 'round'
       ctx.lineJoin = 'round'
       var i = 1
@@ -541,17 +545,17 @@ export default {
       }
 
       // 标记点
-      ;[0.15, 0.3, 0.45, 0.65, 0.85, 0.95].forEach(function(t, idx) {
+      ;[0.72, 0.76, 0.8, 0.84, 0.88, 0.92].forEach(function(t, idx) {
         var p = points[Math.floor(t * (points.length - 1))]
         if (!p) return
         var hue = 240 * (1 - t)
         ctx.fillStyle = '#fff'
         ctx.beginPath()
-        ctx.arc(p.x, p.y, 8, 0, Math.PI * 2)
+        ctx.arc(p.x, p.y, 6.8, 0, Math.PI * 2)
         ctx.fill()
         ctx.fillStyle = 'hsl(' + hue + ', 100%, 45%)'
         ctx.beginPath()
-        ctx.arc(p.x, p.y, 6.2, 0, Math.PI * 2)
+        ctx.arc(p.x, p.y, 5.2, 0, Math.PI * 2)
         ctx.fill()
         ctx.fillStyle = '#fff'
         ctx.font = 'bold 9px Arial'
