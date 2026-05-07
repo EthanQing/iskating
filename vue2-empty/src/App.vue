@@ -64,6 +64,7 @@
         </div>
         <div class="topbar-right">
           <button class="btn ghost" @click="sidebarVisible = !sidebarVisible">
+            <span class="btn-icon">▤</span>
             {{ sidebarVisible ? '隐藏侧栏' : '显示侧栏' }}
           </button>
         </div>
@@ -665,11 +666,35 @@ body,
   padding: 18px 12px;
   overflow: hidden;
   transition: all 0.25s ease;
+  position: relative;
+}
+
+.sidebar::after {
+  content: "";
+  position: absolute;
+  right: -3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 86%;
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  background: linear-gradient(
+    to bottom,
+    rgba(170, 180, 195, 0.15) 0%,
+    rgba(230, 238, 248, 0.95) 50%,
+    rgba(170, 180, 195, 0.15) 100%
+  );
+  filter: drop-shadow(0 0 6px rgba(220, 230, 244, 0.35));
+  pointer-events: none;
 }
 
 .dark-app.sidebar-hidden .sidebar {
   padding: 0;
   border-right: none;
+}
+
+.dark-app.sidebar-hidden .sidebar::after {
+  opacity: 0;
 }
 
 .logo {
@@ -706,6 +731,26 @@ body,
   align-items: center;
   justify-content: space-between;
   margin-bottom: 22px;
+  position: relative;
+}
+
+.topbar::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -14px;
+  transform: translateX(-50%);
+  width: 98%;
+  height: 3px;
+  clip-path: polygon(0 50%, 6% 32%, 50% 0, 94% 32%, 100% 50%, 94% 68%, 50% 100%, 6% 68%);
+  background: linear-gradient(
+    to right,
+    rgba(170, 180, 195, 0.15) 0%,
+    rgba(230, 238, 248, 0.95) 50%,
+    rgba(170, 180, 195, 0.15) 100%
+  );
+  filter: drop-shadow(0 0 6px rgba(220, 230, 244, 0.35));
+  pointer-events: none;
 }
 
 .brand-block {
@@ -1400,6 +1445,14 @@ body,
   padding: 8px 10px;
   border-radius: 8px;
   cursor: pointer;
+}
+
+.btn-icon {
+  display: inline-block;
+  margin-right: 6px;
+  color: #9fb6d8;
+  font-size: 12px;
+  vertical-align: middle;
 }
 
 .btn.primary {
