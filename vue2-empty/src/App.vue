@@ -112,6 +112,7 @@
               <div class="trajectory-view">
                 <canvas ref="trajectoryCanvas" class="track-canvas"></canvas>
               </div>
+              <LegendComponent v-if="trajectoryExpanded" class="trajectory-legend" />
             </div>
           </div>
 
@@ -244,8 +245,13 @@
 </template>
 
 <script>
+import LegendComponent from './LegendComponent.vue'
+
 export default {
   name: 'App',
+  components: {
+    LegendComponent
+  },
   data() {
     return {
       navItems: [
@@ -1063,7 +1069,11 @@ body,
 .trajectory-card.expanded .trajectory-view {
   flex: 1;
   height: auto;
-  min-height: 520px;
+  min-height: 430px;
+}
+
+.trajectory-legend {
+  margin-top: 10px;
 }
 
 .insight-title {
