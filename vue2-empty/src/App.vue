@@ -121,7 +121,7 @@
                 <button class="tri-btn" type="button" @click="collapseTrajectory">▼</button>
               </div>
               <div class="trajectory-view">
-                <img class="track-image" src="/track-main.png" alt="三维轨迹" />
+                <canvas ref="trajectoryCanvas" class="track-canvas"></canvas>
               </div>
             </div>
           </div>
@@ -276,6 +276,7 @@ export default {
       actionCount: 0,
       realtimeScore: 90,
       feedbackText: '动作标准',
+      resizeTimer: null,
       timer: null,
       showSettings: false,
       settings: {
@@ -366,6 +367,28 @@ export default {
       return list
     }
   },
+  watch: {
+    activePage(value) {
+      if (value !== 'capture') return
+      var self = this
+      this.$nextTick(function() {
+        self.drawTrajectoryCanvas()
+      })
+    },
+    trajectoryExpanded() {
+      var self = this
+      this.$nextTick(function() {
+        self.drawTrajectoryCanvas()
+      })
+    }
+  },
+  mounted() {
+    var self = this
+    this.$nextTick(function() {
+      self.drawTrajectoryCanvas()
+    })
+    window.addEventListener('resize', this.onResize)
+  },
   methods: {
     pad(num) {
       return String(num).padStart(2, '0')
@@ -408,9 +431,173 @@ export default {
     },
     expandTrajectory() {
       this.trajectoryExpanded = true
+      var self = this
+      this.$nextTick(function() {
+        self.drawTrajectoryCanvas()
+      })
     },
     collapseTrajectory() {
       this.trajectoryExpanded = false
+      var self = this
+      this.$nextTick(function() {
+        self.drawTrajectoryCanvas()
+      })
+    },
+    onResize() {
+      var self = this
+      if (this.resizeTimer) clearTimeout(this.resizeTimer)
+      this.resizeTimer = setTimeout(function() {
+        self.drawTrajectoryCanvas()
+      }, 80)
+    },
+    drawTrajectoryCanvas() {
+      var canvas = this.$refs.trajectoryCanvas
+      if (!canvas) return
+      var ctx = canvas.getContext('2d')
+      if (!ctx) return
+
+      var w = canvas.clientWidth
+      var h = canvas.clientHeight
+      if (!w || !h) return
+      var dpr = window.devicePixelRatio || 1
+      canvas.width = Math.round(w * dpr)
+      canvas.height = Math.round(h * dpr)
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.clearRect(0, 0, w, h)
+
+      // 尺寸参数（参考 public/track.htm 的赛道结构）
+      var cx = w / 2
+      var cy = h / 2
+      var straightLen = Math.max(70, w * 0.22)
+      var trackRadius = Math.max(38, h * 0.29)
+
+      // 背景
+      var bg = ctx.createLinearGradient(0, 0, 0, h)
+      bg.addColorStop(0, '#f4f8fb')
+      bg.addColorStop(1, '#eaf2f9')
+      ctx.fillStyle = bg
+      ctx.fillRect(0, 0, w, h)
+
+      function drawOval(halfWidth, radius, color, lineWidth) {
+        ctx.beginPath()
+        ctx.arc(cx + halfWidth, cy, radius, -Math.PI / 2, Math.PI / 2)
+        ctx.lineTo(cx - halfWidth, cy + radius)
+        ctx.arc(cx - halfWidth, cy, radius, Math.PI / 2, -Math.PI / 2)
+        ctx.closePath()
+        ctx.strokeStyle = color
+        ctx.lineWidth = lineWidth
+        ctx.stroke()
+      }
+
+      // 赛道层
+      drawOval(straightLen, trackRadius + 26, '#1c5b9e', 8)
+      drawOval(straightLen, trackRadius + 18, '#d2e4f6', 3)
+      drawOval(straightLen, trackRadius + 6, '#a5c9f1', 1)
+      drawOval(straightLen, trackRadius - 6, '#a5c9f1', 1)
+      drawOval(straightLen, trackRadius - 28, '#f0433d', 1)
+
+      // 辅助虚线 + 刻度点
+      ctx.strokeStyle = '#a5c9f1'
+      ctx.lineWidth = 1
+      ctx.setLineDash([4, 4])
+      ;[-straightLen, 0, straightLen].forEach(function(x) {
+        ctx.beginPath()
+        ctx.moveTo(cx + x, cy - trackRadius - 26)
+        ctx.lineTo(cx + x, cy + trackRadius + 26)
+        ctx.stroke()
+        ctx.fillStyle = '#f0433d'
+        ctx.beginPath()
+        ctx.arc(cx + x, cy, 2.2, 0, Math.PI * 2)
+        ctx.fill()
+      })
+      ctx.setLineDash([])
+
+      // 渐变轨迹
+      var r = trackRadius - 10
+      var points = []
+      var x = 0
+      for (x = straightLen - 8; x >= -straightLen; x -= 1.8) points.push({ x: cx + x, y: cy + r })
+      var a = 0
+      for (a = Math.PI / 2; a <= Math.PI * 1.5; a += 0.03) {
+        points.push({ x: cx - straightLen + Math.cos(a) * r, y: cy + Math.sin(a) * r })
+      }
+      for (x = -straightLen; x <= straightLen; x += 1.8) points.push({ x: cx + x, y: cy - r })
+      for (a = -Math.PI / 2; a <= Math.PI * 0.1; a += 0.03) {
+        points.push({ x: cx + straightLen + Math.cos(a) * r, y: cy + Math.sin(a) * r })
+      }
+
+      ctx.lineWidth = Math.max(6, Math.min(12, h * 0.08))
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+      var i = 1
+      for (i = 1; i < points.length; i++) {
+        var t = i / points.length
+        var hue = 240 * (1 - t)
+        ctx.strokeStyle = 'hsl(' + hue + ', 100%, 50%)'
+        ctx.beginPath()
+        ctx.moveTo(points[i - 1].x, points[i - 1].y)
+        ctx.lineTo(points[i].x, points[i].y)
+        ctx.stroke()
+      }
+
+      // 标记点
+      ;[0.15, 0.3, 0.45, 0.65, 0.85, 0.95].forEach(function(t, idx) {
+        var p = points[Math.floor(t * (points.length - 1))]
+        if (!p) return
+        var hue = 240 * (1 - t)
+        ctx.fillStyle = '#fff'
+        ctx.beginPath()
+        ctx.arc(p.x, p.y, 8, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.fillStyle = 'hsl(' + hue + ', 100%, 45%)'
+        ctx.beginPath()
+        ctx.arc(p.x, p.y, 6.2, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.fillStyle = '#fff'
+        ctx.font = 'bold 9px Arial'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(String(idx + 1), p.x, p.y + 0.5)
+      })
+
+      // 标签
+      function drawTag(px, py, text, color, ox, oy) {
+        ctx.fillStyle = color
+        ctx.beginPath()
+        ctx.arc(px, py, 5, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.strokeStyle = '#fff'
+        ctx.lineWidth = 1.5
+        ctx.stroke()
+
+        ctx.strokeStyle = color
+        ctx.beginPath()
+        ctx.moveTo(px, py + 6)
+        ctx.lineTo(px + ox, py + oy)
+        ctx.stroke()
+
+        var bw = 34
+        var bh = 18
+        var bx = px + ox - bw / 2
+        var by = py + oy
+        ctx.fillStyle = color
+        if (ctx.roundRect) {
+          ctx.beginPath()
+          ctx.roundRect(bx, by, bw, bh, 4)
+          ctx.fill()
+        } else {
+          ctx.fillRect(bx, by, bw, bh)
+        }
+        ctx.fillStyle = '#fff'
+        ctx.font = 'bold 11px "Microsoft YaHei"'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(text, bx + bw / 2, by + bh / 2 + 0.5)
+      }
+
+      drawTag(cx + straightLen - 8, cy + r, '起点', '#0145db', 0, 12)
+      var endA = Math.PI * 0.1
+      drawTag(cx + straightLen + Math.cos(endA) * r, cy + Math.sin(endA) * r, '终点', '#d31000', 18, 2)
     },
     tick() {
       this.durationSec += 1
@@ -447,6 +634,8 @@ export default {
     }
   },
   beforeDestroy() {
+    window.removeEventListener('resize', this.onResize)
+    if (this.resizeTimer) clearTimeout(this.resizeTimer)
     if (this.timer) clearInterval(this.timer)
   }
 }
@@ -967,11 +1156,9 @@ body,
   overflow: hidden;
 }
 
-.track-image {
+.track-canvas {
   width: 100%;
   height: 100%;
-  object-fit: contain;
-  object-position: center;
   display: block;
 }
 

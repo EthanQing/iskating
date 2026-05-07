@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>速滑赛道轨迹绘制</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f4f8; /* 背景色尽量贴近原图 */
+        }
+        canvas {
+            background-color: #f4f8fb;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            border-radius: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="trackCanvas" width="900" height="600"></canvas>
+
+<script>
+    const canvas = document.getElementById('trackCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // 处理高清屏模糊问题
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+
+    // 全局参数设置
+    const centerX = 450;
+    const centerY = 300;
+    const straightLen = 220; // 直道一半的长度
+    const trackRadius = 160; // 赛道基础半径
+    
+    // 绘图初始化，将坐标系原点移到中心
+    ctx.translate(centerX, centerY);
+
+    // 1. 绘制基础赛道背景
+    function drawBackground() {
+        // 最外层深蓝边框
+        drawOval(straightLen, trackRadius + 60, '#1c5b9e', 15);
+        // 外层浅蓝
+        drawOval(straightLen, trackRadius + 50, '#d2e4f6', 4);
+        drawOval(straightLen, trackRadius + 30, '#a5c9f1', 1);
+        drawOval(straightLen, trackRadius + 10, '#a5c9f1', 1);
+        
+        // 内侧红圈 (热身道)
+        drawOval(straightLen, trackRadius - 40, '#f0433d', 1);
+
+        // 绘制辅助线和红点
+        ctx.strokeStyle = '#a5c9f1';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 5]);
+        
+        // 垂直线段
+        const xPositions = [-straightLen, 0, straightLen];
+        xPositions.forEach(x => {
+            ctx.beginPath();
+            ctx.moveTo(x, -trackRadius - 40);
+            ctx.lineTo(x, trackRadius + 40);
+            ctx.stroke();
+            
+            // 中心红点
+            ctx.fillStyle = '#f0433d';
+            ctx.beginPath();
+            ctx.arc(x, 0, 3, 0, Math.PI * 2);
+            ctx.fill();
+        });
+        
+        // 恢复实线
+        ctx.setLineDash([]);
+        
+        // 绘制刻度文字
+        ctx.fillStyle = '#0052cc';
+        ctx.font = '14px Arial';
+        ctx.textAlign = 'center';
+        const labels =[
+            { text: '0m', x: -straightLen },
+            { text: '50m', x: -straightLen / 2 },
+            { text: '100m', x: 0 },
+            { text: '150m', x: straightLen / 2 },
+            { text: '200m', x: straightLen }
+        ];
+        labels.forEach(lb => {
+            ctx.fillText(lb.text, lb.x, -trackRadius - 50); // 上部刻度
+            ctx.fillText(lb.text, -lb.x, trackRadius + 65); // 下部刻度 (反向)
+        });
+    }
+
+    // 绘制椭圆跑道的通用方法
+    function drawOval(halfWidth, radius, color, lineWidth) {
+        ctx.beginPath();
+        ctx.arc(halfWidth, 0, radius, -Math.PI / 2, Math.PI / 2);
+        ctx.lineTo(-halfWidth, radius);
+        ctx.arc(-halfWidth, 0, radius, Math.PI / 2, -Math.PI / 2);
+        ctx.closePath();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lineWidth;
+        ctx.stroke();
+    }
+
+    // 2. 绘制渐变轨迹
+    function drawTrajectory() {
+        const pathRadius = trackRadius - 10;
+        const points =[];
+        
+        // 构建轨迹点集 (倒序：从起点右下角 -> 左下角 -> 左上角 -> 右上角 -> 右下角)
+        // 底部直道
+        for(let x = straightLen - 20; x >= -straightLen; x -= 2) points.push({x, y: pathRadius});
+        // 左侧弯道
+        for(let a = Math.PI/2; a <= Math.PI*1.5; a += 0.02) points.push({x: -straightLen + Math.cos(a)*pathRadius, y: Math.sin(a)*pathRadius});
+        // 顶部直道
+        for(let x = -straightLen; x <= straightLen; x += 2) points.push({x, y: -pathRadius});
+        // 右侧弯道 (结束于红点)
+        for(let a = -Math.PI/2; a <= Math.PI*0.1; a += 0.02) points.push({x: straightLen + Math.cos(a)*pathRadius, y: Math.sin(a)*pathRadius});
+
+        // 绘制渐变线条 (通过 HSL 色相变化实现)
+        ctx.lineWidth = 12;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        for(let i = 1; i < points.length; i++) {
+            const t = i / points.length;
+            // Hue 从 240(蓝) 渐变到 0(红)
+            const hue = 240 * (1 - t); 
+            ctx.strokeStyle = `hsl(${hue}, 100%, 50%)`;
+            
+            ctx.beginPath();
+            ctx.moveTo(points[i-1].x, points[i-1].y);
+            ctx.lineTo(points[i].x, points[i].y);
+            ctx.stroke();
+        }
+
+        // 添加箭头、数字圆圈和装饰点
+        addDecorations(points);
+    }
+
+    // 3. 绘制路径上的装饰物（箭头、数字标记）
+    function addDecorations(points) {
+        const total = points.length;
+        
+        // 要放置元素的进度百分比位置 (0~1)
+        const markerPositions =[0.15, 0.3, 0.45, 0.65, 0.85, 0.95];
+        const arrowPositions =[0.08, 0.23, 0.55, 0.75, 0.98];
+
+        // 绘制带数字的标记
+        markerPositions.forEach((t, index) => {
+            const pt = points[Math.floor(t * (total - 1))];
+            const hue = 240 * (1 - t);
+            
+            // 外圈白边
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(pt.x, pt.y, 10, 0, Math.PI*2);
+            ctx.fill();
+            
+            // 内圈颜色
+            ctx.fillStyle = `hsl(${hue}, 100%, 45%)`;
+            ctx.beginPath();
+            ctx.arc(pt.x, pt.y, 8, 0, Math.PI*2);
+            ctx.fill();
+
+            // 数字
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 10px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(index + 1, pt.x, pt.y + 1);
+        });
+
+        // 绘制白色箭头
+        arrowPositions.forEach(t => {
+            const idx = Math.floor(t * (total - 1));
+            const p1 = points[idx - 2];
+            const p2 = points[idx];
+            if(!p1 || !p2) return;
+
+            const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+            
+            ctx.save();
+            ctx.translate(p2.x, p2.y);
+            ctx.rotate(angle);
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.moveTo(-5, -6);
+            ctx.lineTo(8, 0);
+            ctx.lineTo(-5, 6);
+            ctx.lineTo(-2, 0);
+            ctx.fill();
+            ctx.restore();
+        });
+    }
+
+    // 4. 绘制起点和终点标签
+    function drawLabels() {
+        const pathRadius = trackRadius - 10;
+        
+        // 起点 (蓝)
+        const startX = straightLen - 20;
+        const startY = pathRadius;
+        drawLabelBox(startX, startY, '起点', '#0145db', 30);
+
+        // 终点 (红)
+        // 找到大致结束的角度
+        const endAngle = Math.PI * 0.1;
+        const endX = straightLen + Math.cos(endAngle) * pathRadius;
+        const endY = Math.sin(endAngle) * pathRadius;
+        drawLabelBox(endX, endY, '终点', '#d31000', 30, true);
+    }
+
+    function drawLabelBox(x, y, text, color, offsetY, isCurve = false) {
+        // 画连接点
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, 6, 0, Math.PI*2);
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        const boxWidth = 50;
+        const boxHeight = 24;
+        const boxX = x - boxWidth / 2 + (isCurve ? 30 : 0);
+        const boxY = y + offsetY - (isCurve ? 10 : 0);
+
+        // 画连接线
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x, y + 8);
+        if(isCurve) {
+            ctx.bezierCurveTo(x + 10, y + 20, boxX + boxWidth/2, boxY - 10, boxX + boxWidth/2, boxY);
+        } else {
+            ctx.lineTo(x, boxY);
+        }
+        ctx.stroke();
+
+        // 画带圆角的矩形
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 4);
+        ctx.fill();
+
+        // 写字
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 14px "Microsoft YaHei"';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, boxX + boxWidth / 2, boxY + boxHeight / 2 + 1);
+    }
+
+    // 执行绘制
+    drawBackground();
+    drawTrajectory();
+    drawLabels();
+
+</script>
+</body>
+</html>
