@@ -53,6 +53,14 @@
               <div class="session-subtitle status-ok">已就绪（v2.3.1）</div>
             </div>
           </div>
+          <div class="brand-divider"></div>
+          <div class="session-module">
+            <div class="session-logo storage-logo">DB</div>
+            <div class="session-info">
+              <div class="session-title">存储Storage</div>
+              <div class="session-subtitle">1.82T/4.00TB</div>
+            </div>
+          </div>
         </div>
         <div class="topbar-right">
           <button class="btn ghost" @click="sidebarVisible = !sidebarVisible">
@@ -542,6 +550,15 @@ body,
   background: #122845;
 }
 
+.storage-logo {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  color: #d7ecff;
+  border-color: #6b97c7;
+  background: #16253a;
+}
+
 .session-title {
   font-size: 12px;
   color: #9dc3f5;
@@ -589,7 +606,7 @@ body,
 
 .capture-page {
   display: grid;
-  grid-template-columns: minmax(480px, 1.45fr) minmax(460px, 1.25fr) minmax(130px, 0.3fr);
+  grid-template-columns: minmax(500px, 1.56fr) minmax(460px, 1.26fr) minmax(104px, 0.18fr);
   gap: 14px;
 }
 
@@ -736,9 +753,10 @@ body,
 }
 
 .ops-column {
-  display: grid;
-  align-content: start;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
+  height: 100%;
 }
 
 .ops-card {
@@ -747,13 +765,15 @@ body,
   background: #0f141d;
   border-radius: 12px;
   padding: 12px 10px;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
+  flex: 1;
 }
 
 .op-btn {
   width: 100%;
-  min-height: 78px;
+  min-height: 72px;
   border: 1px solid #324258;
   background: #121a27;
   color: #d7e4fb;
@@ -764,6 +784,7 @@ body,
   justify-content: center;
   flex-direction: column;
   gap: 6px;
+  flex: 1;
 }
 
 .op-btn.start {
