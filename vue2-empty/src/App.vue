@@ -64,27 +64,18 @@
       <section v-if="activePage === 'capture'" class="capture-page">
         <div class="control-panel">
           <div class="focus-preview">
-            <div class="main-view-title">主视图视频</div>
-            <div class="focus-title">当前来源：CAM {{ pad(selectedCamera) }}</div>
+            <div class="focus-headline">
+              <div class="main-view-title">主视图视频</div>
+              <div class="focus-title">当前来源：CAM {{ pad(selectedCamera) }}</div>
+            </div>
             <div class="preview-window large">
               <div class="video-label">主视图预览</div>
-              <div class="skeleton-overlay">
-                <span class="joint head"></span>
-                <span class="joint shoulder-l"></span>
-                <span class="joint shoulder-r"></span>
-                <span class="joint hip-l"></span>
-                <span class="joint hip-r"></span>
-                <span class="joint knee-l"></span>
-                <span class="joint knee-r"></span>
-                <span class="bone torso"></span>
-                <span class="bone left-leg"></span>
-                <span class="bone right-leg"></span>
-              </div>
+              <img class="main-preview-image" src="/skating.png" alt="主视图预览" />
             </div>
           </div>
 
           <div class="metrics">
-            <div class="metric">
+            <div class="metric action-metric">
               <div class="label">动作计数</div>
               <div class="value">{{ actionCount }}</div>
             </div>
@@ -598,7 +589,7 @@ body,
 
 .capture-page {
   display: grid;
-  grid-template-columns: minmax(340px, 1fr) minmax(560px, 1.8fr) minmax(150px, 0.45fr);
+  grid-template-columns: minmax(480px, 1.45fr) minmax(460px, 1.25fr) minmax(130px, 0.3fr);
   gap: 14px;
 }
 
@@ -636,7 +627,7 @@ body,
 }
 
 .preview-window.large {
-  height: 220px;
+  height: 340px;
   border: 2px solid #dce6f8;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25), 0 0 18px rgba(220, 230, 248, 0.25);
 }
@@ -647,6 +638,14 @@ body,
   top: 8px;
   font-size: 12px;
   color: #90a1bb;
+  z-index: 2;
+}
+
+.main-preview-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .skeleton-overlay {
@@ -733,7 +732,7 @@ body,
 
 .control-panel {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .ops-column {
@@ -799,6 +798,14 @@ body,
 .focus-title {
   font-size: 13px;
   color: #9bb0cf;
+  margin-bottom: 0;
+}
+
+.focus-headline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   margin-bottom: 10px;
 }
 
@@ -811,12 +818,20 @@ body,
   border-left: 3px solid #3b8dff;
   border-radius: 8px;
   background: #111d31;
-  margin-bottom: 10px;
+  margin-bottom: 0;
 }
 
 .metrics {
   display: grid;
-  gap: 10px;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.metric {
+  border: 1px solid #223047;
+  border-radius: 9px;
+  background: #111925;
+  padding: 6px 10px;
 }
 
 .metric .label {
@@ -825,8 +840,17 @@ body,
 }
 
 .metric .value {
-  font-size: 28px;
+  font-size: 20px;
   font-weight: 700;
+}
+
+.metric.action-metric {
+  padding: 6px 10px;
+}
+
+.metric.action-metric .value {
+  font-size: 20px;
+  line-height: 1.1;
 }
 
 .score-line {
