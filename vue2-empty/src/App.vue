@@ -116,13 +116,12 @@
 
             <div class="insight-card trajectory-card">
               <div class="insight-title">三维轨迹</div>
+              <div class="trajectory-corner-controls">
+                <button class="tri-btn" type="button">▲</button>
+                <button class="tri-btn" type="button">▼</button>
+              </div>
               <div class="trajectory-view">
-                <span class="axis x"></span>
-                <span class="axis y"></span>
-                <span class="axis z"></span>
-                <span class="track-line t1"></span>
-                <span class="track-line t2"></span>
-                <span class="track-line t3"></span>
+                <img class="track-image" src="/track.png" alt="三维轨迹" />
               </div>
             </div>
           </div>
@@ -863,6 +862,7 @@ body,
 
 .trajectory-card {
   min-height: 188px;
+  position: relative;
 }
 
 .insight-title {
@@ -946,6 +946,35 @@ body,
     #101724;
   background-size: 24px 24px, 24px 24px, auto;
   overflow: hidden;
+}
+
+.track-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.trajectory-corner-controls {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+  z-index: 3;
+}
+
+.tri-btn {
+  width: 26px;
+  height: 22px;
+  border: 1px solid #4b6f9f;
+  background: rgba(15, 24, 37, 0.85);
+  color: #d8e8ff;
+  border-radius: 6px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
 }
 
 .axis,
