@@ -1,0 +1,10 @@
+<RCC>
+    <qresource prefix="/public">
+        <file alias="skating.png">vue2-empty/public/skating.png</file>
+        <file alias="pose-a.png">vue2-empty/public/pose-a.png</file>
+        <file alias="pose-b.png">vue2-empty/public/pose-b.png</file>
+    </qresource>
+    <qresource prefix="/styles">
+        <file alias="iskating.qss">styles/iskating.qss</file>
+    </qresource>
+</RCC>

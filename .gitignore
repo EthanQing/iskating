@@ -1,0 +1,106 @@
+# iSkating repository ignore rules
+# 默认忽略所有文件；下面只放行源码、工程配置和前端关键文件。
+
+*
+!*/
+
+# ---- keep source / config files ----
+!.gitignore
+!*.c
+!*.cc
+!*.cpp
+!*.cxx
+!*.h
+!*.hh
+!*.hpp
+!*.hxx
+!*.pro
+!*.pri
+!*.ui
+!*.qrc
+!*.qss
+!*.vue
+!*.js
+!*.json
+!*.html
+!*.css
+!*.md
+
+# ---- keep required static assets referenced by qrc / Vue ----
+!*.png
+!*.jpg
+!*.jpeg
+!*.svg
+!*.ico
+
+# ---- Visual Studio / generated project files ----
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.*
+*.vcproj
+*.vcproj.*
+*.user
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.VC.opendb
+*.ipch
+
+# ---- Qt / qmake generated files ----
+.qmake.stash
+Makefile
+Makefile.*
+*.Debug
+*.Release
+moc/
+rcc/
+ui/
+obj/
+
+# ---- build output directories ----
+debug/
+release/
+x64/
+build/
+bin/
+dist/
+out/
+
+# ---- compiled / binary / debug artifacts ----
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.exe
+*.exp
+*.ilk
+*.pdb
+*.idb
+*.res
+*.rcc
+*.moc
+*.pch
+*.manifest
+
+# ---- Node / frontend generated files ----
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.cache/
+coverage/
+
+# ---- OS / editor temporary files ----
+.agents/
+.codex/
+.DS_Store
+Thumbs.db
+*.tmp
+*.temp
+*.bak
+*.swp
+*~

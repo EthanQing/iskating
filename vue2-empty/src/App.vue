@@ -81,7 +81,7 @@
                 </div>
                 <div class="preview-window large">
                   <div class="video-label">主视图预览</div>
-                  <img class="main-preview-image" src="/skating.png" alt="主视图预览" />
+                  <video class="cam-video main-preview-video" src="/main-stream.mp4" autoplay muted loop playsinline></video>
                 </div>
               </div>
             </div>
@@ -168,10 +168,10 @@
             <div class="insight-title">运动员3D姿态</div>
             <div class="pose-grid">
               <div class="pose-item">
-                <img src="/pose-a.png" alt="运动员A的3D姿态" />
+                <video class="pose-video" src="/ske1.mp4" autoplay muted loop playsinline></video>
               </div>
               <div class="pose-item">
-                <img src="/pose-b.png" alt="运动员B的3D姿态" />
+                <video class="pose-video" src="/ske2.mp4" autoplay muted loop playsinline></video>
               </div>
             </div>
           </div>
@@ -975,7 +975,8 @@ body,
   display: block;
 }
 
-.main-preview-image {
+.main-preview-image,
+.main-preview-video {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -1151,7 +1152,7 @@ body,
     );
 }
 
-.pose-item img {
+.pose-video {
   width: 100%;
   height: 100%;
   object-fit: contain;

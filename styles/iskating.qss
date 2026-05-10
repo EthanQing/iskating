@@ -1,0 +1,487 @@
+/* iSkating Coach - Qt stylesheet
+   Visual language follows vue2-empty/src/App.vue: dark dashboard,
+   blue cards, glowing preview borders, compact operation buttons. */
+
+QMainWindow,
+#centralWidget,
+#scrollAreaWidgetContents,
+QStackedWidget,
+#capturePage,
+#historyPage,
+#suggestionPage {
+    background: #0b0d11;
+    color: #e7edf7;
+    font-family: "Microsoft YaHei", "PingFang SC", "Inter", sans-serif;
+}
+
+QLabel {
+    color: #e7edf7;
+    background: transparent;
+}
+
+/* Sidebar */
+#sidebar {
+    background: #090b0f;
+    border-right: 1px solid #1b2230;
+}
+
+#logoLabel {
+    color: #eaf2ff;
+    font-size: 18px;
+    font-weight: 700;
+    padding-bottom: 8px;
+}
+
+#navCaptureButton,
+#navHistoryButton,
+#navSuggestionButton,
+QPushButton[role="nav"] {
+    min-height: 40px;
+    border: 1px solid #1c2534;
+    background: #101623;
+    color: #cdd8ea;
+    border-radius: 10px;
+    padding: 10px 12px;
+    text-align: left;
+}
+
+#navCaptureButton:hover,
+#navHistoryButton:hover,
+#navSuggestionButton:hover,
+QPushButton[role="nav"]:hover {
+    border-color: #31578f;
+    background: #132033;
+    color: #ffffff;
+}
+
+QPushButton[role="nav"][active="true"],
+QPushButton[role="nav"]:checked {
+    background: #15335c;
+    border-color: #2c78e6;
+    color: #ffffff;
+}
+
+/* Top status bar */
+#brandLogoLabel {
+    min-width: 40px;
+    min-height: 40px;
+    max-width: 40px;
+    max-height: 40px;
+    border-radius: 10px;
+    border: 1px solid #3d6ba8;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                stop:0 #213c64, stop:1 #0f1d33);
+    color: #dfeeff;
+    font-size: 22px;
+    font-weight: 700;
+}
+
+#brandTitleLabel {
+    color: #eaf2ff;
+    font-size: 20px;
+    font-weight: 700;
+}
+
+#brandSubtitleLabel,
+#focusTitleLabel,
+#mainVideoTitleLabel,
+#legendContentLabel,
+#suggestionSubtitleLabel,
+#saveTipLabel,
+#precisionLabel,
+#fpsLabel,
+#actionLabel,
+#durationLabel,
+#scoreLabel,
+QLabel[role="muted"] {
+    color: #9eb2d0;
+    font-size: 12px;
+}
+
+#divider1,
+#divider2,
+#divider3,
+#divider4,
+#divider5 {
+    background: rgba(127, 182, 255, 0.40);
+    border: none;
+}
+
+#sessionRoundLabel,
+#sessionTimeLabel,
+#systemStatusLabel,
+#modelStatusLabel,
+#storageStatusLabel {
+    color: #e8f2ff;
+    font-size: 13px;
+}
+
+#systemStatusLabel {
+    color: #63e28b;
+}
+
+#toggleSidebarButton,
+QPushButton[role="plain"] {
+    border: 1px solid #2b3447;
+    background: #111823;
+    color: #d7e4fb;
+    border-radius: 8px;
+    padding: 8px 10px;
+}
+
+#toggleSidebarButton:hover,
+QPushButton[role="plain"]:hover {
+    border-color: #456b9e;
+    background: #152236;
+}
+
+/* Cards */
+#leftCard,
+#trajectoryCard,
+#legendFrame,
+#poseCard,
+#metricsCard,
+#summarySessionsCard,
+#summaryActionsCard,
+#summaryAvgCard,
+#summaryBestCard,
+QFrame[card="true"] {
+    border: 1px solid #1d2737;
+    background: #0f141d;
+    border-radius: 12px;
+}
+
+#mainViewTitleLabel,
+#trajectoryTitleLabel,
+#poseTitleLabel,
+#metricsTitleLabel,
+#legendTitleLabel,
+#suggestionTitleLabel,
+QLabel[role="sectionTitle"] {
+    color: #eaf2ff;
+    font-size: 15px;
+    font-weight: 700;
+    padding: 6px 12px;
+    border-left: 3px solid #3b8dff;
+    border-radius: 8px;
+    background: #111d31;
+}
+
+/* Video / trajectory panels */
+#mainVideoPanel,
+QFrame[videoPanel="true"] {
+    border: 2px solid #dce6f8;
+    border-radius: 8px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                stop:0 #1a202c, stop:1 #0e131b);
+}
+
+#mainVideoPanel[large="true"] {
+    border: 2px solid #dce6f8;
+}
+
+#mainImageLabel,
+#poseImageLabelA,
+#poseImageLabelB {
+    border-radius: 8px;
+    background: qradialgradient(cx:0.5, cy:0.5, radius:0.72,
+                                stop:0 #f6f9fc,
+                                stop:0.76 #f3f8fc,
+                                stop:0.92 rgba(229,238,247,184),
+                                stop:1 rgba(171,190,211,42));
+}
+
+#trajectoryViewFrame,
+QFrame[trajectoryView="true"] {
+    border: 1px solid #26334a;
+    border-radius: 10px;
+    background: #101724;
+}
+
+#legendFrame {
+    margin-top: 10px;
+}
+
+/* Camera grid */
+#cameraGridWidget {
+    background: transparent;
+}
+
+#cameraButton01,
+#cameraButton02,
+#cameraButton03,
+#cameraButton04,
+#cameraButton05,
+#cameraButton06,
+#cameraButton07,
+#cameraButton08,
+#cameraButton09,
+#cameraButton10,
+#cameraButton11,
+#cameraButton12,
+QPushButton[role="camera"] {
+    border: 1px solid #202a3a;
+    background: #0f141d;
+    color: #cdd8ea;
+    border-radius: 10px;
+    padding: 8px;
+    text-align: left;
+    min-height: 72px;
+}
+
+#cameraButton01:hover,
+#cameraButton02:hover,
+#cameraButton03:hover,
+#cameraButton04:hover,
+#cameraButton05:hover,
+#cameraButton06:hover,
+#cameraButton07:hover,
+#cameraButton08:hover,
+#cameraButton09:hover,
+#cameraButton10:hover,
+#cameraButton11:hover,
+#cameraButton12:hover,
+QPushButton[role="camera"]:hover {
+    border-color: #31578f;
+    background: #121b29;
+}
+
+QPushButton[role="camera"][selected="true"],
+QPushButton[role="camera"]:checked {
+    border-color: #2f7ff5;
+    background: #10203a;
+    color: #ffffff;
+}
+
+/* Operation column */
+#opsCard,
+QFrame[brightCard="true"] {
+    border: 2px solid #dce6f8;
+    border-radius: 12px;
+    background: #0f141d;
+}
+
+#startCaptureButton,
+#pauseCaptureButton,
+#stopCaptureButton,
+#saveRecordButton,
+#settingsButton,
+QPushButton[role="op"] {
+    min-height: 72px;
+    border: 1px solid #324258;
+    background: #121a27;
+    color: #d7e4fb;
+    border-radius: 10px;
+    padding: 8px 10px;
+}
+
+#startCaptureButton,
+QPushButton[variant="start"] {
+    border-color: #4a84d3;
+    background: #173764;
+    color: #ffffff;
+}
+
+#startCaptureButton:hover,
+#pauseCaptureButton:hover,
+#stopCaptureButton:hover,
+#saveRecordButton:hover,
+#settingsButton:hover,
+QPushButton[role="op"]:hover {
+    border-color: #5f8fc7;
+    background: #172439;
+}
+
+#startCaptureButton:pressed,
+#pauseCaptureButton:pressed,
+#stopCaptureButton:pressed,
+#saveRecordButton:pressed,
+#settingsButton:pressed,
+QPushButton[role="op"]:pressed {
+    background: #0d1420;
+}
+
+#expandTrajectoryButton,
+#collapseTrajectoryButton,
+QPushButton[role="tri"] {
+    min-width: 26px;
+    min-height: 22px;
+    border: 1px solid #4b6f9f;
+    background: rgba(15, 24, 37, 216);
+    color: #d8e8ff;
+    border-radius: 6px;
+    padding: 0;
+}
+
+#expandTrajectoryButton:hover,
+#collapseTrajectoryButton:hover,
+QPushButton[role="tri"]:hover {
+    background: #15335c;
+    border-color: #6ea3e6;
+}
+
+/* Metrics and forms */
+#settingsBox {
+    border: 1px solid #243149;
+    background: #121927;
+    border-radius: 10px;
+}
+
+QComboBox {
+    background: #0f1520;
+    color: #e7edf7;
+    border: 1px solid #2b3447;
+    border-radius: 6px;
+    padding: 6px 28px 6px 8px;
+    selection-background-color: #15335c;
+}
+
+QComboBox:hover {
+    border-color: #456b9e;
+}
+
+QComboBox::drop-down {
+    width: 24px;
+    border: none;
+    background: transparent;
+}
+
+QComboBox::down-arrow {
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 6px solid #9eb2d0;
+}
+
+QComboBox QAbstractItemView {
+    background: #0f1520;
+    color: #e7edf7;
+    border: 1px solid #2b3447;
+    selection-background-color: #15335c;
+    outline: none;
+}
+
+#actionValueLabel,
+#durationValueLabel,
+#scoreValueLabel,
+QLabel[role="statValue"] {
+    color: #e7edf7;
+    font-size: 20px;
+    font-weight: 700;
+}
+
+#summarySessionsLabel,
+#summaryActionsLabel,
+#summaryAvgLabel,
+#summaryBestLabel,
+QLabel[role="summaryLabel"] {
+    color: #9eb2d0;
+    font-size: 12px;
+}
+
+#summarySessionsValue,
+#summaryActionsValue,
+#summaryAvgValue,
+#summaryBestValue,
+QLabel[role="summaryValue"] {
+    color: #e7edf7;
+    font-size: 30px;
+    font-weight: 700;
+}
+
+QProgressBar {
+    border: none;
+    border-radius: 999px;
+    height: 8px;
+    background: #1f2735;
+    text-align: center;
+    color: transparent;
+}
+
+QProgressBar::chunk {
+    border-radius: 999px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #2d8cff, stop:1 #65e1ff);
+}
+
+/* Dynamic history / suggestion widgets created in C++ */
+QFrame[role="historyItem"],
+QFrame[role="suggestionCard"],
+#historyPage QFrame,
+#suggestionPage QFrame {
+    border: 1px solid #1d2737;
+    background: #0f141d;
+    border-radius: 12px;
+}
+
+QLabel[role="scoreTag"] {
+    background: #15335c;
+    color: #8cc1ff;
+    border: 1px solid #2f7ff5;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-weight: 700;
+}
+
+QLabel[role="emptyBox"] {
+    border: 1px dashed #2b3447;
+    border-radius: 10px;
+    padding: 30px;
+    color: #92a4c2;
+}
+
+/* Scroll areas */
+QScrollArea,
+QScrollArea > QWidget,
+QScrollArea > QWidget > QWidget {
+    background: #0b0d11;
+    border: none;
+}
+
+QScrollBar:vertical {
+    width: 10px;
+    margin: 0;
+    background: #0b0d11;
+}
+
+QScrollBar::handle:vertical {
+    min-height: 28px;
+    border-radius: 5px;
+    background: #26334a;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: #31578f;
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical,
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {
+    height: 0;
+    background: transparent;
+}
+
+QScrollBar:horizontal {
+    height: 10px;
+    margin: 0;
+    background: #0b0d11;
+}
+
+QScrollBar::handle:horizontal {
+    min-width: 28px;
+    border-radius: 5px;
+    background: #26334a;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background: #31578f;
+}
+
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal,
+QScrollBar::add-page:horizontal,
+QScrollBar::sub-page:horizontal {
+    width: 0;
+    background: transparent;
+}
