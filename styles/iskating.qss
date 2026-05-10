@@ -281,9 +281,9 @@ QPushButton[role="camera"]:checked {
 /* Operation column */
 #opsCard,
 QFrame[brightCard="true"] {
-    border: 1px solid rgba(125, 155, 195, 0.42);
-    border-radius: 12px;
-    background: #0f141d;
+    border: none;
+    border-radius: 0;
+    background: #121314;
 }
 
 #startCaptureButton,
@@ -293,17 +293,17 @@ QFrame[brightCard="true"] {
 #settingsButton,
 QPushButton[role="op"] {
     min-height: 72px;
-    border: 1px solid rgba(75, 95, 125, 0.58);
-    background: #121a27;
+    border: none;
+    background: #121314;
     color: #8c8c8c;
-    border-radius: 10px;
+    border-radius: 0;
     padding: 8px 10px;
 }
 
 #startCaptureButton,
 QPushButton[variant="start"] {
-    border-color: rgba(80, 125, 180, 0.66);
-    background: #163056;
+    border: none;
+    background: #121314;
     color: #ffffff;
 }
 
@@ -313,7 +313,7 @@ QPushButton[variant="start"] {
 #saveRecordButton:hover,
 #settingsButton:hover,
 QPushButton[role="op"]:hover {
-    border-color: rgba(105, 145, 195, 0.72);
+    border: none;
     background: #172338;
 }
 
@@ -347,9 +347,9 @@ QPushButton[role="tri"]:hover {
 
 /* Metrics and forms */
 #settingsBox {
-    border: 1px solid #243149;
+    border: none;
     background: #121927;
-    border-radius: 10px;
+    border-radius: 0;
 }
 
 QComboBox {

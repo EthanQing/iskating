@@ -194,6 +194,8 @@ MainWindow::MainWindow(QWidget *parent)
         button->setToolTip(label);
         button->setStatusTip(label);
         button->setAccessibleName(label);
+        button->setProperty("showTipTextOnHover", true);
+        button->installEventFilter(this);
 
         connect(button, &QPushButton::clicked, action, &QAction::trigger);
         return action;
@@ -238,7 +240,7 @@ MainWindow::~MainWindow()
     delete ui;
 }
 
-// 监听右上角图标按钮的悬停状态：进入时显示文字并点亮图标，离开时恢复纯图标。
+// 监听图标按钮的悬停状态：右上角按钮悬停时点亮，右侧控制按钮悬停时显示提示文字。
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 {
     if (watched == ui->toggleSidebarButton
@@ -247,6 +249,11 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
     } else if (watched == m_fullScreenButton
                && (event->type() == QEvent::Enter || event->type() == QEvent::Leave)) {
         refreshFullScreenButton();
+    } else if ((event->type() == QEvent::Enter || event->type() == QEvent::Leave)
+               && watched->property("showTipTextOnHover").toBool()) {
+        if (auto *button = qobject_cast<QPushButton *>(watched)) {
+            button->setText(event->type() == QEvent::Enter ? button->accessibleName() : QString());
+        }
     }
 
     return QMainWindow::eventFilter(watched, event);
@@ -289,8 +296,10 @@ void MainWindow::setupConnections()
 // 将资源文件中的静态示例图片贴到界面对应占位控件上。
 void MainWindow::installStaticImages()
 {
-    ui->poseImageLabelA->setPixmap(QPixmap(QStringLiteral(":/public/pose-a.png")));
-    ui->poseImageLabelB->setPixmap(QPixmap(QStringLiteral(":/public/pose-b.png")));
+    // poseImageLabelA/B 已改为 QOpenGLWidget，不能再使用 QLabel::setPixmap；
+    // 这里保留资源路径属性，后续如需 OpenGL 绘制图片可直接读取该属性。
+    ui->poseImageLabelA->setProperty("imageSource", QStringLiteral(":/public/pose-a.png"));
+    ui->poseImageLabelB->setProperty("imageSource", QStringLiteral(":/public/pose-b.png"));
 }
 
 // 从资源系统读取 QSS，统一应用暗色仪表盘主题样式。

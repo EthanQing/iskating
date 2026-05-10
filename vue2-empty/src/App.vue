@@ -1306,7 +1306,7 @@ body,
   width: 100%;
   min-height: 72px;
   border: 1px solid #324258;
-  background: #121a27;
+  background: #121314;
   color: #d7e4fb;
   border-radius: 10px;
   cursor: pointer;
