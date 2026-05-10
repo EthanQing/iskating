@@ -17,6 +17,7 @@
 #include <QPixmap>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QDebug>
 #include <QRandomGenerator>
 #include <QSize>
 #include <QShortcut>
@@ -103,6 +104,12 @@ MainWindow::MainWindow(QWidget *parent)
         cameraWidget->setChannelName(cameraName);
         cameraWidget->setPlaceholderText(cameraName);
         cameraWidget->setOverlayControlsVisible(true);
+        cameraWidget->setDoubleClickHandler([this](VideoOpenGLWidget *sourceWidget) {
+            qDebug() << "[MainWindow] camera double clicked, play in main view"
+                     << sourceWidget->channelName()
+                     << sourceWidget->currentVideoPath();
+            ui->mainImageLabel->playFile(sourceWidget->currentVideoPath());
+        });
     }
 
     applyStyleSheet();
@@ -279,25 +286,28 @@ void MainWindow::setTrajectoryExpanded(bool expanded)
 
 void MainWindow::startCapture()
 {
-    ui->mainImageLabel->setPlaying(true);
+    qDebug() << "[MainWindow] startCapture clicked";
+    ui->mainImageLabel->playDefaultVideo();
     for (auto *videoWidget : m_cameraButtons) {
-        videoWidget->setPlaying(true);
+        videoWidget->playDefaultVideo();
     }
 }
 
 void MainWindow::pauseCapture()
 {
-    ui->mainImageLabel->setPlaying(false);
+    qDebug() << "[MainWindow] pauseCapture clicked";
+    ui->mainImageLabel->pausePlayback();
     for (auto *videoWidget : m_cameraButtons) {
-        videoWidget->setPlaying(false);
+        videoWidget->pausePlayback();
     }
 }
 
 void MainWindow::stopCapture()
 {
-    ui->mainImageLabel->setPlaying(false);
+    qDebug() << "[MainWindow] stopCapture clicked";
+    ui->mainImageLabel->stopPlayback();
     for (auto *videoWidget : m_cameraButtons) {
-        videoWidget->setPlaying(false);
+        videoWidget->stopPlayback();
     }
 }
 

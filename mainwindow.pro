@@ -8,7 +8,7 @@ TEMPLATE = app
 
 include(common.pri)
 
-QT += core gui widgets opengl openglwidgets svg
+QT += core gui widgets opengl openglwidgets svg multimedia
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 

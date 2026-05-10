@@ -2,46 +2,163 @@
 #include "iconutils.h"
 
 #include <QColor>
+#include <QCoreApplication>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDir>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QFont>
 #include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QImage>
 #include <QLineEdit>
+#include <QMediaPlayer>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPen>
 #include <QPointF>
+#include <QDebug>
 #include <QRectF>
 #include <QResizeEvent>
 #include <QSize>
 #include <QSizeF>
 #include <QToolButton>
+#include <QUrl>
+#include <QVideoFrame>
+#include <QVideoSink>
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <utility>
 
 VideoOpenGLWidget::VideoOpenGLWidget(QWidget *parent)
     : QOpenGLWidget(parent)
     , m_placeholderRenderer(QStringLiteral(":/icons/video.svg"))
+    , m_mediaPlayer(new QMediaPlayer(this))
+    , m_videoSink(new QVideoSink(this))
 {
     setAutoFillBackground(false);
+    m_mediaPlayer->setVideoOutput(m_videoSink);
+    connect(m_videoSink, &QVideoSink::videoFrameChanged, this, [this](const QVideoFrame &frame) {
+        QImage image = frame.toImage();
+        if (!image.isNull()) {
+            qDebug() << "[VideoOpenGLWidget] frame received"
+                     << (m_channelName.isEmpty() ? objectName() : m_channelName)
+                     << image.size();
+            m_currentFrame = image;
+            update();
+        } else {
+            qDebug() << "[VideoOpenGLWidget] empty frame"
+                     << (m_channelName.isEmpty() ? objectName() : m_channelName);
+        }
+    });
+    connect(m_mediaPlayer, &QMediaPlayer::playbackStateChanged, this, [this](QMediaPlayer::PlaybackState state) {
+        qDebug() << "[VideoOpenGLWidget] playback state"
+                 << (m_channelName.isEmpty() ? objectName() : m_channelName)
+                 << state;
+        m_playing = (state == QMediaPlayer::PlayingState);
+        update();
+    });
+    connect(m_mediaPlayer, &QMediaPlayer::mediaStatusChanged, this, [this](QMediaPlayer::MediaStatus status) {
+        qDebug() << "[VideoOpenGLWidget] media status"
+                 << (m_channelName.isEmpty() ? objectName() : m_channelName)
+                 << status
+                 << m_mediaPlayer->source();
+    });
+    connect(m_mediaPlayer, &QMediaPlayer::errorOccurred, this, [this](QMediaPlayer::Error error, const QString &errorString) {
+        qDebug() << "[VideoOpenGLWidget] media error"
+                 << (m_channelName.isEmpty() ? objectName() : m_channelName)
+                 << error
+                 << errorString
+                 << m_mediaPlayer->source();
+    });
     setupOverlayControls();
+}
+
+QString VideoOpenGLWidget::defaultVideoPath()
+{
+    const QString currentDirPath = QDir::current().absoluteFilePath(QStringLiteral("1.mp4"));
+    if (QFileInfo::exists(currentDirPath)) {
+        return currentDirPath;
+    }
+
+    const QString appDirPath = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("1.mp4"));
+    return appDirPath;
 }
 
 bool VideoOpenGLWidget::isPlaying() const
 {
-    return m_playing;
+    return m_mediaPlayer && m_mediaPlayer->playbackState() == QMediaPlayer::PlayingState;
 }
 
 void VideoOpenGLWidget::setPlaying(bool playing)
 {
-    if (m_playing == playing) {
+    if (playing) {
+        playDefaultVideo();
+    } else {
+        stopPlayback();
+    }
+}
+
+void VideoOpenGLWidget::playDefaultVideo()
+{
+    qDebug() << "[VideoOpenGLWidget] playDefaultVideo"
+             << (m_channelName.isEmpty() ? objectName() : m_channelName)
+             << defaultVideoPath();
+    playFile(defaultVideoPath());
+}
+
+void VideoOpenGLWidget::playFile(const QString &filePath)
+{
+    if (!m_mediaPlayer) {
         return;
     }
-    m_playing = playing;
+
+    const QString absolutePath = QFileInfo(filePath).absoluteFilePath();
+    const QFileInfo fileInfo(absolutePath);
+    qDebug() << "[VideoOpenGLWidget] playFile request"
+             << (m_channelName.isEmpty() ? objectName() : m_channelName)
+             << absolutePath
+             << "exists=" << fileInfo.exists()
+             << "size=" << (fileInfo.exists() ? fileInfo.size() : -1);
+    if (!fileInfo.exists()) {
+        qDebug() << "[VideoOpenGLWidget] file not found:" << absolutePath;
+    }
+    if (m_videoPath != absolutePath || m_mediaPlayer->source().isEmpty()) {
+        m_videoPath = absolutePath;
+        m_mediaPlayer->setSource(QUrl::fromLocalFile(m_videoPath));
+        qDebug() << "[VideoOpenGLWidget] set source" << m_mediaPlayer->source();
+    }
+    m_mediaPlayer->play();
+    qDebug() << "[VideoOpenGLWidget] play called"
+             << (m_channelName.isEmpty() ? objectName() : m_channelName);
+}
+
+void VideoOpenGLWidget::pausePlayback()
+{
+    if (m_mediaPlayer) {
+        qDebug() << "[VideoOpenGLWidget] pause"
+                 << (m_channelName.isEmpty() ? objectName() : m_channelName);
+        m_mediaPlayer->pause();
+    }
+}
+
+void VideoOpenGLWidget::stopPlayback()
+{
+    if (m_mediaPlayer) {
+        qDebug() << "[VideoOpenGLWidget] stop"
+                 << (m_channelName.isEmpty() ? objectName() : m_channelName);
+        m_mediaPlayer->stop();
+    }
+    m_playing = false;
+    m_currentFrame = QImage();
     update();
+}
+
+QString VideoOpenGLWidget::currentVideoPath() const
+{
+    return m_videoPath.isEmpty() ? defaultVideoPath() : m_videoPath;
 }
 
 QString VideoOpenGLWidget::placeholderText() const
@@ -61,7 +178,7 @@ void VideoOpenGLWidget::setPlaceholderText(const QString &text)
 void VideoOpenGLWidget::setOverlayControlsVisible(bool visible)
 {
     m_overlayControlsVisible = visible;
-    for (auto *button : {m_playButton, m_stopButton, m_configButton}) {
+    for (auto *button : {m_playButton, m_pauseButton, m_stopButton, m_configButton}) {
         if (button) {
             button->setVisible(visible);
         }
@@ -84,6 +201,11 @@ QString VideoOpenGLWidget::channelName() const
     return m_channelName;
 }
 
+void VideoOpenGLWidget::setDoubleClickHandler(std::function<void(VideoOpenGLWidget *)> handler)
+{
+    m_doubleClickHandler = std::move(handler);
+}
+
 void VideoOpenGLWidget::paintGL()
 {
     QPainter painter(this);
@@ -97,7 +219,21 @@ void VideoOpenGLWidget::paintGL()
     painter.setBrush(Qt::NoBrush);
     painter.drawRoundedRect(rect().adjusted(0, 0, -1, -1), 10, 10);
 
-    if (m_playing) {
+    if (!m_currentFrame.isNull()) {
+        const QRect target = rect().adjusted(1, 1, -1, -1);
+        QSize drawSize = m_currentFrame.size();
+        drawSize.scale(target.size(), Qt::KeepAspectRatioByExpanding);
+        const QRect drawRect(target.center().x() - drawSize.width() / 2,
+                             target.center().y() - drawSize.height() / 2,
+                             drawSize.width(),
+                             drawSize.height());
+        painter.save();
+        painter.setClipRect(target);
+        painter.drawImage(drawRect, m_currentFrame);
+        painter.restore();
+    }
+
+    if (m_playing || !m_currentFrame.isNull()) {
         return;
     }
 
@@ -155,7 +291,7 @@ void VideoOpenGLWidget::paintGL()
         const int labelWidth = labelMetrics.horizontalAdvance(m_placeholderText) + 8;
         constexpr int buttonWidth = 22;
         constexpr int buttonGap = 3;
-        const int totalWidth = labelWidth + buttonWidth * 3 + buttonGap * 3;
+        const int totalWidth = labelWidth + buttonWidth * 4 + buttonGap * 4;
         const int labelX = std::max(8, (width() - totalWidth) / 2);
         const int labelY = std::max(8, height() - 22 - 8);
         const QRect labelRect(labelX, labelY, labelWidth, 22);
@@ -168,6 +304,16 @@ void VideoOpenGLWidget::resizeEvent(QResizeEvent *event)
 {
     QOpenGLWidget::resizeEvent(event);
     layoutOverlayControls();
+}
+
+void VideoOpenGLWidget::mouseDoubleClickEvent(QMouseEvent *event)
+{
+    if (m_doubleClickHandler) {
+        m_doubleClickHandler(this);
+        event->accept();
+        return;
+    }
+    QOpenGLWidget::mouseDoubleClickEvent(event);
 }
 
 void VideoOpenGLWidget::setupOverlayControls()
@@ -204,12 +350,26 @@ QToolButton:pressed {
     };
 
     m_playButton = makeButton(QStringLiteral("播放"), QStringLiteral(":/icons/start_cap.svg"), QStringLiteral("播放当前视频"));
+    m_pauseButton = makeButton(QStringLiteral("暂停"), QStringLiteral(":/icons/suspend.svg"), QStringLiteral("暂停当前视频"));
     m_stopButton = makeButton(QStringLiteral("停止"), QStringLiteral(":/icons/stop.svg"), QStringLiteral("停止当前视频"));
     m_configButton = makeButton(QStringLiteral("配置"), QStringLiteral(":/icons/settings.svg"), QStringLiteral("配置当前视频源"));
 
-    connect(m_playButton, &QToolButton::clicked, this, [this]() { setPlaying(true); });
-    connect(m_stopButton, &QToolButton::clicked, this, [this]() { setPlaying(false); });
-    connect(m_configButton, &QToolButton::clicked, this, [this]() { openConfigDialog(); });
+    connect(m_playButton, &QToolButton::clicked, this, [this]() {
+        qDebug() << "[VideoOpenGLWidget] play button clicked" << (m_channelName.isEmpty() ? objectName() : m_channelName);
+        playDefaultVideo();
+    });
+    connect(m_pauseButton, &QToolButton::clicked, this, [this]() {
+        qDebug() << "[VideoOpenGLWidget] pause button clicked" << (m_channelName.isEmpty() ? objectName() : m_channelName);
+        pausePlayback();
+    });
+    connect(m_stopButton, &QToolButton::clicked, this, [this]() {
+        qDebug() << "[VideoOpenGLWidget] stop button clicked" << (m_channelName.isEmpty() ? objectName() : m_channelName);
+        stopPlayback();
+    });
+    connect(m_configButton, &QToolButton::clicked, this, [this]() {
+        qDebug() << "[VideoOpenGLWidget] config button clicked" << (m_channelName.isEmpty() ? objectName() : m_channelName);
+        openConfigDialog();
+    });
 }
 
 void VideoOpenGLWidget::layoutOverlayControls()
@@ -225,18 +385,21 @@ void VideoOpenGLWidget::layoutOverlayControls()
     labelFont.setPointSize(width() > 240 ? 11 : 9);
     labelFont.setBold(true);
     const int labelWidth = m_placeholderText.isEmpty() ? 0 : QFontMetrics(labelFont).horizontalAdvance(m_placeholderText) + 8;
-    const int totalWidth = labelWidth + m_playButton->width() + m_stopButton->width() + m_configButton->width() + gap * 3;
+    const int totalWidth = labelWidth + m_playButton->width() + m_pauseButton->width() + m_stopButton->width() + m_configButton->width() + gap * 4;
     int x = std::max(margin, (width() - totalWidth) / 2);
     const int y = std::max(margin, height() - m_playButton->height() - margin);
 
     x += labelWidth + gap;
     m_playButton->move(x, y);
     x += m_playButton->width() + gap;
+    m_pauseButton->move(x, y);
+    x += m_pauseButton->width() + gap;
     m_stopButton->move(x, y);
     x += m_stopButton->width() + gap;
     m_configButton->move(x, y);
 
     m_playButton->raise();
+    m_pauseButton->raise();
     m_stopButton->raise();
     m_configButton->raise();
 }
