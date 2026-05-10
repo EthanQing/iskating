@@ -9,6 +9,7 @@ class QLabel;
 class QPushButton;
 class QVBoxLayout;
 class TrajectoryWidget;
+class VideoOpenGLWidget;
 
 namespace Ui {
 class MainWindow;
@@ -66,7 +67,7 @@ private:
     Ui::MainWindow *ui = nullptr;
 
     QVector<QPushButton *> m_navButtons;
-    QVector<QPushButton *> m_cameraButtons;
+    QVector<VideoOpenGLWidget *> m_cameraButtons;
     QVector<QLabel *> m_summaryValues;
 
     TrajectoryWidget *m_trajectoryWidget = nullptr;

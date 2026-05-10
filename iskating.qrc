@@ -7,11 +7,16 @@
     <qresource prefix="/styles">
         <file alias="iskating.qss">styles/iskating.qss</file>
     </qresource>
+    <qresource prefix="/images">
+        <file alias="sidebar-after.png">images/sidebar_after.png</file>
+        <file alias="topbar-after.png">images/topbar_after.png</file>
+    </qresource>
     <qresource prefix="/icons">
         <file alias="save.svg">icons/save.svg</file>
         <file alias="settings.svg">icons/settings.svg</file>
         <file alias="start_cap.svg">icons/start_cap.svg</file>
         <file alias="stop.svg">icons/stop.svg</file>
         <file alias="suspend.svg">icons/suspend.svg</file>
+        <file alias="video.svg">icons/video.svg</file>
     </qresource>
 </RCC>

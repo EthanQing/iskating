@@ -8,7 +8,7 @@ TEMPLATE = app
 
 include(common.pri)
 
-QT += core gui widgets
+QT += core gui widgets opengl openglwidgets svg
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
@@ -25,10 +25,12 @@ win32:msvc {
 
 SOURCES += \
     main.cpp \
-    mainwindow.cpp
+    mainwindow.cpp \
+    videoopenglwidget.cpp
 
 HEADERS += \
-    mainwindow.h
+    mainwindow.h \
+    videoopenglwidget.h
 
 FORMS += \
     mainwindow.ui

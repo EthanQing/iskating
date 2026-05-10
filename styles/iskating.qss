@@ -25,6 +25,14 @@ QLabel {
     border-right: 1px solid #1b2230;
 }
 
+#sideBarAfter {
+    min-width: 4px;
+    max-width: 4px;
+    border: none;
+    background: transparent;
+    border-image: url(:/images/sidebar-after.png) 0 0 0 0 stretch stretch;
+}
+
 #logoLabel {
     color: #eaf2ff;
     font-size: 18px;
@@ -105,6 +113,14 @@ QLabel[role="muted"] {
 #divider5 {
     background: rgba(127, 182, 255, 0.40);
     border: none;
+}
+
+#topbarAfter {
+    min-height: 3px;
+    max-height: 3px;
+    border: none;
+    background: transparent;
+    border-image: url(:/images/topbar-after.png) 0 0 0 0 stretch stretch;
 }
 
 #sessionRoundLabel,

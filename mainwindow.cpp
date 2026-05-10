@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
+#include "videoopenglwidget.h"
 
 #include <QAction>
 #include <QDateTime>
@@ -53,6 +54,14 @@ MainWindow::MainWindow(QWidget *parent)
     , ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
+    m_cameraButtons = {ui->cameraButton01, ui->cameraButton02, ui->cameraButton03, ui->cameraButton04,
+                       ui->cameraButton05, ui->cameraButton06, ui->cameraButton07, ui->cameraButton08,
+                       ui->cameraButton09, ui->cameraButton10, ui->cameraButton11, ui->cameraButton12};
+    ui->mainImageLabel->setPlaceholderText(QStringLiteral("主视频\n未播放"));
+    for (int i = 0; i < m_cameraButtons.size(); ++i) {
+        m_cameraButtons.at(i)->setPlaceholderText(QStringLiteral("CAM %1\n实时视频流").arg(i + 1, 2, 10, QLatin1Char('0')));
+    }
+
     applyStyleSheet();
 
     auto exitFullScreen = [this]() {
@@ -129,7 +138,6 @@ void MainWindow::setupConnections()
  
 void MainWindow::installStaticImages()
 {
-    ui->mainImageLabel->setPixmap(QPixmap(QStringLiteral(":/public/skating.png")));
     ui->poseImageLabelA->setPixmap(QPixmap(QStringLiteral(":/public/pose-a.png")));
     ui->poseImageLabelB->setPixmap(QPixmap(QStringLiteral(":/public/pose-b.png")));
 }
@@ -163,17 +171,26 @@ void MainWindow::setTrajectoryExpanded(bool expanded)
 
 void MainWindow::startCapture()
 {
-   
+    ui->mainImageLabel->setPlaying(true);
+    for (auto *videoWidget : m_cameraButtons) {
+        videoWidget->setPlaying(true);
+    }
 }
 
 void MainWindow::pauseCapture()
 {
-  
+    ui->mainImageLabel->setPlaying(false);
+    for (auto *videoWidget : m_cameraButtons) {
+        videoWidget->setPlaying(false);
+    }
 }
 
 void MainWindow::stopCapture()
 {
-  
+    ui->mainImageLabel->setPlaying(false);
+    for (auto *videoWidget : m_cameraButtons) {
+        videoWidget->setPlaying(false);
+    }
 }
 
 void MainWindow::saveRecord()

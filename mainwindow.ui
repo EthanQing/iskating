@@ -76,6 +76,25 @@
      </layout>
     </item>
     <item>
+     <widget class="QLabel" name="sideBarAfter">
+      <property name="minimumSize">
+       <size>
+        <width>4</width>
+        <height>0</height>
+       </size>
+      </property>
+      <property name="maximumSize">
+       <size>
+        <width>4</width>
+        <height>16777215</height>
+       </size>
+      </property>
+      <property name="text">
+       <string/>
+      </property>
+     </widget>
+    </item>
+    <item>
      <layout class="QVBoxLayout" name="verticalLayout">
       <item>
        <layout class="QHBoxLayout" name="topbarLayout">
@@ -290,6 +309,25 @@
        </layout>
       </item>
       <item>
+       <widget class="QLabel" name="topbarAfter">
+        <property name="minimumSize">
+         <size>
+          <width>0</width>
+          <height>3</height>
+         </size>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>16777215</width>
+          <height>3</height>
+         </size>
+        </property>
+        <property name="text">
+         <string/>
+        </property>
+       </widget>
+      </item>
+      <item>
        <widget class="QStackedWidget" name="pages">
         <property name="currentIndex">
          <number>0</number>
@@ -382,13 +420,7 @@
                    </widget>
                   </item>
                   <item>
-                   <widget class="QLabel" name="mainImageLabel">
-                    <property name="scaledContents">
-                     <bool>true</bool>
-                    </property>
-                    <property name="alignment">
-                     <set>Qt::AlignmentFlag::AlignCenter</set>
-                    </property>
+                   <widget class="VideoOpenGLWidget" name="mainImageLabel">
                    </widget>
                   </item>
                  </layout>
@@ -505,194 +537,122 @@
                    <number>10</number>
                   </property>
                   <item row="0" column="0">
-                   <widget class="QPushButton" name="cameraButton01">
+                   <widget class="VideoOpenGLWidget" name="cameraButton01">
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
                       <horstretch>0</horstretch>
                       <verstretch>0</verstretch>
                      </sizepolicy>
-                    </property>
-                    <property name="text">
-                     <string>CAM 01
-
-
-实时视频流</string>
                     </property>
                    </widget>
                   </item>
                   <item row="0" column="1">
-                   <widget class="QPushButton" name="cameraButton02">
+                   <widget class="VideoOpenGLWidget" name="cameraButton02">
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
                       <horstretch>0</horstretch>
                       <verstretch>0</verstretch>
                      </sizepolicy>
-                    </property>
-                    <property name="text">
-                     <string>CAM 02
-
-
-实时视频流</string>
                     </property>
                    </widget>
                   </item>
                   <item row="0" column="2">
-                   <widget class="QPushButton" name="cameraButton03">
+                   <widget class="VideoOpenGLWidget" name="cameraButton03">
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
                       <horstretch>0</horstretch>
                       <verstretch>0</verstretch>
                      </sizepolicy>
-                    </property>
-                    <property name="text">
-                     <string>CAM 03
-
-
-实时视频流</string>
                     </property>
                    </widget>
                   </item>
                   <item row="0" column="3">
-                   <widget class="QPushButton" name="cameraButton04">
+                   <widget class="VideoOpenGLWidget" name="cameraButton04">
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
                       <horstretch>0</horstretch>
                       <verstretch>0</verstretch>
                      </sizepolicy>
-                    </property>
-                    <property name="text">
-                     <string>CAM 04
-
-
-实时视频流</string>
                     </property>
                    </widget>
                   </item>
                   <item row="1" column="0">
-                   <widget class="QPushButton" name="cameraButton05">
+                   <widget class="VideoOpenGLWidget" name="cameraButton05">
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
                       <horstretch>0</horstretch>
                       <verstretch>0</verstretch>
                      </sizepolicy>
-                    </property>
-                    <property name="text">
-                     <string>CAM 05
-
-
-实时视频流</string>
                     </property>
                    </widget>
                   </item>
                   <item row="1" column="1">
-                   <widget class="QPushButton" name="cameraButton06">
+                   <widget class="VideoOpenGLWidget" name="cameraButton06">
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
                       <horstretch>0</horstretch>
                       <verstretch>0</verstretch>
                      </sizepolicy>
-                    </property>
-                    <property name="text">
-                     <string>CAM 06
-
-
-实时视频流</string>
                     </property>
                    </widget>
                   </item>
                   <item row="1" column="2">
-                   <widget class="QPushButton" name="cameraButton07">
+                   <widget class="VideoOpenGLWidget" name="cameraButton07">
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
                       <horstretch>0</horstretch>
                       <verstretch>0</verstretch>
                      </sizepolicy>
-                    </property>
-                    <property name="text">
-                     <string>CAM 07
-
-
-实时视频流</string>
                     </property>
                    </widget>
                   </item>
                   <item row="1" column="3">
-                   <widget class="QPushButton" name="cameraButton08">
+                   <widget class="VideoOpenGLWidget" name="cameraButton08">
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
                       <horstretch>0</horstretch>
                       <verstretch>0</verstretch>
                      </sizepolicy>
-                    </property>
-                    <property name="text">
-                     <string>CAM 08
-
-
-实时视频流</string>
                     </property>
                    </widget>
                   </item>
                   <item row="2" column="0">
-                   <widget class="QPushButton" name="cameraButton09">
+                   <widget class="VideoOpenGLWidget" name="cameraButton09">
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
                       <horstretch>0</horstretch>
                       <verstretch>0</verstretch>
                      </sizepolicy>
-                    </property>
-                    <property name="text">
-                     <string>CAM 09
-
-
-实时视频流</string>
                     </property>
                    </widget>
                   </item>
                   <item row="2" column="1">
-                   <widget class="QPushButton" name="cameraButton10">
+                   <widget class="VideoOpenGLWidget" name="cameraButton10">
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
                       <horstretch>0</horstretch>
                       <verstretch>0</verstretch>
                      </sizepolicy>
-                    </property>
-                    <property name="text">
-                     <string>CAM 10
-
-
-实时视频流</string>
                     </property>
                    </widget>
                   </item>
                   <item row="2" column="2">
-                   <widget class="QPushButton" name="cameraButton11">
+                   <widget class="VideoOpenGLWidget" name="cameraButton11">
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
                       <horstretch>0</horstretch>
                       <verstretch>0</verstretch>
                      </sizepolicy>
-                    </property>
-                    <property name="text">
-                     <string>CAM 11
-
-
-实时视频流</string>
                     </property>
                    </widget>
                   </item>
                   <item row="2" column="3">
-                   <widget class="QPushButton" name="cameraButton12">
+                   <widget class="VideoOpenGLWidget" name="cameraButton12">
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
                       <horstretch>0</horstretch>
                       <verstretch>0</verstretch>
                      </sizepolicy>
-                    </property>
-                    <property name="text">
-                     <string>CAM 12
-
-
-实时视频流</string>
                     </property>
                    </widget>
                   </item>
@@ -1304,6 +1264,13 @@
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
  </widget>
+ <customwidgets>
+  <customwidget>
+   <class>VideoOpenGLWidget</class>
+   <extends>QOpenGLWidget</extends>
+   <header>videoopenglwidget.h</header>
+  </customwidget>
+ </customwidgets>
  <resources/>
  <connections/>
 </ui>
