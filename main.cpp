@@ -22,8 +22,9 @@ int main(int argc, char *argv[])
 
     MainWindow window;
 
-    // 启动时使用系统“最大化”状态显示主界面；这不是 F11 全屏，仍保留标题栏和任务栏。
-    window.showMaximized();
+    // 启动时直接进入与 F11 一致的全屏状态；Esc/F11 退出后恢复为最大化窗口。
+    window.setProperty("previousWindowStateBeforeFullScreen", static_cast<int>(Qt::WindowMaximized));
+    window.showFullScreen();
 
     return app.exec();
 }

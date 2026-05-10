@@ -49,7 +49,7 @@ QPushButton[role="nav"] {
     min-height: 52px;
     border: 1px solid #1c2534;
     background: #101623;
-    color: #8c8c8c;
+    color: #cdd8ea;
     border-radius: 12px;
     padding: 12px 14px;
     font-family: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC";
