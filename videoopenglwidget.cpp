@@ -264,9 +264,9 @@ void VideoOpenGLWidget::paintGL()
         iconPainter.setRenderHint(QPainter::SmoothPixmapTransform, true);
         m_placeholderRenderer.render(&iconPainter, QRectF(QPointF(0, 0), QSizeF(iconRect.size())));
 
-        // The raw SVG is white. Tint it to a muted dark gray to indicate idle/no playback.
+        // The raw SVG is white. Tint it to unified inactive gray to indicate idle/no playback.
         iconPainter.setCompositionMode(QPainter::CompositionMode_SourceIn);
-        iconPainter.fillRect(iconMask.rect(), QColor(QStringLiteral("#56606e")));
+        iconPainter.fillRect(iconMask.rect(), QColor(QStringLiteral("#8c8c8c")));
         iconPainter.end();
 
         painter.setOpacity(0.72);
@@ -276,7 +276,7 @@ void VideoOpenGLWidget::paintGL()
 
     if (!m_placeholderText.isEmpty() && !m_overlayControlsVisible) {
         const QRect textRect(8, iconRect.bottom() + gap, width() - 16, std::max(20, height() - iconRect.bottom() - gap - 8));
-        painter.setPen(QColor(QStringLiteral("#6f7a89")));
+        painter.setPen(QColor(QStringLiteral("#8c8c8c")));
         painter.drawText(textRect, Qt::AlignHCenter | Qt::AlignTop | Qt::TextWordWrap, m_placeholderText);
     }
 
@@ -295,7 +295,7 @@ void VideoOpenGLWidget::paintGL()
         const int labelX = std::max(8, (width() - totalWidth) / 2);
         const int labelY = std::max(8, height() - 22 - 8);
         const QRect labelRect(labelX, labelY, labelWidth, 22);
-        painter.setPen(QColor(QStringLiteral("#7f8998")));
+        painter.setPen(QColor(QStringLiteral("#8c8c8c")));
         painter.drawText(labelRect, Qt::AlignVCenter | Qt::AlignLeft, m_placeholderText);
     }
 }
@@ -336,7 +336,7 @@ QToolButton:pressed {
     auto makeButton = [this, &buttonStyle](const QString &text, const QString &iconPath, const QString &tip) {
         auto *button = new QToolButton(this);
         button->setText(QString());
-        button->setIcon(makeNormalizedTintedSvgIcon(iconPath, QColor(QStringLiteral("#7f8998")), 18, 15));
+        button->setIcon(makeNormalizedTintedSvgIcon(iconPath, QColor(QStringLiteral("#8c8c8c")), 18, 15));
         button->setIconSize(QSize(18, 18));
         button->setToolButtonStyle(Qt::ToolButtonIconOnly);
         button->setToolTip(tip);

@@ -8,6 +8,7 @@
 #include <QVector>
 
 class QLabel;
+class QEvent;
 class QPushButton;
 class QVBoxLayout;
 class TrajectoryWidget;
@@ -37,6 +38,9 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override;
 
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private:
     void setupUiState();
     void setupConnections();
@@ -61,6 +65,7 @@ private:
     void refreshStats();
     void refreshHistory();
     void refreshSuggestions();
+    void refreshSidebarButton();
     void refreshFullScreenButton();
     void repolish(QWidget *widget) const;
 

@@ -5,6 +5,7 @@
 
 #include <QAction>
 #include <QDateTime>
+#include <QEvent>
 #include <QFile>
 #include <QFrame>
 #include <QHBoxLayout>
@@ -35,6 +36,8 @@ constexpr int kCapturePage = 0;
 constexpr int kHistoryPage = 1;
 constexpr int kSuggestionPage = 2;
 constexpr const char *kPreviousWindowStateProperty = "previousWindowStateBeforeFullScreen";
+constexpr const char *kMutedInactiveColor = "#8c8c8c";
+constexpr const char *kHoverActionColor = "#3b8dff";
 
 // 清空布局中的子项；保留该工具函数供动态重建列表类界面时复用。
 void clearLayout(QLayout *layout)
@@ -99,7 +102,7 @@ MainWindow::MainWindow(QWidget *parent)
                            "<td style='color:#7fb6ff; font-size:12px; font-weight:700;'>%2</td>"
                            "</tr>"
                            "<tr>"
-                           "<td style='color:#d7e4fb; font-size:13px; font-weight:500;'>%3</td>"
+                           "<td style='color:#8c8c8c; font-size:13px; font-weight:500;'>%3</td>"
                            "</tr>"
                            "</table>")
                            .arg(icon, title, value));
@@ -131,6 +134,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_fullScreenButton->setObjectName(QStringLiteral("fullScreenButton"));
     m_fullScreenButton->setProperty("role", "plain");
     m_fullScreenButton->setFocusPolicy(Qt::NoFocus);
+    ui->toggleSidebarButton->setFocusPolicy(Qt::NoFocus);
+    ui->toggleSidebarButton->installEventFilter(this);
+    m_fullScreenButton->installEventFilter(this);
+    refreshSidebarButton();
     refreshFullScreenButton();
     const int sidebarButtonIndex = ui->topbarLayout->indexOf(ui->toggleSidebarButton);
     if (sidebarButtonIndex >= 0) {
@@ -167,7 +174,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     auto makeButtonAction = [this](QPushButton *button, const QString &label, const QString &iconPath) {
         auto *action = new QAction(makeNormalizedTintedSvgIcon(iconPath,
-                                                               QColor(QStringLiteral("#8a96a6")),
+                                                               QColor(QString::fromLatin1(kMutedInactiveColor)),
                                                                38,
                                                                30),
                                    label,
@@ -220,6 +227,20 @@ MainWindow::MainWindow(QWidget *parent)
 MainWindow::~MainWindow()
 {
     delete ui;
+}
+
+// 监听右上角图标按钮的悬停状态：进入时显示文字并点亮图标，离开时恢复纯图标。
+bool MainWindow::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == ui->toggleSidebarButton
+        && (event->type() == QEvent::Enter || event->type() == QEvent::Leave)) {
+        refreshSidebarButton();
+    } else if (watched == m_fullScreenButton
+               && (event->type() == QEvent::Enter || event->type() == QEvent::Leave)) {
+        refreshFullScreenButton();
+    }
+
+    return QMainWindow::eventFilter(watched, event);
 }
 
 // 初始化运行时 UI 状态；当前界面主要在构造函数中完成初始化，保留该入口便于后续扩展。
@@ -303,12 +324,7 @@ void MainWindow::toggleSidebar()
         sideBarAfter->setVisible(m_sidebarVisible);
     }
 
-    ui->toggleSidebarButton->setText(m_sidebarVisible
-                                         ? QStringLiteral("▤  隐藏侧栏")
-                                         : QStringLiteral("▤  显示侧栏"));
-    ui->toggleSidebarButton->setToolTip(m_sidebarVisible
-                                            ? QStringLiteral("隐藏左侧导航栏")
-                                            : QStringLiteral("显示左侧导航栏"));
+    refreshSidebarButton();
 
     ui->sidebarLayout->invalidate();
     if (ui->sidebarLayout->parentWidget() && ui->sidebarLayout->parentWidget()->layout()) {
@@ -468,19 +484,49 @@ void MainWindow::refreshSuggestions()
     
 }
 
-// 根据当前窗口状态刷新顶部全屏按钮文字和提示。
+// 根据侧栏显示状态刷新顶部侧栏按钮：默认仅显示灰色图标，悬停时显示文字并变为蓝色。
+void MainWindow::refreshSidebarButton()
+{
+    const bool hovered = ui->toggleSidebarButton->underMouse();
+    const QString label = m_sidebarVisible ? QStringLiteral("隐藏侧栏") : QStringLiteral("显示侧栏");
+    ui->toggleSidebarButton->setText(hovered ? label : QString());
+    ui->toggleSidebarButton->setIcon(makeNormalizedTintedSvgIcon(QStringLiteral(":/icons/sidebar.svg"),
+                                                                 QColor(QString::fromLatin1(hovered ? kHoverActionColor : kMutedInactiveColor)),
+                                                                 22,
+                                                                 18));
+    ui->toggleSidebarButton->setIconSize(QSize(22, 22));
+    ui->toggleSidebarButton->setMinimumWidth(40);
+    ui->toggleSidebarButton->setToolTip(label);
+    ui->toggleSidebarButton->setStatusTip(label);
+    ui->toggleSidebarButton->setAccessibleName(label);
+}
+
+// 根据当前窗口状态刷新顶部全屏按钮：默认仅显示灰色图标，悬停时显示文字并变为蓝色。
 void MainWindow::refreshFullScreenButton()
 {
     if (!m_fullScreenButton) {
         return;
     }
 
-    m_fullScreenButton->setText(isFullScreen()
-                                    ? QStringLiteral("Esc 退出全屏")
-                                    : QStringLiteral("F11全屏"));
-    m_fullScreenButton->setToolTip(isFullScreen()
+    const bool hovered = m_fullScreenButton->underMouse();
+    const bool fullScreen = isFullScreen();
+    const QString label = fullScreen ? QStringLiteral("退出全屏") : QStringLiteral("F11全屏");
+    const QString iconPath = fullScreen
+                                 ? QStringLiteral(":/icons/exit_fullscreen.svg")
+                                 : QStringLiteral(":/icons/fullscreen.svg");
+
+    m_fullScreenButton->setText(hovered ? label : QString());
+    m_fullScreenButton->setIcon(makeNormalizedTintedSvgIcon(iconPath,
+                                                            QColor(QString::fromLatin1(hovered ? kHoverActionColor : kMutedInactiveColor)),
+                                                            22,
+                                                            18));
+    m_fullScreenButton->setIconSize(QSize(22, 22));
+    m_fullScreenButton->setMinimumWidth(40);
+    m_fullScreenButton->setToolTip(fullScreen
                                        ? QStringLiteral("退出全屏显示（Esc）")
                                        : QStringLiteral("进入全屏显示（F11）"));
+    m_fullScreenButton->setStatusTip(m_fullScreenButton->toolTip());
+    m_fullScreenButton->setAccessibleName(label);
 }
 
 // 重新应用指定控件的 QSS，用于动态属性变化后立即刷新外观。
