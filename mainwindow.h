@@ -55,6 +55,9 @@ private:
     void exitFullScreenMode();
     void selectCamera(int cameraId);
     void setTrajectoryExpanded(bool expanded);
+    void cycleTrajectoryMode();
+    void setTrajectoryMode(int mode);
+    void refreshTrajectoryModeButton();
     void startCapture();
     void pauseCapture();
     void stopCapture();
@@ -92,7 +95,11 @@ private:
     bool m_sidebarMetricsCaptured = false;
     QMargins m_sidebarLayoutMargins;
     int m_sidebarLayoutSpacing = 10;
-    bool m_trajectoryExpanded = false;
+    int m_trajectoryMode = -1;
+    int m_middleLayoutNormalSpacing = 14;
+    int m_middleLayoutNormalStretch0 = 0;
+    int m_middleLayoutNormalStretch1 = 0;
+    int m_cameraGridNormalSpacing = 10;
     QSize m_trajectoryViewNormalMinSize;
     QSize m_trajectoryViewNormalMaxSize;
     QSize m_trajectoryCardNormalMinSize;

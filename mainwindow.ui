@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version='1.0' encoding='UTF-8'?>
 <ui version="4.0">
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
@@ -90,7 +90,7 @@
        </size>
       </property>
       <property name="text">
-       <string/>
+       <string />
       </property>
      </widget>
     </item>
@@ -313,17 +313,17 @@
         <property name="minimumSize">
          <size>
           <width>0</width>
-          <height>3</height>
+          <height>2</height>
          </size>
         </property>
         <property name="maximumSize">
          <size>
           <width>16777215</width>
-          <height>3</height>
+          <height>2</height>
          </size>
         </property>
         <property name="text">
-         <string/>
+         <string />
         </property>
        </widget>
       </item>
@@ -421,7 +421,7 @@
                   </item>
                   <item>
                    <widget class="VideoOpenGLWidget" name="mainImageLabel">
-                   </widget>
+                    </widget>
                   </item>
                  </layout>
                 </widget>
@@ -879,7 +879,7 @@
                     </widget>
                    </item>
                    <item>
-                    <widget class="QComboBox" name="precisionComboBox"/>
+                    <widget class="QComboBox" name="precisionComboBox" />
                    </item>
                    <item>
                     <widget class="QLabel" name="fpsLabel">
@@ -889,7 +889,7 @@
                     </widget>
                    </item>
                    <item>
-                    <widget class="QComboBox" name="fpsComboBox"/>
+                    <widget class="QComboBox" name="fpsComboBox" />
                    </item>
                   </layout>
                  </widget>
@@ -1019,7 +1019,7 @@
                <item>
                 <widget class="QLabel" name="saveTipLabel">
                  <property name="text">
-                  <string/>
+                  <string />
                  </property>
                 </widget>
                </item>
@@ -1262,7 +1262,7 @@
     </rect>
    </property>
   </widget>
-  <widget class="QStatusBar" name="statusbar"/>
+  <widget class="QStatusBar" name="statusbar" />
  </widget>
  <customwidgets>
   <customwidget>
@@ -1271,6 +1271,6 @@
    <header>videoopenglwidget.h</header>
   </customwidget>
  </customwidgets>
- <resources/>
- <connections/>
+ <resources />
+ <connections />
 </ui>

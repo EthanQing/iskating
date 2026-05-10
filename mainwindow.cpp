@@ -39,6 +39,12 @@ constexpr const char *kPreviousWindowStateProperty = "previousWindowStateBeforeF
 constexpr const char *kMutedInactiveColor = "#8c8c8c";
 constexpr const char *kHoverActionColor = "#3b8dff";
 
+enum TrajectoryMode {
+    TrajectoryNormal = 0,   // 只占用三维轨迹原本所在区域。
+    TrajectoryExpanded = 1, // 占用自身区域和上方 12 路视频区域。
+    TrajectoryMinimized = 2 // 只保留“三维轨迹”标题栏和右侧符号。
+};
+
 // 清空布局中的子项；保留该工具函数供动态重建列表类界面时复用。
 void clearLayout(QLayout *layout)
 {
@@ -211,6 +217,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_trajectoryViewNormalMaxSize = ui->trajectoryViewFrame->maximumSize();
     m_trajectoryCardNormalMinSize = ui->trajectoryCard->minimumSize();
     m_trajectoryCardNormalMaxSize = ui->trajectoryCard->maximumSize();
+    m_middleLayoutNormalSpacing = ui->middleLayout->spacing();
+    m_middleLayoutNormalStretch0 = ui->middleLayout->stretch(0);
+    m_middleLayoutNormalStretch1 = ui->middleLayout->stretch(1);
+    m_cameraGridNormalSpacing = ui->cameraGridLayout->spacing();
     ui->metricsLayout->setAlignment(Qt::AlignTop);
     ui->metricsCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     if (auto *captureLayout = qobject_cast<QVBoxLayout *>(ui->capturePage->layout())) {
@@ -219,8 +229,7 @@ MainWindow::MainWindow(QWidget *parent)
     }
 
     setupConnections();
-    ui->legendFrame->setVisible(false);
-    ui->collapseTrajectoryButton->setVisible(false);
+    setTrajectoryMode(TrajectoryNormal);
 }
 
 // 释放由 Qt Designer 生成的界面对象。
@@ -258,7 +267,7 @@ void MainWindow::setupUiState()
      
 }
 
-// 绑定页面上的交互信号：侧栏开关、全屏切换、三维轨迹展开/收起等。
+// 绑定页面上的交互信号：侧栏开关、全屏切换、三维轨迹三态切换等。
 void MainWindow::setupConnections()
 {
     connect(ui->toggleSidebarButton, &QPushButton::clicked, this, [this]() {
@@ -270,10 +279,10 @@ void MainWindow::setupConnections()
         });
     }
     connect(ui->expandTrajectoryButton, &QPushButton::clicked, this, [this]() {
-        setTrajectoryExpanded(true);
+        cycleTrajectoryMode();
     });
     connect(ui->collapseTrajectoryButton, &QPushButton::clicked, this, [this]() {
-        setTrajectoryExpanded(false);
+        cycleTrajectoryMode();
     });
 }
 
@@ -376,25 +385,45 @@ void MainWindow::selectCamera(int cameraId)
    
 }
 
-// 展开或收起三维轨迹区域：展开时隐藏 12 路视频网格，收起时恢复原布局尺寸。
+// 兼容旧的二态调用：true 表示扩展到上方 12 路视频区域，false 表示恢复正常区域。
 void MainWindow::setTrajectoryExpanded(bool expanded)
 {
-    if (m_trajectoryExpanded == expanded) {
+    setTrajectoryMode(expanded ? TrajectoryExpanded : TrajectoryNormal);
+}
+
+// 按“正常区域 -> 扩展区域 -> 最小化 -> 正常区域”的顺序循环切换三维轨迹显示状态。
+void MainWindow::cycleTrajectoryMode()
+{
+    const int currentMode = m_trajectoryMode < 0 ? TrajectoryNormal : m_trajectoryMode;
+    setTrajectoryMode((currentMode + 1) % 3);
+}
+
+// 设置三维轨迹的显示模式：正常状态严格恢复启动时布局参数，扩展/最小化只做临时调整。
+void MainWindow::setTrajectoryMode(int mode)
+{
+    mode = ((mode % 3) + 3) % 3;
+    if (m_trajectoryMode == mode) {
+        refreshTrajectoryModeButton();
         return;
     }
 
-    m_trajectoryExpanded = expanded;
-    ui->middleLayout->setSpacing(expanded ? 0 : 14);
-    ui->middleLayout->setStretch(0, expanded ? 0 : 0);
-    ui->middleLayout->setStretch(1, expanded ? 1 : 0);
-    ui->cameraGridLayout->setSpacing(expanded ? 0 : 10);
+    m_trajectoryMode = mode;
+
+    const bool expanded = (mode == TrajectoryExpanded);
+    const bool minimized = (mode == TrajectoryMinimized);
+
+    ui->middleLayout->setSpacing(expanded ? 0 : m_middleLayoutNormalSpacing);
+    ui->middleLayout->setStretch(0, expanded ? 0 : m_middleLayoutNormalStretch0);
+    ui->middleLayout->setStretch(1, expanded ? 1 : m_middleLayoutNormalStretch1);
+    ui->cameraGridLayout->setSpacing(expanded ? 0 : m_cameraGridNormalSpacing);
     for (auto *cameraWidget : m_cameraButtons) {
         cameraWidget->setVisible(!expanded);
         cameraWidget->updateGeometry();
     }
-    ui->legendFrame->setVisible(expanded);
-    ui->expandTrajectoryButton->setVisible(!expanded);
-    ui->collapseTrajectoryButton->setVisible(expanded);
+    ui->trajectoryViewFrame->setVisible(!minimized);
+    ui->legendFrame->setVisible(expanded && !minimized);
+    ui->expandTrajectoryButton->setVisible(true);
+    ui->collapseTrajectoryButton->setVisible(false);
 
     if (expanded) {
         ui->trajectoryCard->setMinimumSize(m_trajectoryCardNormalMinSize);
@@ -403,6 +432,14 @@ void MainWindow::setTrajectoryExpanded(bool expanded)
         ui->trajectoryViewFrame->setMinimumSize(m_trajectoryViewNormalMinSize);
         ui->trajectoryViewFrame->setMaximumSize(m_trajectoryViewNormalMaxSize);
         ui->trajectoryViewFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    } else if (minimized) {
+        const int minimizedHeight = std::max(42, ui->trajectoryTitleLabel->sizeHint().height() + 30);
+        ui->trajectoryCard->setMinimumSize(QSize(m_trajectoryCardNormalMinSize.width(), minimizedHeight));
+        ui->trajectoryCard->setMaximumSize(QSize(QWIDGETSIZE_MAX, minimizedHeight));
+        ui->trajectoryCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        ui->trajectoryViewFrame->setMinimumSize(QSize(0, 0));
+        ui->trajectoryViewFrame->setMaximumSize(QSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX));
+        ui->trajectoryViewFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     } else {
         ui->trajectoryCard->setMinimumSize(m_trajectoryCardNormalMinSize);
         ui->trajectoryCard->setMaximumSize(m_trajectoryCardNormalMaxSize);
@@ -412,6 +449,7 @@ void MainWindow::setTrajectoryExpanded(bool expanded)
         ui->trajectoryViewFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     }
 
+    refreshTrajectoryModeButton();
     ui->trajectoryCard->updateGeometry();
     ui->trajectoryViewFrame->updateGeometry();
     ui->middleLayout->invalidate();
@@ -419,6 +457,35 @@ void MainWindow::setTrajectoryExpanded(bool expanded)
         ui->capturePage->layout()->invalidate();
         ui->capturePage->layout()->activate();
     }
+}
+
+// 刷新三维轨迹右侧三角形符号和提示，符号表示下一次点击将进入的状态。
+void MainWindow::refreshTrajectoryModeButton()
+{
+    QString text;
+    QString tip;
+    switch (m_trajectoryMode) {
+    case TrajectoryExpanded:
+        text = QStringLiteral("▼");
+        tip = QStringLiteral("最小化三维轨迹，只保留标题栏");
+        break;
+    case TrajectoryMinimized:
+        text = QStringLiteral("▲");
+        tip = QStringLiteral("恢复三维轨迹到当前区域");
+        break;
+    case TrajectoryNormal:
+    default:
+        text = QStringLiteral("▲");
+        tip = QStringLiteral("展开三维轨迹，占用上方12路视频区域");
+        break;
+    }
+
+    ui->expandTrajectoryButton->setText(text);
+    ui->expandTrajectoryButton->setToolTip(tip);
+    ui->expandTrajectoryButton->setStatusTip(tip);
+    ui->collapseTrajectoryButton->setText(text);
+    ui->collapseTrajectoryButton->setToolTip(tip);
+    ui->collapseTrajectoryButton->setStatusTip(tip);
 }
 
 // 开始采集：主视图和 12 路预览同时播放当前目录下的默认视频。
