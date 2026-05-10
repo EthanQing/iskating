@@ -58,8 +58,13 @@ MainWindow::MainWindow(QWidget *parent)
                        ui->cameraButton05, ui->cameraButton06, ui->cameraButton07, ui->cameraButton08,
                        ui->cameraButton09, ui->cameraButton10, ui->cameraButton11, ui->cameraButton12};
     ui->mainImageLabel->setPlaceholderText(QStringLiteral("主视频\n未播放"));
+    ui->mainImageLabel->setOverlayControlsVisible(false);
     for (int i = 0; i < m_cameraButtons.size(); ++i) {
-        m_cameraButtons.at(i)->setPlaceholderText(QStringLiteral("CAM %1\n实时视频流").arg(i + 1, 2, 10, QLatin1Char('0')));
+        auto *cameraWidget = m_cameraButtons.at(i);
+        const QString cameraName = QStringLiteral("CAM %1").arg(i + 1, 2, 10, QLatin1Char('0'));
+        cameraWidget->setChannelName(cameraName);
+        cameraWidget->setPlaceholderText(cameraName);
+        cameraWidget->setOverlayControlsVisible(true);
     }
 
     applyStyleSheet();
