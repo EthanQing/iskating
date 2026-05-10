@@ -46,6 +46,8 @@ private:
 
     void switchPage(int pageIndex);
     void toggleSidebar();
+    void toggleFullScreen();
+    void exitFullScreenMode();
     void selectCamera(int cameraId);
     void setTrajectoryExpanded(bool expanded);
     void startCapture();
@@ -59,6 +61,7 @@ private:
     void refreshStats();
     void refreshHistory();
     void refreshSuggestions();
+    void refreshFullScreenButton();
     void repolish(QWidget *widget) const;
 
     QString pad(int num) const;
@@ -71,6 +74,7 @@ private:
     QVector<QPushButton *> m_navButtons;
     QVector<VideoOpenGLWidget *> m_cameraButtons;
     QVector<QLabel *> m_summaryValues;
+    QPushButton *m_fullScreenButton = nullptr;
 
     TrajectoryWidget *m_trajectoryWidget = nullptr;
     QTimer m_timer;

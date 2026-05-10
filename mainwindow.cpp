@@ -126,6 +126,19 @@ MainWindow::MainWindow(QWidget *parent)
                     QStringLiteral("存储 Storage"),
                     QStringLiteral("1.82T/4.00TB"));
 
+    // 在“隐藏侧栏”按钮旁边动态增加全屏按钮，避免修改 .ui 后生成头文件不同步。
+    m_fullScreenButton = new QPushButton(ui->toggleSidebarButton->parentWidget());
+    m_fullScreenButton->setObjectName(QStringLiteral("fullScreenButton"));
+    m_fullScreenButton->setProperty("role", "plain");
+    m_fullScreenButton->setFocusPolicy(Qt::NoFocus);
+    refreshFullScreenButton();
+    const int sidebarButtonIndex = ui->topbarLayout->indexOf(ui->toggleSidebarButton);
+    if (sidebarButtonIndex >= 0) {
+        ui->topbarLayout->insertWidget(sidebarButtonIndex + 1, m_fullScreenButton);
+    } else {
+        ui->topbarLayout->addWidget(m_fullScreenButton);
+    }
+
     ui->mainImageLabel->setPlaceholderText(QStringLiteral("主视频\n未播放"));
     ui->mainImageLabel->setOverlayControlsVisible(false);
     for (int i = 0; i < m_cameraButtons.size(); ++i) {
@@ -144,32 +157,13 @@ MainWindow::MainWindow(QWidget *parent)
 
     applyStyleSheet();
 
-    auto exitFullScreen = [this]() {
-        if (!isFullScreen()) {
-            return;
-        }
-
-        const auto previousState = static_cast<Qt::WindowStates>(
-            property(kPreviousWindowStateProperty).toInt());
-        setWindowState(previousState & ~Qt::WindowFullScreen);
-    };
-
     auto *fullScreenShortcut = new QShortcut(QKeySequence(Qt::Key_F11), this);
     fullScreenShortcut->setContext(Qt::WindowShortcut);
-    connect(fullScreenShortcut, &QShortcut::activated, this, [this, exitFullScreen]() {
-        if (isFullScreen()) {
-            exitFullScreen();
-            return;
-        }
-
-        setProperty(kPreviousWindowStateProperty,
-                    static_cast<int>((windowState() & ~Qt::WindowFullScreen).toInt()));
-        setWindowState(windowState() | Qt::WindowFullScreen);
-    });
+    connect(fullScreenShortcut, &QShortcut::activated, this, [this]() { toggleFullScreen(); });
 
     auto *escapeShortcut = new QShortcut(QKeySequence(Qt::Key_Escape), this);
     escapeShortcut->setContext(Qt::WindowShortcut);
-    connect(escapeShortcut, &QShortcut::activated, this, exitFullScreen);
+    connect(escapeShortcut, &QShortcut::activated, this, [this]() { exitFullScreenMode(); });
 
     auto makeButtonAction = [this](QPushButton *button, const QString &label, const QString &iconPath) {
         auto *action = new QAction(makeNormalizedTintedSvgIcon(iconPath,
@@ -234,12 +228,17 @@ void MainWindow::setupUiState()
      
 }
 
-// 绑定页面上的交互信号：侧栏开关、三维轨迹展开/收起等。
+// 绑定页面上的交互信号：侧栏开关、全屏切换、三维轨迹展开/收起等。
 void MainWindow::setupConnections()
 {
     connect(ui->toggleSidebarButton, &QPushButton::clicked, this, [this]() {
         toggleSidebar();
     });
+    if (m_fullScreenButton) {
+        connect(m_fullScreenButton, &QPushButton::clicked, this, [this]() {
+            toggleFullScreen();
+        });
+    }
     connect(ui->expandTrajectoryButton, &QPushButton::clicked, this, [this]() {
         setTrajectoryExpanded(true);
     });
@@ -316,6 +315,34 @@ void MainWindow::toggleSidebar()
         ui->sidebarLayout->parentWidget()->layout()->invalidate();
         ui->sidebarLayout->parentWidget()->layout()->activate();
     }
+}
+
+// 切换全屏状态：未全屏时记录原窗口状态并进入全屏，已全屏时恢复原状态。
+void MainWindow::toggleFullScreen()
+{
+    if (isFullScreen()) {
+        exitFullScreenMode();
+        return;
+    }
+
+    setProperty(kPreviousWindowStateProperty,
+                static_cast<int>((windowState() & ~Qt::WindowFullScreen).toInt()));
+    setWindowState(windowState() | Qt::WindowFullScreen);
+    refreshFullScreenButton();
+}
+
+// 退出全屏：Esc 快捷键和全屏按钮都会复用这里，保证恢复逻辑一致。
+void MainWindow::exitFullScreenMode()
+{
+    if (!isFullScreen()) {
+        refreshFullScreenButton();
+        return;
+    }
+
+    const auto previousState = static_cast<Qt::WindowStates>(
+        property(kPreviousWindowStateProperty).toInt());
+    setWindowState(previousState & ~Qt::WindowFullScreen);
+    refreshFullScreenButton();
 }
 
 // 记录当前选择的摄像头编号，并在后续采集/保存时作为当前通道使用。
@@ -439,6 +466,21 @@ void MainWindow::refreshHistory()
 void MainWindow::refreshSuggestions()
 {
     
+}
+
+// 根据当前窗口状态刷新顶部全屏按钮文字和提示。
+void MainWindow::refreshFullScreenButton()
+{
+    if (!m_fullScreenButton) {
+        return;
+    }
+
+    m_fullScreenButton->setText(isFullScreen()
+                                    ? QStringLiteral("Esc 退出全屏")
+                                    : QStringLiteral("F11全屏"));
+    m_fullScreenButton->setToolTip(isFullScreen()
+                                       ? QStringLiteral("退出全屏显示（Esc）")
+                                       : QStringLiteral("进入全屏显示（F11）"));
 }
 
 // 重新应用指定控件的 QSS，用于动态属性变化后立即刷新外观。

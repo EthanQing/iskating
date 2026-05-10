@@ -143,6 +143,7 @@ QLabel[role="muted"] {
 }
 
 #toggleSidebarButton,
+#fullScreenButton,
 QPushButton[role="plain"] {
     border: 1px solid #2b3447;
     background: #111823;
@@ -152,6 +153,7 @@ QPushButton[role="plain"] {
 }
 
 #toggleSidebarButton:hover,
+#fullScreenButton:hover,
 QPushButton[role="plain"]:hover {
     border-color: #456b9e;
     background: #152236;
