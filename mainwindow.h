@@ -2,6 +2,7 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
+#include <QSize>
 #include <QTimer>
 #include <QVector>
 
@@ -78,6 +79,10 @@ private:
     int m_activePage = 0;
     bool m_sidebarVisible = true;
     bool m_trajectoryExpanded = false;
+    QSize m_trajectoryViewNormalMinSize;
+    QSize m_trajectoryViewNormalMaxSize;
+    QSize m_trajectoryCardNormalMinSize;
+    QSize m_trajectoryCardNormalMaxSize;
     int m_selectedCamera = 1;
     bool m_isRecording = false;
     bool m_isPaused = false;

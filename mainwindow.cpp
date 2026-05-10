@@ -64,7 +64,7 @@ MainWindow::MainWindow(QWidget *parent)
         label->setText(QStringLiteral(
                            "<table cellspacing='0' cellpadding='0'>"
                            "<tr>"
-                           "<td rowspan='2' style='padding-right:7px; color:#9fb6d8; font-size:15px; font-weight:700;'>%1</td>"
+                           "<td rowspan='2' style='padding-right:8px; color:#9fb6d8; font-size:19px; font-weight:800;'>%1</td>"
                            "<td style='color:#7fb6ff; font-size:12px; font-weight:700;'>%2</td>"
                            "</tr>"
                            "<tr>"
@@ -168,6 +168,21 @@ MainWindow::MainWindow(QWidget *parent)
     connect(settingsAction, &QAction::triggered, this, [this]() {
         ui->settingsBox->setVisible(!ui->settingsBox->isVisible());
     });
+
+    m_trajectoryViewNormalMinSize = ui->trajectoryViewFrame->minimumSize();
+    m_trajectoryViewNormalMaxSize = ui->trajectoryViewFrame->maximumSize();
+    m_trajectoryCardNormalMinSize = ui->trajectoryCard->minimumSize();
+    m_trajectoryCardNormalMaxSize = ui->trajectoryCard->maximumSize();
+    ui->metricsLayout->setAlignment(Qt::AlignTop);
+    ui->metricsCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    if (auto *captureLayout = qobject_cast<QVBoxLayout *>(ui->capturePage->layout())) {
+        captureLayout->setStretch(0, 1);
+        captureLayout->setStretch(1, 0);
+    }
+
+    setupConnections();
+    ui->legendFrame->setVisible(false);
+    ui->collapseTrajectoryButton->setVisible(false);
 }
 
 MainWindow::~MainWindow()
@@ -181,7 +196,13 @@ void MainWindow::setupUiState()
 }
 
 void MainWindow::setupConnections()
-{ 
+{
+    connect(ui->expandTrajectoryButton, &QPushButton::clicked, this, [this]() {
+        setTrajectoryExpanded(true);
+    });
+    connect(ui->collapseTrajectoryButton, &QPushButton::clicked, this, [this]() {
+        setTrajectoryExpanded(false);
+    });
 }
  
 void MainWindow::installStaticImages()
@@ -214,7 +235,46 @@ void MainWindow::selectCamera(int cameraId)
 
 void MainWindow::setTrajectoryExpanded(bool expanded)
 {
-    
+    if (m_trajectoryExpanded == expanded) {
+        return;
+    }
+
+    m_trajectoryExpanded = expanded;
+    ui->middleLayout->setSpacing(expanded ? 0 : 14);
+    ui->middleLayout->setStretch(0, expanded ? 0 : 0);
+    ui->middleLayout->setStretch(1, expanded ? 1 : 0);
+    ui->cameraGridLayout->setSpacing(expanded ? 0 : 10);
+    for (auto *cameraWidget : m_cameraButtons) {
+        cameraWidget->setVisible(!expanded);
+        cameraWidget->updateGeometry();
+    }
+    ui->legendFrame->setVisible(expanded);
+    ui->expandTrajectoryButton->setVisible(!expanded);
+    ui->collapseTrajectoryButton->setVisible(expanded);
+
+    if (expanded) {
+        ui->trajectoryCard->setMinimumSize(m_trajectoryCardNormalMinSize);
+        ui->trajectoryCard->setMaximumSize(m_trajectoryCardNormalMaxSize);
+        ui->trajectoryCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        ui->trajectoryViewFrame->setMinimumSize(m_trajectoryViewNormalMinSize);
+        ui->trajectoryViewFrame->setMaximumSize(m_trajectoryViewNormalMaxSize);
+        ui->trajectoryViewFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    } else {
+        ui->trajectoryCard->setMinimumSize(m_trajectoryCardNormalMinSize);
+        ui->trajectoryCard->setMaximumSize(m_trajectoryCardNormalMaxSize);
+        ui->trajectoryCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        ui->trajectoryViewFrame->setMinimumSize(m_trajectoryViewNormalMinSize);
+        ui->trajectoryViewFrame->setMaximumSize(m_trajectoryViewNormalMaxSize);
+        ui->trajectoryViewFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    }
+
+    ui->trajectoryCard->updateGeometry();
+    ui->trajectoryViewFrame->updateGeometry();
+    ui->middleLayout->invalidate();
+    if (ui->capturePage->layout()) {
+        ui->capturePage->layout()->invalidate();
+        ui->capturePage->layout()->activate();
+    }
 }
 
 void MainWindow::startCapture()
