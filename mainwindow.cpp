@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "iconutils.h"
 #include "ui_mainwindow.h"
 #include "videoopenglwidget.h"
 
@@ -57,6 +58,43 @@ MainWindow::MainWindow(QWidget *parent)
     m_cameraButtons = {ui->cameraButton01, ui->cameraButton02, ui->cameraButton03, ui->cameraButton04,
                        ui->cameraButton05, ui->cameraButton06, ui->cameraButton07, ui->cameraButton08,
                        ui->cameraButton09, ui->cameraButton10, ui->cameraButton11, ui->cameraButton12};
+
+    auto setTopbarModule = [](QLabel *label, const QString &icon, const QString &title, const QString &value) {
+        label->setTextFormat(Qt::RichText);
+        label->setText(QStringLiteral(
+                           "<table cellspacing='0' cellpadding='0'>"
+                           "<tr>"
+                           "<td rowspan='2' style='padding-right:7px; color:#9fb6d8; font-size:15px; font-weight:700;'>%1</td>"
+                           "<td style='color:#7fb6ff; font-size:12px; font-weight:700;'>%2</td>"
+                           "</tr>"
+                           "<tr>"
+                           "<td style='color:#d7e4fb; font-size:13px; font-weight:500;'>%3</td>"
+                           "</tr>"
+                           "</table>")
+                           .arg(icon, title, value));
+    };
+
+    setTopbarModule(ui->sessionRoundLabel,
+                    QStringLiteral("⛸"),
+                    QStringLiteral("训练轮次 Session"),
+                    QStringLiteral("自由滑训练-第3次"));
+    setTopbarModule(ui->sessionTimeLabel,
+                    QStringLiteral("🕒"),
+                    QStringLiteral("日期/时间 Date/Time"),
+                    QStringLiteral("2026-05-20 16:28:34"));
+    setTopbarModule(ui->systemStatusLabel,
+                    QStringLiteral("⚙"),
+                    QStringLiteral("系统状态 System Status"),
+                    QStringLiteral("运行中（正常）"));
+    setTopbarModule(ui->modelStatusLabel,
+                    QStringLiteral("AI"),
+                    QStringLiteral("模型状态 Status"),
+                    QStringLiteral("已就绪（v2.3.1）"));
+    setTopbarModule(ui->storageStatusLabel,
+                    QStringLiteral("DB"),
+                    QStringLiteral("存储 Storage"),
+                    QStringLiteral("1.82T/4.00TB"));
+
     ui->mainImageLabel->setPlaceholderText(QStringLiteral("主视频\n未播放"));
     ui->mainImageLabel->setOverlayControlsVisible(false);
     for (int i = 0; i < m_cameraButtons.size(); ++i) {
@@ -97,13 +135,18 @@ MainWindow::MainWindow(QWidget *parent)
     connect(escapeShortcut, &QShortcut::activated, this, exitFullScreen);
 
     auto makeButtonAction = [this](QPushButton *button, const QString &label, const QString &iconPath) {
-        auto *action = new QAction(QIcon(iconPath), label, this);
+        auto *action = new QAction(makeNormalizedTintedSvgIcon(iconPath,
+                                                               QColor(QStringLiteral("#8a96a6")),
+                                                               38,
+                                                               30),
+                                   label,
+                                   this);
         action->setToolTip(label);
         action->setStatusTip(label);
 
         button->setText(QString());
         button->setIcon(action->icon());
-        button->setIconSize(QSize(34, 34));
+        button->setIconSize(QSize(38, 38));
         button->setToolTip(label);
         button->setStatusTip(label);
         button->setAccessibleName(label);

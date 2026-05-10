@@ -24,11 +24,13 @@ win32:msvc {
 }
 
 SOURCES += \
+    iconutils.cpp \
     main.cpp \
     mainwindow.cpp \
     videoopenglwidget.cpp
 
 HEADERS += \
+    iconutils.h \
     mainwindow.h \
     videoopenglwidget.h
 

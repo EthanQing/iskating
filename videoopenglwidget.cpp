@@ -1,12 +1,13 @@
 #include "videoopenglwidget.h"
+#include "iconutils.h"
 
+#include <QColor>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QFont>
 #include <QFontMetrics>
 #include <QHBoxLayout>
-#include <QIcon>
 #include <QImage>
 #include <QLineEdit>
 #include <QPainter>
@@ -189,8 +190,8 @@ QToolButton:pressed {
     auto makeButton = [this, &buttonStyle](const QString &text, const QString &iconPath, const QString &tip) {
         auto *button = new QToolButton(this);
         button->setText(QString());
-        button->setIcon(QIcon(iconPath));
-        button->setIconSize(QSize(15, 15));
+        button->setIcon(makeNormalizedTintedSvgIcon(iconPath, QColor(QStringLiteral("#7f8998")), 18, 15));
+        button->setIconSize(QSize(18, 18));
         button->setToolButtonStyle(Qt::ToolButtonIconOnly);
         button->setToolTip(tip);
         button->setAccessibleName(text);
