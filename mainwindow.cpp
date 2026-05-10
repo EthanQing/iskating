@@ -1,10 +1,13 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 
+#include <QAction>
 #include <QDateTime>
 #include <QFile>
 #include <QFrame>
 #include <QHBoxLayout>
+#include <QIcon>
+#include <QKeySequence>
 #include <QLabel>
 #include <QLayout>
 #include <QPainter>
@@ -13,7 +16,7 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QRandomGenerator>
-#include <QKeySequence>
+#include <QSize>
 #include <QShortcut>
 #include <QStyle>
 #include <QVBoxLayout>
@@ -78,6 +81,36 @@ MainWindow::MainWindow(QWidget *parent)
     auto *escapeShortcut = new QShortcut(QKeySequence(Qt::Key_Escape), this);
     escapeShortcut->setContext(Qt::WindowShortcut);
     connect(escapeShortcut, &QShortcut::activated, this, exitFullScreen);
+
+    auto makeButtonAction = [this](QPushButton *button, const QString &label, const QString &iconPath) {
+        auto *action = new QAction(QIcon(iconPath), label, this);
+        action->setToolTip(label);
+        action->setStatusTip(label);
+
+        button->setText(QString());
+        button->setIcon(action->icon());
+        button->setIconSize(QSize(34, 34));
+        button->setToolTip(label);
+        button->setStatusTip(label);
+        button->setAccessibleName(label);
+
+        connect(button, &QPushButton::clicked, action, &QAction::trigger);
+        return action;
+    };
+
+    auto *startAction = makeButtonAction(ui->startCaptureButton, QStringLiteral("开始采集"), QStringLiteral(":/icons/start_cap.svg"));
+    auto *pauseAction = makeButtonAction(ui->pauseCaptureButton, QStringLiteral("暂停"), QStringLiteral(":/icons/suspend.svg"));
+    auto *stopAction = makeButtonAction(ui->stopCaptureButton, QStringLiteral("停止"), QStringLiteral(":/icons/stop.svg"));
+    auto *saveAction = makeButtonAction(ui->saveRecordButton, QStringLiteral("保存记录"), QStringLiteral(":/icons/save.svg"));
+    auto *settingsAction = makeButtonAction(ui->settingsButton, QStringLiteral("系统设置"), QStringLiteral(":/icons/settings.svg"));
+
+    connect(startAction, &QAction::triggered, this, [this]() { startCapture(); });
+    connect(pauseAction, &QAction::triggered, this, [this]() { pauseCapture(); });
+    connect(stopAction, &QAction::triggered, this, [this]() { stopCapture(); });
+    connect(saveAction, &QAction::triggered, this, [this]() { saveRecord(); });
+    connect(settingsAction, &QAction::triggered, this, [this]() {
+        ui->settingsBox->setVisible(!ui->settingsBox->isVisible());
+    });
 }
 
 MainWindow::~MainWindow()
