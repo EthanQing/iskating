@@ -2,6 +2,7 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
+#include <QMargins>
 #include <QSize>
 #include <QTimer>
 #include <QVector>
@@ -78,6 +79,9 @@ private:
 
     int m_activePage = 0;
     bool m_sidebarVisible = true;
+    bool m_sidebarMetricsCaptured = false;
+    QMargins m_sidebarLayoutMargins;
+    int m_sidebarLayoutSpacing = 10;
     bool m_trajectoryExpanded = false;
     QSize m_trajectoryViewNormalMinSize;
     QSize m_trajectoryViewNormalMaxSize;

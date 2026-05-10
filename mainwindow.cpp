@@ -20,6 +20,7 @@
 #include <QDebug>
 #include <QRandomGenerator>
 #include <QSize>
+#include <QSizePolicy>
 #include <QShortcut>
 #include <QStyle>
 #include <QVBoxLayout>
@@ -35,6 +36,7 @@ constexpr int kHistoryPage = 1;
 constexpr int kSuggestionPage = 2;
 constexpr const char *kPreviousWindowStateProperty = "previousWindowStateBeforeFullScreen";
 
+// 清空布局中的子项；保留该工具函数供动态重建列表类界面时复用。
 void clearLayout(QLayout *layout)
 {
   
@@ -42,6 +44,7 @@ void clearLayout(QLayout *layout)
  
  
 
+// 设置控件的样式角色属性，配合 QSS 中的属性选择器刷新外观。
 void setRole(QWidget *widget, const char *role)
 {
     if (widget) {
@@ -49,8 +52,35 @@ void setRole(QWidget *widget, const char *role)
     }
 }
 
+// 递归显示/隐藏布局内容；隐藏侧栏时同时压缩 spacer，确保布局真正收窄。
+void setLayoutItemsVisible(QLayout *layout, bool visible)
+{
+    if (!layout) {
+        return;
+    }
+
+    for (int i = 0; i < layout->count(); ++i) {
+        QLayoutItem *item = layout->itemAt(i);
+        if (!item) {
+            continue;
+        }
+
+        if (auto *childWidget = item->widget()) {
+            childWidget->setVisible(visible);
+        } else if (auto *childLayout = item->layout()) {
+            setLayoutItemsVisible(childLayout, visible);
+        } else if (auto *spacer = item->spacerItem()) {
+            spacer->changeSize(visible ? 20 : 0,
+                               visible ? 40 : 0,
+                               visible ? QSizePolicy::Minimum : QSizePolicy::Fixed,
+                               visible ? QSizePolicy::Expanding : QSizePolicy::Fixed);
+        }
+    }
+}
+
 } // namespace
- 
+
+// 初始化主窗口：装配 UI、视频控件、顶部状态栏、快捷键、右侧动作按钮和默认布局状态。
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
@@ -192,18 +222,24 @@ MainWindow::MainWindow(QWidget *parent)
     ui->collapseTrajectoryButton->setVisible(false);
 }
 
+// 释放由 Qt Designer 生成的界面对象。
 MainWindow::~MainWindow()
 {
     delete ui;
 }
 
+// 初始化运行时 UI 状态；当前界面主要在构造函数中完成初始化，保留该入口便于后续扩展。
 void MainWindow::setupUiState()
 {
      
 }
 
+// 绑定页面上的交互信号：侧栏开关、三维轨迹展开/收起等。
 void MainWindow::setupConnections()
 {
+    connect(ui->toggleSidebarButton, &QPushButton::clicked, this, [this]() {
+        toggleSidebar();
+    });
     connect(ui->expandTrajectoryButton, &QPushButton::clicked, this, [this]() {
         setTrajectoryExpanded(true);
     });
@@ -211,13 +247,15 @@ void MainWindow::setupConnections()
         setTrajectoryExpanded(false);
     });
 }
- 
+
+// 将资源文件中的静态示例图片贴到界面对应占位控件上。
 void MainWindow::installStaticImages()
 {
     ui->poseImageLabelA->setPixmap(QPixmap(QStringLiteral(":/public/pose-a.png")));
     ui->poseImageLabelB->setPixmap(QPixmap(QStringLiteral(":/public/pose-b.png")));
 }
 
+// 从资源系统读取 QSS，统一应用暗色仪表盘主题样式。
 void MainWindow::applyStyleSheet()
 {
     QFile qssFile(QStringLiteral(":/styles/iskating.qss"));
@@ -226,20 +264,67 @@ void MainWindow::applyStyleSheet()
     }
 }
 
+// 切换主页面堆栈；pageIndex 对应实时采集、历史分析和纠正建议等页面。
 void MainWindow::switchPage(int pageIndex)
 { 
 }
 
+// 显示或隐藏左侧侧栏：折叠布局中的控件和间距，避免隐藏后仍占用宽度。
 void MainWindow::toggleSidebar()
 {
-    
+    m_sidebarVisible = !m_sidebarVisible;
+
+    if (!m_sidebarMetricsCaptured) {
+        m_sidebarLayoutMargins = ui->sidebarLayout->contentsMargins();
+        m_sidebarLayoutSpacing = ui->sidebarLayout->spacing();
+        m_sidebarMetricsCaptured = true;
+    }
+
+    setLayoutItemsVisible(ui->sidebarLayout, m_sidebarVisible);
+    ui->sidebarLayout->setContentsMargins(m_sidebarVisible ? m_sidebarLayoutMargins : QMargins(0, 0, 0, 0));
+    ui->sidebarLayout->setSpacing(m_sidebarVisible ? m_sidebarLayoutSpacing : 0);
+
+    if (auto *sidebarWidget = ui->sidebarLayout->parentWidget();
+        sidebarWidget && sidebarWidget->objectName() == QLatin1String("sidebar")) {
+        if (!sidebarWidget->property("normalMinimumWidth").isValid()) {
+            sidebarWidget->setProperty("normalMinimumWidth", sidebarWidget->minimumWidth());
+            sidebarWidget->setProperty("normalMaximumWidth", sidebarWidget->maximumWidth());
+        }
+
+        if (m_sidebarVisible) {
+            sidebarWidget->setMinimumWidth(sidebarWidget->property("normalMinimumWidth").toInt());
+            sidebarWidget->setMaximumWidth(sidebarWidget->property("normalMaximumWidth").toInt());
+        } else {
+            sidebarWidget->setMinimumWidth(0);
+            sidebarWidget->setMaximumWidth(0);
+        }
+    }
+
+    if (auto *sideBarAfter = findChild<QWidget *>(QStringLiteral("sideBarAfter"))) {
+        sideBarAfter->setVisible(m_sidebarVisible);
+    }
+
+    ui->toggleSidebarButton->setText(m_sidebarVisible
+                                         ? QStringLiteral("▤  隐藏侧栏")
+                                         : QStringLiteral("▤  显示侧栏"));
+    ui->toggleSidebarButton->setToolTip(m_sidebarVisible
+                                            ? QStringLiteral("隐藏左侧导航栏")
+                                            : QStringLiteral("显示左侧导航栏"));
+
+    ui->sidebarLayout->invalidate();
+    if (ui->sidebarLayout->parentWidget() && ui->sidebarLayout->parentWidget()->layout()) {
+        ui->sidebarLayout->parentWidget()->layout()->invalidate();
+        ui->sidebarLayout->parentWidget()->layout()->activate();
+    }
 }
 
+// 记录当前选择的摄像头编号，并在后续采集/保存时作为当前通道使用。
 void MainWindow::selectCamera(int cameraId)
 {
    
 }
 
+// 展开或收起三维轨迹区域：展开时隐藏 12 路视频网格，收起时恢复原布局尺寸。
 void MainWindow::setTrajectoryExpanded(bool expanded)
 {
     if (m_trajectoryExpanded == expanded) {
@@ -284,6 +369,7 @@ void MainWindow::setTrajectoryExpanded(bool expanded)
     }
 }
 
+// 开始采集：主视图和 12 路预览同时播放当前目录下的默认视频。
 void MainWindow::startCapture()
 {
     qDebug() << "[MainWindow] startCapture clicked";
@@ -293,6 +379,7 @@ void MainWindow::startCapture()
     }
 }
 
+// 暂停采集：暂停主视图和全部摄像头预览的播放器状态。
 void MainWindow::pauseCapture()
 {
     qDebug() << "[MainWindow] pauseCapture clicked";
@@ -302,6 +389,7 @@ void MainWindow::pauseCapture()
     }
 }
 
+// 停止采集：停止主视图和全部摄像头预览，并恢复未播放占位状态。
 void MainWindow::stopCapture()
 {
     qDebug() << "[MainWindow] stopCapture clicked";
@@ -311,50 +399,60 @@ void MainWindow::stopCapture()
     }
 }
 
+// 保存当前训练记录；后续可在此持久化训练时长、动作数量和模型评分。
 void MainWindow::saveRecord()
 {
     
 }
 
+// 训练计时器回调：用于累计训练时长、刷新统计数据和实时反馈。
 void MainWindow::tick()
 {
     
 }
 
+// 根据当前页面刷新左侧导航按钮的选中/普通状态。
 void MainWindow::refreshNavButtons()
 {
    
 }
 
+// 根据当前选择的摄像头刷新 12 路预览控件的选中状态。
 void MainWindow::refreshCameraButtons()
 {
    
 }
 
+// 刷新动作计数、训练时长、实时得分等统计卡片。
 void MainWindow::refreshStats()
 {
   
 }
 
+// 重新生成训练历史列表和概要统计卡片。
 void MainWindow::refreshHistory()
 {
      
 }
 
+// 刷新动作纠正建议列表。
 void MainWindow::refreshSuggestions()
 {
     
 }
 
+// 重新应用指定控件的 QSS，用于动态属性变化后立即刷新外观。
 void MainWindow::repolish(QWidget *widget) const
 { 
 }
 
+// 将整数补齐为两位文本，常用于摄像头编号或时间格式。
 QString MainWindow::pad(int num) const
 {
     return QStringLiteral("%1").arg(num, 2, 10, QLatin1Char('0'));
 }
 
+// 将秒数格式化为 mm:ss，显示在训练时长统计中。
 QString MainWindow::formatTime(int seconds) const
 {
     return QStringLiteral("%1:%2")
@@ -363,6 +461,7 @@ QString MainWindow::formatTime(int seconds) const
 }
 
 
+// 将模型精度配置值转换成界面上显示的中文名称。
 QString MainWindow::precisionLabel(const QString &value) const
 {
     if (value == QLatin1String("high")) {
