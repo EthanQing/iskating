@@ -20,6 +20,7 @@
 #include <QPushButton>
 #include <QDebug>
 #include <QRandomGenerator>
+#include <QSettings>
 #include <QSize>
 #include <QSizePolicy>
 #include <QShortcut>
@@ -44,6 +45,11 @@ enum TrajectoryMode {
     TrajectoryExpanded = 1, // 占用自身区域和上方 12 路视频区域。
     TrajectoryMinimized = 2 // 只保留“三维轨迹”标题栏和右侧符号。
 };
+
+QString cameraSettingsGroup(int cameraIndex)
+{
+    return QStringLiteral("cameras/camera%1").arg(cameraIndex + 1, 2, 10, QLatin1Char('0'));
+}
 
 // 清空布局中的子项；保留该工具函数供动态重建列表类界面时复用。
 void clearLayout(QLayout *layout)
@@ -166,7 +172,11 @@ MainWindow::MainWindow(QWidget *parent)
                      << sourceWidget->currentVideoPath();
             ui->mainImageLabel->playFile(sourceWidget->currentVideoPath());
         });
+        cameraWidget->setConfigChangedHandler([this, i](VideoOpenGLWidget *) {
+            saveCameraSetting(i);
+        });
     }
+    loadCameraSettings();
 
     applyStyleSheet();
     installStaticImages();
@@ -241,6 +251,7 @@ MainWindow::MainWindow(QWidget *parent)
 // 释放由 Qt Designer 生成的界面对象。
 MainWindow::~MainWindow()
 {
+    saveCameraSettings();
     delete ui;
 }
 
@@ -316,6 +327,53 @@ void MainWindow::applyStyleSheet()
     if (qssFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
         setStyleSheet(QString::fromUtf8(qssFile.readAll()));
     }
+}
+
+// 从 QSettings 读取 12 路摄像头配置；首次运行时保留 VideoOpenGLWidget 内置默认值。
+void MainWindow::loadCameraSettings()
+{
+    QSettings settings;
+    for (int i = 0; i < m_cameraButtons.size(); ++i) {
+        auto *cameraWidget = m_cameraButtons.at(i);
+        settings.beginGroup(cameraSettingsGroup(i));
+        const QString ip = settings.value(QStringLiteral("ip"), cameraWidget->streamIp()).toString();
+        const QString port = settings.value(QStringLiteral("port"), cameraWidget->streamPort()).toString();
+        const QString path = settings.value(QStringLiteral("path"), cameraWidget->streamPath()).toString();
+        const QString channelName = settings.value(QStringLiteral("name"), cameraWidget->channelName()).toString();
+        settings.endGroup();
+
+        if (!channelName.isEmpty()) {
+            cameraWidget->setChannelName(channelName);
+            cameraWidget->setPlaceholderText(channelName);
+        }
+        cameraWidget->setStreamConfig(ip, port, path);
+    }
+}
+
+// 程序退出时保存全部摄像头配置，确保未触发单路保存的变更也会落盘。
+void MainWindow::saveCameraSettings() const
+{
+    for (int i = 0; i < m_cameraButtons.size(); ++i) {
+        saveCameraSetting(i);
+    }
+}
+
+// 保存指定摄像头配置：名称、IP、端口和路径/其它字段。
+void MainWindow::saveCameraSetting(int cameraIndex) const
+{
+    if (cameraIndex < 0 || cameraIndex >= m_cameraButtons.size()) {
+        return;
+    }
+
+    auto *cameraWidget = m_cameraButtons.at(cameraIndex);
+    QSettings settings;
+    settings.beginGroup(cameraSettingsGroup(cameraIndex));
+    settings.setValue(QStringLiteral("name"), cameraWidget->channelName());
+    settings.setValue(QStringLiteral("ip"), cameraWidget->streamIp());
+    settings.setValue(QStringLiteral("port"), cameraWidget->streamPort());
+    settings.setValue(QStringLiteral("path"), cameraWidget->streamPath());
+    settings.endGroup();
+    settings.sync();
 }
 
 // 切换主页面堆栈；pageIndex 对应实时采集、历史分析和纠正建议等页面。

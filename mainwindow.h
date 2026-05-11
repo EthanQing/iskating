@@ -48,6 +48,9 @@ private:
     void installTrajectoryWidget();
     void installStaticImages();
     void applyStyleSheet();
+    void loadCameraSettings();
+    void saveCameraSettings() const;
+    void saveCameraSetting(int cameraIndex) const;
 
     void switchPage(int pageIndex);
     void toggleSidebar();

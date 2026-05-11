@@ -244,11 +244,11 @@ QFrame[trajectoryView="true"] {
 #cameraButton11,
 #cameraButton12,
 QPushButton[role="camera"] {
-    border: 1px solid #202a3a;
-    background: #0f141d;
+    border: none;
+    background: #14171d;
     color: #8c8c8c;
-    border-radius: 10px;
-    padding: 8px;
+    border-radius: 0;
+    padding: 0;
     text-align: left;
     min-height: 72px;
 }
@@ -266,8 +266,8 @@ QPushButton[role="camera"] {
 #cameraButton11:hover,
 #cameraButton12:hover,
 QPushButton[role="camera"]:hover {
-    border-color: #31578f;
-    background: #121b29;
+    border: none;
+    background: #172338;
 }
 
 QPushButton[role="camera"][selected="true"],

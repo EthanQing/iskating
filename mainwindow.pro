@@ -24,12 +24,14 @@ win32:msvc {
 }
 
 SOURCES += \
+    framelessdialog.cpp \
     iconutils.cpp \
     main.cpp \
     mainwindow.cpp \
     videoopenglwidget.cpp
 
 HEADERS += \
+    framelessdialog.h \
     iconutils.h \
     mainwindow.h \
     videoopenglwidget.h

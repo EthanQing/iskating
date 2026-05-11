@@ -8,6 +8,8 @@
 #include <functional>
 
 class QMediaPlayer;
+class QEnterEvent;
+class QEvent;
 class QMouseEvent;
 class QToolButton;
 class QVideoSink;
@@ -35,10 +37,17 @@ public:
     bool overlayControlsVisible() const;
     void setChannelName(const QString &name);
     QString channelName() const;
+    QString streamIp() const;
+    QString streamPort() const;
+    QString streamPath() const;
+    void setStreamConfig(const QString &ip, const QString &port, const QString &path);
     void setDoubleClickHandler(std::function<void(VideoOpenGLWidget *)> handler);
+    void setConfigChangedHandler(std::function<void(VideoOpenGLWidget *)> handler);
 
 protected:
     void paintGL() override;
+    void enterEvent(QEnterEvent *event) override;
+    void leaveEvent(QEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
     void mouseDoubleClickEvent(QMouseEvent *event) override;
 
@@ -65,6 +74,7 @@ private:
     QToolButton *m_stopButton = nullptr;
     QToolButton *m_configButton = nullptr;
     std::function<void(VideoOpenGLWidget *)> m_doubleClickHandler;
+    std::function<void(VideoOpenGLWidget *)> m_configChangedHandler;
 };
 
 #endif // VIDEOOPENGLWIDGET_H

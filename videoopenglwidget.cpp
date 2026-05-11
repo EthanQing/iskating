@@ -1,9 +1,9 @@
 #include "videoopenglwidget.h"
+#include "framelessdialog.h"
 #include "iconutils.h"
 
 #include <QColor>
 #include <QCoreApplication>
-#include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QFileInfo>
@@ -23,6 +23,7 @@
 #include <QResizeEvent>
 #include <QSize>
 #include <QSizeF>
+#include <QPushButton>
 #include <QToolButton>
 #include <QUrl>
 #include <QVideoFrame>
@@ -229,9 +230,42 @@ QString VideoOpenGLWidget::channelName() const
     return m_channelName;
 }
 
+QString VideoOpenGLWidget::streamIp() const
+{
+    return m_streamIp;
+}
+
+QString VideoOpenGLWidget::streamPort() const
+{
+    return m_streamPort;
+}
+
+QString VideoOpenGLWidget::streamPath() const
+{
+    return m_streamPath;
+}
+
+void VideoOpenGLWidget::setStreamConfig(const QString &ip, const QString &port, const QString &path)
+{
+    m_streamIp = ip.trimmed();
+    m_streamPort = port.trimmed();
+    m_streamPath = path.trimmed();
+
+    setToolTip(QStringLiteral("%1\nrtsp://%2:%3%4")
+                   .arg(m_channelName.isEmpty() ? QStringLiteral("视频源") : m_channelName,
+                        m_streamIp,
+                        m_streamPort,
+                        m_streamPath));
+}
+
 void VideoOpenGLWidget::setDoubleClickHandler(std::function<void(VideoOpenGLWidget *)> handler)
 {
     m_doubleClickHandler = std::move(handler);
+}
+
+void VideoOpenGLWidget::setConfigChangedHandler(std::function<void(VideoOpenGLWidget *)> handler)
+{
+    m_configChangedHandler = std::move(handler);
 }
 
 void VideoOpenGLWidget::paintGL()
@@ -240,12 +274,24 @@ void VideoOpenGLWidget::paintGL()
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
 
-    painter.fillRect(rect(), QColor(QStringLiteral("#14171d")));
-    QPen borderPen(QColor(QStringLiteral("#1e222a")));
+    const bool cameraTile = objectName().startsWith(QLatin1String("cameraButton"));
+    const QColor backgroundColor = cameraTile && underMouse()
+                                       ? QColor(QStringLiteral("#172338"))
+                                       : QColor(QStringLiteral("#14171d"));
+    const QColor borderColor = cameraTile && underMouse()
+                                   ? QColor(QStringLiteral("#31578f"))
+                                   : QColor(QStringLiteral("#1e222a"));
+
+    painter.fillRect(rect(), backgroundColor);
+    QPen borderPen(borderColor);
     borderPen.setWidth(1);
     painter.setPen(borderPen);
     painter.setBrush(Qt::NoBrush);
-    painter.drawRoundedRect(rect().adjusted(0, 0, -1, -1), 10, 10);
+    if (cameraTile) {
+        painter.drawRect(rect().adjusted(0, 0, -1, -1));
+    } else {
+        painter.drawRoundedRect(rect().adjusted(0, 0, -1, -1), 10, 10);
+    }
 
     if (!m_currentFrame.isNull()) {
         const QRect target = rect().adjusted(1, 1, -1, -1);
@@ -332,6 +378,22 @@ void VideoOpenGLWidget::resizeEvent(QResizeEvent *event)
 {
     QOpenGLWidget::resizeEvent(event);
     layoutOverlayControls();
+}
+
+void VideoOpenGLWidget::enterEvent(QEnterEvent *event)
+{
+    QOpenGLWidget::enterEvent(event);
+    if (objectName().startsWith(QLatin1String("cameraButton"))) {
+        update();
+    }
+}
+
+void VideoOpenGLWidget::leaveEvent(QEvent *event)
+{
+    QOpenGLWidget::leaveEvent(event);
+    if (objectName().startsWith(QLatin1String("cameraButton"))) {
+        update();
+    }
 }
 
 void VideoOpenGLWidget::mouseDoubleClickEvent(QMouseEvent *event)
@@ -434,17 +496,26 @@ void VideoOpenGLWidget::layoutOverlayControls()
 
 void VideoOpenGLWidget::openConfigDialog()
 {
-    QDialog dialog(this);
+    FramelessDialog dialog(this);
     dialog.setWindowTitle(m_channelName.isEmpty()
                               ? QStringLiteral("视频源配置")
                               : QStringLiteral("%1 配置").arg(m_channelName));
+    dialog.setDialogTitle(dialog.windowTitle());
     dialog.setModal(true);
+    dialog.setMinimumWidth(380);
 
-    auto *layout = new QVBoxLayout(&dialog);
+    auto *layout = dialog.contentLayout();
     auto *form = new QFormLayout();
+    form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    form->setFormAlignment(Qt::AlignTop);
+    form->setHorizontalSpacing(12);
+    form->setVerticalSpacing(12);
     auto *ipEdit = new QLineEdit(m_streamIp, &dialog);
     auto *portEdit = new QLineEdit(m_streamPort, &dialog);
     auto *pathEdit = new QLineEdit(m_streamPath, &dialog);
+    ipEdit->setPlaceholderText(QStringLiteral("例如：192.168.1.100"));
+    portEdit->setPlaceholderText(QStringLiteral("例如：554"));
+    pathEdit->setPlaceholderText(QStringLiteral("例如：/stream"));
 
     form->addRow(QStringLiteral("IP 地址"), ipEdit);
     form->addRow(QStringLiteral("端口"), portEdit);
@@ -452,18 +523,16 @@ void VideoOpenGLWidget::openConfigDialog()
     layout->addLayout(form);
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("保存"));
+    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
 
     if (dialog.exec() == QDialog::Accepted) {
-        m_streamIp = ipEdit->text().trimmed();
-        m_streamPort = portEdit->text().trimmed();
-        m_streamPath = pathEdit->text().trimmed();
-        setToolTip(QStringLiteral("%1\nrtsp://%2:%3%4")
-                       .arg(m_channelName.isEmpty() ? QStringLiteral("视频源") : m_channelName,
-                            m_streamIp,
-                            m_streamPort,
-                            m_streamPath));
+        setStreamConfig(ipEdit->text(), portEdit->text(), pathEdit->text());
+        if (m_configChangedHandler) {
+            m_configChangedHandler(this);
+        }
     }
 }
