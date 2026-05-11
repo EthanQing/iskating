@@ -6,6 +6,28 @@
 TARGET = iskating
 TEMPLATE = app
 
+# ---- Qt SDK selection ----
+# RTSP playback requires the Qt Multimedia module with the FFmpeg backend.
+# The OSGeo4W Qt 6.8.1 build used before does not provide the required backend,
+# so this project is pinned to the local Qt 6.9.3 MSVC 2022 x64 SDK.
+QT_ROOT = C:/Qt6vs2022/6.9.3/msvc2022_64
+QT_BIN_DIR = $$QT_ROOT/bin
+QT_INCLUDE_DIR = $$QT_ROOT/include
+QT_LIB_DIR = $$QT_ROOT/lib
+
+!exists($$QT_BIN_DIR/qmake.exe) {
+    error("Qt 6.9.3 qmake.exe not found: $$QT_BIN_DIR/qmake.exe")
+}
+
+QMAKE_MOC = $$QT_BIN_DIR/moc.exe
+QMAKE_UIC = $$QT_BIN_DIR/uic.exe
+QMAKE_RCC = $$QT_BIN_DIR/rcc.exe
+QMAKE_INCDIR_QT = $$QT_INCLUDE_DIR
+QMAKE_LIBDIR_QT = $$QT_LIB_DIR
+QMAKE_LIBDIR += $$QT_LIB_DIR
+
+message("Current qmake Qt prefix=$$[QT_INSTALL_PREFIX]")
+
 include(common.pri)
 
 QT += core gui widgets opengl openglwidgets svg multimedia
@@ -44,11 +66,7 @@ RESOURCES += \
 
 INCLUDEPATH += .
 
-# common.pri defines the local Qt/OSGeo4W root used by this project.
-isEmpty(OSGEO4W_DIR) {
-    OSGEO4W_DIR = c:/osgeo4w
-}
-message("Using OSGEO4W_DIR=$$OSGEO4W_DIR")
+message("Using Qt SDK=$$QT_ROOT")
 
 msvc {
     QMAKE_CFLAGS += /utf-8
