@@ -241,7 +241,7 @@ void VideoOpenGLWidget::paintGL()
     painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
 
     painter.fillRect(rect(), QColor(QStringLiteral("#14171d")));
-    QPen borderPen(QColor(QStringLiteral("#202a3a")));
+    QPen borderPen(QColor(QStringLiteral("#1e222a")));
     borderPen.setWidth(1);
     painter.setPen(borderPen);
     painter.setBrush(Qt::NoBrush);
