@@ -942,7 +942,7 @@ body,
   position: relative;
   border-radius: 8px;
   overflow: hidden;
-  background: linear-gradient(135deg, #1a202c, #0e131b);
+  background: linear-gradient(135deg, #1a202c, #14171d);
   height: 110px;
   border: 1px solid #1c2432;
 }
@@ -1196,7 +1196,7 @@ body,
   background:
     linear-gradient(to right, rgba(103, 139, 194, 0.12) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(103, 139, 194, 0.12) 1px, transparent 1px),
-    #101724;
+    #14171d;
   background-size: 24px 24px, 24px 24px, auto;
   overflow: hidden;
 }
@@ -1306,7 +1306,7 @@ body,
   width: 100%;
   min-height: 72px;
   border: 1px solid #324258;
-  background: #121314;
+  background: #101623;
   color: #d7e4fb;
   border-radius: 10px;
   cursor: pointer;

@@ -170,10 +170,9 @@ QPushButton[role="plain"]:hover {
 #summaryActionsCard,
 #summaryAvgCard,
 #summaryBestCard,
-QFrame[card="true"] {
-    border: 1px solid #1d2737;
+QFrame[card="true"] { 
     background: #0f141d;
-    border-radius: 12px;
+    border: none;
 }
 
 #mainViewTitleLabel,
@@ -198,7 +197,7 @@ QFrame[videoPanel="true"] {
     border: 1px solid rgba(120, 150, 190, 0.42);
     border-radius: 10px;
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                stop:0 #1a202c, stop:1 #0e131b);
+                                stop:0 #1a202c, stop:1 #14171d);
 }
 
 #mainVideoPanel[large="true"] {
@@ -208,7 +207,7 @@ QFrame[videoPanel="true"] {
 #mainImageLabel,
 #poseImageLabelA,
 #poseImageLabelB {
-    border-radius: 8px;
+    border: none;
     background: qradialgradient(cx:0.5, cy:0.5, radius:0.72,
                                 stop:0 #f6f9fc,
                                 stop:0.76 #f3f8fc,
@@ -218,9 +217,9 @@ QFrame[videoPanel="true"] {
 
 #trajectoryViewFrame,
 QFrame[trajectoryView="true"] {
-    border: 1px solid #26334a;
-    border-radius: 10px;
-    background: #101724;
+    border: none;
+    border-radius: 0;
+    background: #14171d;
 }
 
 #legendFrame {
@@ -283,7 +282,7 @@ QPushButton[role="camera"]:checked {
 QFrame[brightCard="true"] {
     border: none;
     border-radius: 0;
-    background: #121314;
+    background: #101623;
 }
 
 #startCaptureButton,
@@ -294,7 +293,7 @@ QFrame[brightCard="true"] {
 QPushButton[role="op"] {
     min-height: 72px;
     border: none;
-    background: #121314;
+    background: #101623;
     color: #8c8c8c;
     border-radius: 0;
     padding: 8px 10px;
@@ -303,7 +302,7 @@ QPushButton[role="op"] {
 #startCaptureButton,
 QPushButton[variant="start"] {
     border: none;
-    background: #121314;
+    background: #101623;
     color: #ffffff;
 }
 

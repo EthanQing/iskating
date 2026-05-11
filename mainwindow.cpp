@@ -169,6 +169,7 @@ MainWindow::MainWindow(QWidget *parent)
     }
 
     applyStyleSheet();
+    installStaticImages();
 
     auto *fullScreenShortcut = new QShortcut(QKeySequence(Qt::Key_F11), this);
     fullScreenShortcut->setContext(Qt::WindowShortcut);
@@ -223,7 +224,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_middleLayoutNormalStretch0 = ui->middleLayout->stretch(0);
     m_middleLayoutNormalStretch1 = ui->middleLayout->stretch(1);
     m_cameraGridNormalSpacing = ui->cameraGridLayout->spacing();
+    // 卡片标题按内容宽度显示，避免标题背景在纵向布局里被拉满整行。
+    ui->poseLayout->setAlignment(ui->poseTitleLabel, Qt::AlignLeft);
     ui->metricsLayout->setAlignment(Qt::AlignTop);
+    ui->metricsLayout->setAlignment(ui->metricsTitleLabel, Qt::AlignLeft);
     ui->metricsCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     if (auto *captureLayout = qobject_cast<QVBoxLayout *>(ui->capturePage->layout())) {
         captureLayout->setStretch(0, 1);
@@ -296,10 +300,13 @@ void MainWindow::setupConnections()
 // 将资源文件中的静态示例图片贴到界面对应占位控件上。
 void MainWindow::installStaticImages()
 {
-    // poseImageLabelA/B 已改为 QOpenGLWidget，不能再使用 QLabel::setPixmap；
-    // 这里保留资源路径属性，后续如需 OpenGL 绘制图片可直接读取该属性。
-    ui->poseImageLabelA->setProperty("imageSource", QStringLiteral(":/public/pose-a.png"));
-    ui->poseImageLabelB->setProperty("imageSource", QStringLiteral(":/public/pose-b.png"));
+    // 运动员 3D 姿态区只需要 VideoOpenGLWidget 统一重绘背景，不再默认贴 pose 图片或视频占位图。
+    ui->poseImageLabelA->setPlaceholderText(QString());
+    ui->poseImageLabelA->setPlaceholderIconVisible(false);
+    ui->poseImageLabelA->setOverlayControlsVisible(false);
+    ui->poseImageLabelB->setPlaceholderText(QString());
+    ui->poseImageLabelB->setPlaceholderIconVisible(false);
+    ui->poseImageLabelB->setOverlayControlsVisible(false);
 }
 
 // 从资源系统读取 QSS，统一应用暗色仪表盘主题样式。

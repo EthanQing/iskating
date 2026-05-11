@@ -101,6 +101,25 @@ void VideoOpenGLWidget::setPlaying(bool playing)
     }
 }
 
+void VideoOpenGLWidget::setStillImage(const QString &imagePath)
+{
+    QImage image(imagePath);
+    if (image.isNull()) {
+        qDebug() << "[VideoOpenGLWidget] failed to load still image"
+                 << (m_channelName.isEmpty() ? objectName() : m_channelName)
+                 << imagePath;
+        return;
+    }
+
+    if (m_mediaPlayer) {
+        m_mediaPlayer->stop();
+    }
+    m_videoPath = imagePath;
+    m_currentFrame = image;
+    m_playing = false;
+    update();
+}
+
 void VideoOpenGLWidget::playDefaultVideo()
 {
     qDebug() << "[VideoOpenGLWidget] playDefaultVideo"
@@ -175,6 +194,15 @@ void VideoOpenGLWidget::setPlaceholderText(const QString &text)
     update();
 }
 
+void VideoOpenGLWidget::setPlaceholderIconVisible(bool visible)
+{
+    if (m_placeholderIconVisible == visible) {
+        return;
+    }
+    m_placeholderIconVisible = visible;
+    update();
+}
+
 void VideoOpenGLWidget::setOverlayControlsVisible(bool visible)
 {
     m_overlayControlsVisible = visible;
@@ -212,7 +240,7 @@ void VideoOpenGLWidget::paintGL()
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
 
-    painter.fillRect(rect(), QColor(QStringLiteral("#0e131b")));
+    painter.fillRect(rect(), QColor(QStringLiteral("#14171d")));
     QPen borderPen(QColor(QStringLiteral("#202a3a")));
     borderPen.setWidth(1);
     painter.setPen(borderPen);
@@ -255,7 +283,7 @@ void VideoOpenGLWidget::paintGL()
     const int iconTop = std::max(6, (height() - blockHeight) / 2);
     const QRect iconRect((width() - side) / 2, iconTop, side, side);
 
-    if (m_placeholderRenderer.isValid()) {
+    if (m_placeholderIconVisible && m_placeholderRenderer.isValid()) {
         QImage iconMask(iconRect.size(), QImage::Format_ARGB32_Premultiplied);
         iconMask.fill(Qt::transparent);
 

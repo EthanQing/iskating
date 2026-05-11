@@ -21,6 +21,7 @@ public:
 
     bool isPlaying() const;
     void setPlaying(bool playing);
+    void setStillImage(const QString &imagePath);
     void playDefaultVideo();
     void playFile(const QString &filePath);
     void pausePlayback();
@@ -29,6 +30,7 @@ public:
 
     QString placeholderText() const;
     void setPlaceholderText(const QString &text);
+    void setPlaceholderIconVisible(bool visible);
     void setOverlayControlsVisible(bool visible);
     bool overlayControlsVisible() const;
     void setChannelName(const QString &name);
@@ -46,6 +48,7 @@ private:
     void openConfigDialog();
 
     bool m_playing = false;
+    bool m_placeholderIconVisible = true;
     bool m_overlayControlsVisible = false;
     QString m_placeholderText;
     QString m_channelName;
