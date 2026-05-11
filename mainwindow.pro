@@ -15,7 +15,7 @@ greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 CONFIG += c++20
 win32:CONFIG += debug_and_release
 
-DEFINES += NOMINMAX
+DEFINES += NOMINMAX QT_DEBUG_PLUGINS
 
 win32:msvc {
     # Generate the Visual Studio project as x64 by default.

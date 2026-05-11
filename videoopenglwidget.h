@@ -40,6 +40,7 @@ public:
     QString streamIp() const;
     QString streamPort() const;
     QString streamPath() const;
+    QString streamUrl() const;
     void setStreamConfig(const QString &ip, const QString &port, const QString &path);
     void setDoubleClickHandler(std::function<void(VideoOpenGLWidget *)> handler);
     void setConfigChangedHandler(std::function<void(VideoOpenGLWidget *)> handler);

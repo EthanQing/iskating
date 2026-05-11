@@ -167,10 +167,11 @@ MainWindow::MainWindow(QWidget *parent)
         cameraWidget->setPlaceholderText(cameraName);
         cameraWidget->setOverlayControlsVisible(true);
         cameraWidget->setDoubleClickHandler([this](VideoOpenGLWidget *sourceWidget) {
+            const QString source = sourceWidget->streamUrl();
             qDebug() << "[MainWindow] camera double clicked, play in main view"
                      << sourceWidget->channelName()
-                     << sourceWidget->currentVideoPath();
-            ui->mainImageLabel->playFile(sourceWidget->currentVideoPath());
+                     << source;
+            ui->mainImageLabel->playFile(source);
         });
         cameraWidget->setConfigChangedHandler([this, i](VideoOpenGLWidget *) {
             saveCameraSetting(i);
@@ -329,13 +330,14 @@ void MainWindow::applyStyleSheet()
     }
 }
 
-// 从 QSettings 读取 12 路摄像头配置；首次运行时保留 VideoOpenGLWidget 内置默认值。
+// 从 QSettings 读取 12 路摄像头配置；优先使用新的完整 URL，兼容旧版 IP/端口/路径配置。
 void MainWindow::loadCameraSettings()
 {
     QSettings settings;
     for (int i = 0; i < m_cameraButtons.size(); ++i) {
         auto *cameraWidget = m_cameraButtons.at(i);
         settings.beginGroup(cameraSettingsGroup(i));
+        const QString url = settings.value(QStringLiteral("url")).toString();
         const QString ip = settings.value(QStringLiteral("ip"), cameraWidget->streamIp()).toString();
         const QString port = settings.value(QStringLiteral("port"), cameraWidget->streamPort()).toString();
         const QString path = settings.value(QStringLiteral("path"), cameraWidget->streamPath()).toString();
@@ -346,7 +348,11 @@ void MainWindow::loadCameraSettings()
             cameraWidget->setChannelName(channelName);
             cameraWidget->setPlaceholderText(channelName);
         }
-        cameraWidget->setStreamConfig(ip, port, path);
+        if (!url.trimmed().isEmpty()) {
+            cameraWidget->setStreamConfig(url, QString(), QString());
+        } else {
+            cameraWidget->setStreamConfig(ip, port, path);
+        }
     }
 }
 
@@ -358,7 +364,7 @@ void MainWindow::saveCameraSettings() const
     }
 }
 
-// 保存指定摄像头配置：名称、IP、端口和路径/其它字段。
+// 保存指定摄像头配置：名称和完整视频流 URL；同时保留旧字段以兼容已有代码。
 void MainWindow::saveCameraSetting(int cameraIndex) const
 {
     if (cameraIndex < 0 || cameraIndex >= m_cameraButtons.size()) {
@@ -369,6 +375,7 @@ void MainWindow::saveCameraSetting(int cameraIndex) const
     QSettings settings;
     settings.beginGroup(cameraSettingsGroup(cameraIndex));
     settings.setValue(QStringLiteral("name"), cameraWidget->channelName());
+    settings.setValue(QStringLiteral("url"), cameraWidget->streamUrl());
     settings.setValue(QStringLiteral("ip"), cameraWidget->streamIp());
     settings.setValue(QStringLiteral("port"), cameraWidget->streamPort());
     settings.setValue(QStringLiteral("path"), cameraWidget->streamPath());
@@ -562,12 +569,18 @@ void MainWindow::refreshTrajectoryModeButton()
     ui->collapseTrajectoryButton->setStatusTip(tip);
 }
 
-// 开始采集：主视图和 12 路预览同时播放当前目录下的默认视频。
+// 开始采集：主视图接入第一路视频流，12 路预览分别接入各自配置的真实视频流。
 void MainWindow::startCapture()
 {
     qDebug() << "[MainWindow] startCapture clicked";
-    ui->mainImageLabel->playDefaultVideo();
+    if (!m_cameraButtons.isEmpty()) {
+        qDebug() << "[MainWindow] main view stream" << m_cameraButtons.first()->streamUrl();
+        ui->mainImageLabel->playFile(m_cameraButtons.first()->streamUrl());
+    }
     for (auto *videoWidget : m_cameraButtons) {
+        qDebug() << "[MainWindow] camera stream"
+                 << videoWidget->channelName()
+                 << videoWidget->streamUrl();
         videoWidget->playDefaultVideo();
     }
 }
