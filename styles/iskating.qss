@@ -1,5 +1,5 @@
 /* iSkating Coach - Qt stylesheet
-   Visual language follows vue2-empty/src/App.vue: dark dashboard,
+   Visual language follows the dark dashboard mockup:
    blue cards, glowing preview borders, compact operation buttons. */
 
 QMainWindow,

@@ -1,11 +1,3 @@
-# =========================
-# 手动 Python 配置（等价于 CMake set）
-# =========================
-OSGEO4W_DIR = c:/osgeo4w
-
-
-
-
 # ---- root dirs ----
 ROOT_DIR = $$TOP_PWD
 BIN_DIR  = $$PWD/../bin

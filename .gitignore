@@ -1,72 +1,58 @@
-# iSkating repository ignore rules
-# 默认忽略所有文件；下面只放行源码、工程配置和前端关键文件。
+# iSkating ignore rules
+# Keep source, Qt UI/resource files, and real assets in Git.
+# Ignore generated build output and machine-local editor state.
 
-*
-!*/
-
-# ---- keep source / config files ----
-!.gitignore
-!*.c
-!*.cc
-!*.cpp
-!*.cxx
-!*.h
-!*.hh
-!*.hpp
-!*.hxx
-!*.pro
-!*.pri
-!*.ui
-!*.qrc
-!*.qss
-!*.vue
-!*.js
-!*.json
-!*.html
-!*.css
-!*.md
-
-# ---- keep required static assets referenced by qrc / Vue ----
-!*.png
-!*.jpg
-!*.jpeg
-!*.svg
-!*.ico
+# ---- local workspace / editor state ----
+.agents/
+.codex/
+.vscode/
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
 
 # ---- Visual Studio / generated project files ----
-.vs/
 *.sln
+*.sdf
+*.opensdf
+*.VC.db
+*.VC.opendb
+*.vc.db
+*.opendb
+*.ipch
 *.vcxproj
-*.vcxproj.*
+*.vcxproj.filters
+*.vcxproj.user
+*.vcxproj.*.user
 *.vcproj
 *.vcproj.*
-*.user
-*.suo
-*.opensdf
-*.sdf
-*.VC.db
-*.VC.VC.opendb
-*.ipch
 
 # ---- Qt / qmake generated files ----
 .qmake.stash
+*.pro.user
+*.pro.user.*
 Makefile
 Makefile.*
-*.Debug
-*.Release
 moc/
 rcc/
 ui/
 obj/
+qrc_*.cpp
+moc_*.cpp
+ui_*.h
 
 # ---- build output directories ----
+build/
+build-*/
 debug/
 release/
+Debug/
+Release/
 x64/
-build/
 bin/
-dist/
 out/
+dist/
 
 # ---- compiled / binary / debug artifacts ----
 *.o
@@ -84,6 +70,11 @@ out/
 *.moc
 *.pch
 *.manifest
+*.recipe
+*.tlog
+*.lastbuildstate
+*.log
+*.engine
 
 # ---- Node / frontend generated files ----
 node_modules/
