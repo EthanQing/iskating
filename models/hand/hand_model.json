@@ -1,0 +1,32 @@
+{
+  "name": "mediapipe_hands_tensorrt_v1",
+  "backend": "TensorRT FP16",
+  "pipeline": [
+    {
+      "id": "palm_detector",
+      "onnx": "palm_detector.onnx",
+      "engine": "palm_detector.fp16.engine",
+      "input": {
+        "name": "input_1",
+        "shape": [1, 192, 192, 3],
+        "layout": "NHWC",
+        "range": "0..1 RGB"
+      },
+      "scoreThreshold": 0.55,
+      "nmsIouThreshold": 0.3,
+      "maxHands": 2
+    },
+    {
+      "id": "hand_landmark",
+      "onnx": "hand_landmark.onnx",
+      "engine": "hand_landmark.fp16.engine",
+      "input": {
+        "name": "input_1",
+        "shape": [1, 224, 224, 3],
+        "layout": "NHWC",
+        "range": "0..1 RGB"
+      },
+      "landmarks": 21
+    }
+  ]
+}
