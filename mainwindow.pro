@@ -1,22 +1,25 @@
 #-------------------------------------------------
 # iSkating Coach Qt Widgets interface
-# Converted from vue2-empty/src/App.vue
 #-------------------------------------------------
 
 TARGET = iskating
 TEMPLATE = app
 
 # ---- Qt SDK selection ----
-# RTSP playback requires the Qt Multimedia module with the FFmpeg backend.
-# The OSGeo4W Qt 6.8.1 build used before does not provide the required backend,
-# so this project is pinned to the local Qt 6.9.3 MSVC 2022 x64 SDK.
-QT_ROOT = C:/Qt6vs2022/6.9.3/msvc2022_64
+# RTSP playback uses FFmpeg/libav with D3D11VA hardware decoding.
+# Use the official Qt MSVC 2022 x64 SDK installed by Qt Online Installer.
+QT_ROOT = C:/Qt/6.7.3/msvc2022_64
 QT_BIN_DIR = $$QT_ROOT/bin
 QT_INCLUDE_DIR = $$QT_ROOT/include
 QT_LIB_DIR = $$QT_ROOT/lib
 
 !exists($$QT_BIN_DIR/qmake.exe) {
-    error("Qt 6.9.3 qmake.exe not found: $$QT_BIN_DIR/qmake.exe")
+    error("Official Qt 6.7.3 MSVC 2022 x64 qmake.exe not found: $$QT_BIN_DIR/qmake.exe")
+}
+
+CURRENT_QT_PREFIX = $$[QT_INSTALL_PREFIX]
+!equals(CURRENT_QT_PREFIX, $$QT_ROOT) {
+    error("Use the official qmake at $$QT_BIN_DIR/qmake.exe; current qmake prefix=$$CURRENT_QT_PREFIX")
 }
 
 QMAKE_MOC = $$QT_BIN_DIR/moc.exe
@@ -30,14 +33,77 @@ message("Current qmake Qt prefix=$$[QT_INSTALL_PREFIX]")
 
 include(common.pri)
 
-QT += core gui widgets opengl openglwidgets svg multimedia
+QT += core gui widgets svg
+
+FFMPEG_ROOT = $$(FFMPEG_ROOT)
+isEmpty(FFMPEG_ROOT) {
+    FFMPEG_ROOT = C:/Users/qc/zm/ffmpeg-8.0.1-full_build-shared
+}
+FFMPEG_INCLUDE_DIR = $$FFMPEG_ROOT/include
+FFMPEG_LIB_DIR = $$FFMPEG_ROOT/lib
+FFMPEG_BIN_DIR = $$FFMPEG_ROOT/bin
+
+!exists($$FFMPEG_INCLUDE_DIR/libavcodec/avcodec.h) {
+    error("FFmpeg dev headers not found. Set FFMPEG_ROOT to a shared MSVC x64 FFmpeg dev package: $$FFMPEG_ROOT")
+}
+!exists($$FFMPEG_LIB_DIR/avcodec.lib) {
+    error("FFmpeg import libs not found. Set FFMPEG_ROOT to a shared MSVC x64 FFmpeg dev package: $$FFMPEG_ROOT")
+}
+
+INCLUDEPATH += $$FFMPEG_INCLUDE_DIR
+TENSORRT_ROOT = $$(TENSORRT_ROOT)
+isEmpty(TENSORRT_ROOT) {
+    TENSORRT_ROOT = C:/Program Files/TensorRT-10.1.0.27
+}
+CUDA_ROOT = $$(CUDA_ROOT)
+isEmpty(CUDA_ROOT) {
+    CUDA_ROOT = C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.8
+}
+TENSORRT_INCLUDE_DIR = $$TENSORRT_ROOT/include
+TENSORRT_LIB_DIR = $$TENSORRT_ROOT/lib
+CUDA_INCLUDE_DIR = $$CUDA_ROOT/include
+CUDA_LIB_DIR = $$CUDA_ROOT/lib/x64
+CUDA_BIN_DIR = $$CUDA_ROOT/bin
+
+!exists($$TENSORRT_INCLUDE_DIR/NvInfer.h) {
+    error("TensorRT headers not found. Set TENSORRT_ROOT: $$TENSORRT_ROOT")
+}
+!exists($$TENSORRT_LIB_DIR/nvinfer_10.lib) {
+    error("TensorRT import libs not found. Set TENSORRT_ROOT: $$TENSORRT_ROOT")
+}
+!exists($$CUDA_INCLUDE_DIR/cuda_runtime_api.h) {
+    error("CUDA headers not found. Set CUDA_ROOT: $$CUDA_ROOT")
+}
+!exists($$CUDA_LIB_DIR/cudart.lib) {
+    error("CUDA import lib not found. Set CUDA_ROOT: $$CUDA_ROOT")
+}
+
+INCLUDEPATH += "$$TENSORRT_INCLUDE_DIR" "$$CUDA_INCLUDE_DIR"
+QMAKE_LIBDIR += $$FFMPEG_LIB_DIR "$$TENSORRT_LIB_DIR" "$$CUDA_LIB_DIR"
+LIBS += \
+    avformat.lib \
+    avcodec.lib \
+    avutil.lib \
+    nvinfer_10.lib \
+    nvonnxparser_10.lib \
+    nvinfer_plugin_10.lib \
+    cudart.lib \
+    d3d11.lib \
+    dxgi.lib \
+    dxguid.lib \
+    d3dcompiler.lib \
+    user32.lib
+
+message("Using FFmpeg SDK=$$FFMPEG_ROOT")
+message("Using TensorRT SDK=$$TENSORRT_ROOT")
+message("Using CUDA SDK=$$CUDA_ROOT")
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
 CONFIG += c++20
 win32:CONFIG += debug_and_release
 
-DEFINES += NOMINMAX QT_DEBUG_PLUGINS
+DEFINES += NOMINMAX
 
 win32:msvc {
     # Generate the Visual Studio project as x64 by default.
@@ -46,16 +112,32 @@ win32:msvc {
 }
 
 SOURCES += \
+    d3d11videodevice.cpp \
+    d3dframeextractor.cpp \
+    d3dvideosurface.cpp \
     framelessdialog.cpp \
+    handanalysismanager.cpp \
     iconutils.cpp \
     main.cpp \
     mainwindow.cpp \
+    rtspstream.cpp \
+    streamregistry.cpp \
+    tensortrthandposebackend.cpp \
     videoopenglwidget.cpp
 
 HEADERS += \
+    d3d11videodevice.h \
+    d3dframe.h \
+    d3dframeextractor.h \
+    d3dvideosurface.h \
     framelessdialog.h \
+    handanalysismanager.h \
+    handposeresult.h \
     iconutils.h \
     mainwindow.h \
+    rtspstream.h \
+    streamregistry.h \
+    tensortrthandposebackend.h \
     videoopenglwidget.h
 
 FORMS += \
@@ -105,6 +187,29 @@ CONFIG(release, debug|release) {
 }
 
 message("Build output: $$DESTDIR")
+
+ffmpeg_dlls.commands = \
+    $(COPY_FILE) $$shell_path($$FFMPEG_BIN_DIR/avcodec-62.dll) $$shell_path($$DESTDIR) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_path($$FFMPEG_BIN_DIR/avformat-62.dll) $$shell_path($$DESTDIR) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_path($$FFMPEG_BIN_DIR/avutil-60.dll) $$shell_path($$DESTDIR) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_path($$FFMPEG_BIN_DIR/swresample-6.dll) $$shell_path($$DESTDIR) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_path($$FFMPEG_BIN_DIR/swscale-9.dll) $$shell_path($$DESTDIR)
+QMAKE_EXTRA_TARGETS += ffmpeg_dlls
+POST_TARGETDEPS += ffmpeg_dlls
+
+tensorrt_dlls.commands = \
+    $(COPY_FILE) $$shell_quote($$shell_path($$TENSORRT_LIB_DIR/nvinfer_10.dll)) $$shell_quote($$shell_path($$DESTDIR)) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_quote($$shell_path($$TENSORRT_LIB_DIR/nvinfer_plugin_10.dll)) $$shell_quote($$shell_path($$DESTDIR)) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_quote($$shell_path($$TENSORRT_LIB_DIR/nvonnxparser_10.dll)) $$shell_quote($$shell_path($$DESTDIR)) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_quote($$shell_path($$TENSORRT_LIB_DIR/nvinfer_builder_resource_10.dll)) $$shell_quote($$shell_path($$DESTDIR)) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_quote($$shell_path($$CUDA_BIN_DIR/cudart64_110.dll)) $$shell_quote($$shell_path($$DESTDIR))
+QMAKE_EXTRA_TARGETS += tensorrt_dlls
+POST_TARGETDEPS += tensorrt_dlls
+
+hand_models.commands = \
+    $(COPY_DIR) $$shell_quote($$shell_path($$PWD/models)) $$shell_quote($$shell_path($$DESTDIR/models))
+QMAKE_EXTRA_TARGETS += hand_models
+POST_TARGETDEPS += hand_models
 
 # ---- MSVC: generate debug info in Release ----
 PDB_PATH = $$shell_path($$DESTDIR/$${TARGET}.pdb)

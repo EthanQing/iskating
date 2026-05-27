@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "handanalysismanager.h"
 #include "iconutils.h"
 #include "ui_mainwindow.h"
 #include "videoopenglwidget.h"
@@ -25,6 +26,7 @@
 #include <QSizePolicy>
 #include <QShortcut>
 #include <QStyle>
+#include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -49,6 +51,31 @@ enum TrajectoryMode {
 QString cameraSettingsGroup(int cameraIndex)
 {
     return QStringLiteral("cameras/camera%1").arg(cameraIndex + 1, 2, 10, QLatin1Char('0'));
+}
+
+QString safeUrlForLog(const QString &source)
+{
+    QUrl url = QUrl::fromEncoded(source.toUtf8(), QUrl::TolerantMode);
+    if (!url.password().isEmpty()) {
+        url.setPassword(QStringLiteral("***"));
+        return url.toString(QUrl::FullyEncoded);
+    }
+    return source;
+}
+
+QString topbarModuleHtml(const QString &icon, const QString &title, const QString &value)
+{
+    return QStringLiteral(
+               "<table cellspacing='0' cellpadding='0'>"
+               "<tr>"
+               "<td rowspan='2' style='padding-right:8px; color:#9fb6d8; font-size:19px; font-weight:800;'>%1</td>"
+               "<td style='color:#7fb6ff; font-size:12px; font-weight:700;'>%2</td>"
+               "</tr>"
+               "<tr>"
+               "<td style='color:#8c8c8c; font-size:13px; font-weight:500;'>%3</td>"
+               "</tr>"
+               "</table>")
+        .arg(icon, title, value);
 }
 
 // 清空布局中的子项；保留该工具函数供动态重建列表类界面时复用。
@@ -135,11 +162,19 @@ MainWindow::MainWindow(QWidget *parent)
     setTopbarModule(ui->modelStatusLabel,
                     QStringLiteral("AI"),
                     QStringLiteral("模型状态 Status"),
-                    QStringLiteral("已就绪（v2.3.1）"));
+                    QStringLiteral("手部 AI 初始化中"));
     setTopbarModule(ui->storageStatusLabel,
                     QStringLiteral("DB"),
                     QStringLiteral("存储 Storage"),
                     QStringLiteral("1.82T/4.00TB"));
+
+    m_handAnalysisManager = std::make_unique<HandAnalysisManager>(this);
+    m_handAnalysisManager->setResultCallback([this](const QVector<HandPoseResult> &results) {
+        ui->mainImageLabel->setHandPoseResults(results);
+    });
+    m_handAnalysisManager->setStatusCallback([this](const QString &statusText) {
+        refreshModelStatus(statusText);
+    });
 
     // 在“隐藏侧栏”按钮旁边动态增加全屏按钮，避免修改 .ui 后生成头文件不同步。
     m_fullScreenButton = new QPushButton(ui->toggleSidebarButton->parentWidget());
@@ -160,18 +195,22 @@ MainWindow::MainWindow(QWidget *parent)
 
     ui->mainImageLabel->setPlaceholderText(QStringLiteral("主视频\n未播放"));
     ui->mainImageLabel->setOverlayControlsVisible(false);
+    ui->mainImageLabel->setStreamChangedHandler([this](VideoOpenGLWidget *) {
+        if (m_handAnalysisManager) {
+            m_handAnalysisManager->setActiveStream(m_selectedCamera, ui->mainImageLabel->activeStream());
+        }
+    });
     for (int i = 0; i < m_cameraButtons.size(); ++i) {
         auto *cameraWidget = m_cameraButtons.at(i);
         const QString cameraName = QStringLiteral("CAM %1").arg(i + 1, 2, 10, QLatin1Char('0'));
         cameraWidget->setChannelName(cameraName);
         cameraWidget->setPlaceholderText(cameraName);
         cameraWidget->setOverlayControlsVisible(true);
-        cameraWidget->setDoubleClickHandler([this](VideoOpenGLWidget *sourceWidget) {
-            const QString source = sourceWidget->streamUrl();
+        cameraWidget->setDoubleClickHandler([this, i](VideoOpenGLWidget *) {
             qDebug() << "[MainWindow] camera double clicked, play in main view"
-                     << sourceWidget->channelName()
-                     << source;
-            ui->mainImageLabel->playFile(source);
+                     << m_cameraButtons.at(i)->channelName()
+                     << safeUrlForLog(m_cameraButtons.at(i)->mainUrl());
+            showCameraInMainView(i);
         });
         cameraWidget->setConfigChangedHandler([this, i](VideoOpenGLWidget *) {
             saveCameraSetting(i);
@@ -252,6 +291,10 @@ MainWindow::MainWindow(QWidget *parent)
 // 释放由 Qt Designer 生成的界面对象。
 MainWindow::~MainWindow()
 {
+    if (m_handAnalysisManager) {
+        m_handAnalysisManager->stop();
+        m_handAnalysisManager.reset();
+    }
     saveCameraSettings();
     delete ui;
 }
@@ -330,13 +373,15 @@ void MainWindow::applyStyleSheet()
     }
 }
 
-// 从 QSettings 读取 12 路摄像头配置；优先使用新的完整 URL，兼容旧版 IP/端口/路径配置。
+// 从 QSettings 读取 12 路摄像头配置；预览使用子码流，主视图使用主码流，兼容旧版 url/IP 配置。
 void MainWindow::loadCameraSettings()
 {
     QSettings settings;
     for (int i = 0; i < m_cameraButtons.size(); ++i) {
         auto *cameraWidget = m_cameraButtons.at(i);
         settings.beginGroup(cameraSettingsGroup(i));
+        const QString previewUrl = settings.value(QStringLiteral("previewUrl")).toString();
+        const QString mainUrl = settings.value(QStringLiteral("mainUrl")).toString();
         const QString url = settings.value(QStringLiteral("url")).toString();
         const QString ip = settings.value(QStringLiteral("ip"), cameraWidget->streamIp()).toString();
         const QString port = settings.value(QStringLiteral("port"), cameraWidget->streamPort()).toString();
@@ -348,8 +393,12 @@ void MainWindow::loadCameraSettings()
             cameraWidget->setChannelName(channelName);
             cameraWidget->setPlaceholderText(channelName);
         }
-        if (!url.trimmed().isEmpty()) {
-            cameraWidget->setStreamConfig(url, QString(), QString());
+        if (!previewUrl.trimmed().isEmpty() || !mainUrl.trimmed().isEmpty()) {
+            const QString preview = previewUrl.trimmed().isEmpty() ? mainUrl : previewUrl;
+            const QString main = mainUrl.trimmed().isEmpty() ? preview : mainUrl;
+            cameraWidget->setStreamUrls(preview, main);
+        } else if (!url.trimmed().isEmpty()) {
+            cameraWidget->setStreamUrls(url, url);
         } else {
             cameraWidget->setStreamConfig(ip, port, path);
         }
@@ -364,7 +413,7 @@ void MainWindow::saveCameraSettings() const
     }
 }
 
-// 保存指定摄像头配置：名称和完整视频流 URL；同时保留旧字段以兼容已有代码。
+// 保存指定摄像头配置：名称、预览子码流、主画面码流；同时保留旧字段以兼容已有代码。
 void MainWindow::saveCameraSetting(int cameraIndex) const
 {
     if (cameraIndex < 0 || cameraIndex >= m_cameraButtons.size()) {
@@ -375,12 +424,43 @@ void MainWindow::saveCameraSetting(int cameraIndex) const
     QSettings settings;
     settings.beginGroup(cameraSettingsGroup(cameraIndex));
     settings.setValue(QStringLiteral("name"), cameraWidget->channelName());
-    settings.setValue(QStringLiteral("url"), cameraWidget->streamUrl());
+    settings.setValue(QStringLiteral("previewUrl"), cameraWidget->previewUrl());
+    settings.setValue(QStringLiteral("mainUrl"), cameraWidget->mainUrl());
+    settings.setValue(QStringLiteral("url"), cameraWidget->previewUrl());
     settings.setValue(QStringLiteral("ip"), cameraWidget->streamIp());
     settings.setValue(QStringLiteral("port"), cameraWidget->streamPort());
     settings.setValue(QStringLiteral("path"), cameraWidget->streamPath());
     settings.endGroup();
     settings.sync();
+}
+
+// 将指定摄像头主码流显示到主视图；小窗预览仍保持子码流。
+void MainWindow::showCameraInMainView(int cameraIndex)
+{
+    if (cameraIndex < 0 || cameraIndex >= m_cameraButtons.size()) {
+        return;
+    }
+
+    auto *cameraWidget = m_cameraButtons.at(cameraIndex);
+    m_selectedCamera = cameraIndex + 1;
+    const QString source = cameraWidget->mainUrl();
+    if (source.trimmed().isEmpty()) {
+        ui->mainImageLabel->stopPlayback();
+        ui->mainImageLabel->setPlaceholderText(QStringLiteral("主视频\n未配置"));
+        if (m_handAnalysisManager) {
+            m_handAnalysisManager->setActiveStream(0, {});
+        }
+    } else {
+        ui->mainImageLabel->setPlaceholderText(cameraWidget->channelName());
+        ui->mainImageLabel->playMainUrlWithFallback(source, cameraWidget->previewUrl());
+        if (m_handAnalysisManager) {
+            m_handAnalysisManager->setPaused(false);
+            m_handAnalysisManager->setActiveStream(m_selectedCamera, ui->mainImageLabel->activeStream());
+        }
+    }
+
+    ui->focusTitleLabel->setText(QStringLiteral("当前来源：%1").arg(cameraWidget->channelName()));
+    refreshCameraButtons();
 }
 
 // 切换主页面堆栈；pageIndex 对应实时采集、历史分析和纠正建议等页面。
@@ -463,7 +543,11 @@ void MainWindow::exitFullScreenMode()
 // 记录当前选择的摄像头编号，并在后续采集/保存时作为当前通道使用。
 void MainWindow::selectCamera(int cameraId)
 {
-   
+    if (cameraId < 1 || cameraId > m_cameraButtons.size()) {
+        return;
+    }
+
+    showCameraInMainView(cameraId - 1);
 }
 
 // 兼容旧的二态调用：true 表示扩展到上方 12 路视频区域，false 表示恢复正常区域。
@@ -573,14 +657,17 @@ void MainWindow::refreshTrajectoryModeButton()
 void MainWindow::startCapture()
 {
     qDebug() << "[MainWindow] startCapture clicked";
+    if (m_handAnalysisManager) {
+        m_handAnalysisManager->setPaused(false);
+    }
     if (!m_cameraButtons.isEmpty()) {
-        qDebug() << "[MainWindow] main view stream" << m_cameraButtons.first()->streamUrl();
-        ui->mainImageLabel->playFile(m_cameraButtons.first()->streamUrl());
+        qDebug() << "[MainWindow] main view stream" << safeUrlForLog(m_cameraButtons.first()->mainUrl());
+        showCameraInMainView(0);
     }
     for (auto *videoWidget : m_cameraButtons) {
         qDebug() << "[MainWindow] camera stream"
                  << videoWidget->channelName()
-                 << videoWidget->streamUrl();
+                 << safeUrlForLog(videoWidget->previewUrl());
         videoWidget->playDefaultVideo();
     }
 }
@@ -589,6 +676,9 @@ void MainWindow::startCapture()
 void MainWindow::pauseCapture()
 {
     qDebug() << "[MainWindow] pauseCapture clicked";
+    if (m_handAnalysisManager) {
+        m_handAnalysisManager->setPaused(true);
+    }
     ui->mainImageLabel->pausePlayback();
     for (auto *videoWidget : m_cameraButtons) {
         videoWidget->pausePlayback();
@@ -599,6 +689,10 @@ void MainWindow::pauseCapture()
 void MainWindow::stopCapture()
 {
     qDebug() << "[MainWindow] stopCapture clicked";
+    if (m_handAnalysisManager) {
+        m_handAnalysisManager->setPaused(true);
+        m_handAnalysisManager->setActiveStream(0, {});
+    }
     ui->mainImageLabel->stopPlayback();
     for (auto *videoWidget : m_cameraButtons) {
         videoWidget->stopPlayback();
@@ -626,7 +720,11 @@ void MainWindow::refreshNavButtons()
 // 根据当前选择的摄像头刷新 12 路预览控件的选中状态。
 void MainWindow::refreshCameraButtons()
 {
-   
+    for (int i = 0; i < m_cameraButtons.size(); ++i) {
+        auto *cameraWidget = m_cameraButtons.at(i);
+        cameraWidget->setProperty("selected", i + 1 == m_selectedCamera);
+        repolish(cameraWidget);
+    }
 }
 
 // 刷新动作计数、训练时长、实时得分等统计卡片。
@@ -690,6 +788,17 @@ void MainWindow::refreshFullScreenButton()
                                        : QStringLiteral("进入全屏显示（F11）"));
     m_fullScreenButton->setStatusTip(m_fullScreenButton->toolTip());
     m_fullScreenButton->setAccessibleName(label);
+}
+
+void MainWindow::refreshModelStatus(const QString &statusText)
+{
+    if (!ui || !ui->modelStatusLabel) {
+        return;
+    }
+    ui->modelStatusLabel->setTextFormat(Qt::RichText);
+    ui->modelStatusLabel->setText(topbarModuleHtml(QStringLiteral("AI"),
+                                                   QStringLiteral("模型状态 Status"),
+                                                   statusText));
 }
 
 // 重新应用指定控件的 QSS，用于动态属性变化后立即刷新外观。

@@ -1209,7 +1209,7 @@
  <customwidgets>
   <customwidget>
    <class>VideoOpenGLWidget</class>
-   <extends>QOpenGLWidget</extends>
+   <extends>QWidget</extends>
    <header>videoopenglwidget.h</header>
   </customwidget>
  </customwidgets>

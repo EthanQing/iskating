@@ -7,12 +7,15 @@
 #include <QTimer>
 #include <QVector>
 
+#include <memory>
+
 class QLabel;
 class QEvent;
 class QPushButton;
 class QVBoxLayout;
 class TrajectoryWidget;
 class VideoOpenGLWidget;
+class HandAnalysisManager;
 
 namespace Ui {
 class MainWindow;
@@ -51,6 +54,7 @@ private:
     void loadCameraSettings();
     void saveCameraSettings() const;
     void saveCameraSetting(int cameraIndex) const;
+    void showCameraInMainView(int cameraIndex);
 
     void switchPage(int pageIndex);
     void toggleSidebar();
@@ -74,6 +78,7 @@ private:
     void refreshSuggestions();
     void refreshSidebarButton();
     void refreshFullScreenButton();
+    void refreshModelStatus(const QString &statusText);
     void repolish(QWidget *widget) const;
 
     QString pad(int num) const;
@@ -87,6 +92,7 @@ private:
     QVector<VideoOpenGLWidget *> m_cameraButtons;
     QVector<QLabel *> m_summaryValues;
     QPushButton *m_fullScreenButton = nullptr;
+    std::unique_ptr<HandAnalysisManager> m_handAnalysisManager;
 
     TrajectoryWidget *m_trajectoryWidget = nullptr;
     QTimer m_timer;

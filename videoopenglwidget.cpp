@@ -1,6 +1,9 @@
 #include "videoopenglwidget.h"
+#include "d3dvideosurface.h"
 #include "framelessdialog.h"
 #include "iconutils.h"
+#include "rtspstream.h"
+#include "streamregistry.h"
 
 #include <QColor>
 #include <QCoreApplication>
@@ -13,11 +16,10 @@
 #include <QHBoxLayout>
 #include <QImage>
 #include <QLineEdit>
-#include <QMediaMetaData>
-#include <QMediaPlayer>
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPaintEvent>
 #include <QPen>
 #include <QPointF>
 #include <QDebug>
@@ -29,8 +31,6 @@
 #include <QToolButton>
 #include <QTimer>
 #include <QUrl>
-#include <QVideoFrame>
-#include <QVideoSink>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -40,121 +40,84 @@ namespace {
 
 bool hasUrlScheme(const QString &source)
 {
-    const QString trimmed = source.trimmed();
-    return trimmed.contains(QStringLiteral("://"));
+    return source.trimmed().contains(QStringLiteral("://"));
 }
 
-QString safeUrlForLog(const QUrl &url)
+QString composeStreamUrl(const QString &ipOrUrl, const QString &port, const QString &path)
 {
-    QUrl safeUrl = url;
-    if (!safeUrl.password().isEmpty()) {
-        safeUrl.setPassword(QStringLiteral("***"));
+    const QString trimmedPath = path.trimmed();
+    const QString trimmedIp = ipOrUrl.trimmed();
+    const QString trimmedPort = port.trimmed();
+
+    if (hasUrlScheme(trimmedPath)) {
+        return trimmedPath;
     }
-    return safeUrl.toString(QUrl::FullyEncoded);
-}
 
-QUrl sourceToUrl(const QString &source)
-{
-    const QString trimmed = source.trimmed();
-    if (hasUrlScheme(trimmed)) {
-        QUrl url = QUrl::fromEncoded(trimmed.toUtf8(), QUrl::TolerantMode);
-
-        // Some Qt backends/loggers hide password in QUrl output. 这里显式拆分一次
-        // user:password@host，确保 QUrl 对象内部保留密码，而不是只留下用户名。
-        const int schemePos = trimmed.indexOf(QStringLiteral("://"));
-        const int authorityStart = schemePos >= 0 ? schemePos + 3 : 0;
-        const int pathStart = trimmed.indexOf(QLatin1Char('/'), authorityStart);
-        const QString authority = pathStart >= 0 ? trimmed.mid(authorityStart, pathStart - authorityStart)
-                                                 : trimmed.mid(authorityStart);
-        const int atPos = authority.lastIndexOf(QLatin1Char('@'));
-        if (atPos > 0) {
-            const QString userInfo = authority.left(atPos);
-            const int colonPos = userInfo.indexOf(QLatin1Char(':'));
-            if (colonPos >= 0) {
-                url.setUserName(QUrl::fromPercentEncoding(userInfo.left(colonPos).toUtf8()), QUrl::DecodedMode);
-                url.setPassword(QUrl::fromPercentEncoding(userInfo.mid(colonPos + 1).toUtf8()), QUrl::DecodedMode);
+    if (hasUrlScheme(trimmedIp)) {
+        QString url = trimmedIp;
+        if (!trimmedPath.isEmpty()) {
+            if (!url.endsWith(QLatin1Char('/')) && !trimmedPath.startsWith(QLatin1Char('/'))) {
+                url += QLatin1Char('/');
+            } else if (url.endsWith(QLatin1Char('/')) && trimmedPath.startsWith(QLatin1Char('/'))) {
+                url.chop(1);
             }
+            url += trimmedPath;
         }
-
         return url;
     }
-    return QUrl::fromLocalFile(QFileInfo(trimmed).absoluteFilePath());
+
+    if (trimmedIp.isEmpty()) {
+        return trimmedPath;
+    }
+
+    QString url = QStringLiteral("rtsp://") + trimmedIp;
+    if (!trimmedPort.isEmpty()) {
+        url += QStringLiteral(":") + trimmedPort;
+    }
+    if (!trimmedPath.isEmpty()) {
+        if (!trimmedPath.startsWith(QLatin1Char('/'))) {
+            url += QLatin1Char('/');
+        }
+        url += trimmedPath;
+    }
+    return url;
+}
+
+QString normalizedMediaSource(const QString &source)
+{
+    const QString trimmed = source.trimmed();
+    if (trimmed.isEmpty() || hasUrlScheme(trimmed)) {
+        return trimmed;
+    }
+    return QFileInfo(trimmed).absoluteFilePath();
+}
+
+QString safeUrlForLog(const QString &source)
+{
+    QUrl url = QUrl::fromEncoded(source.toUtf8(), QUrl::TolerantMode);
+    if (!url.password().isEmpty()) {
+        url.setPassword(QStringLiteral("***"));
+        return url.toString(QUrl::FullyEncoded);
+    }
+    return source;
 }
 
 } // namespace
 
 VideoOpenGLWidget::VideoOpenGLWidget(QWidget *parent)
-    : QOpenGLWidget(parent)
+    : QWidget(parent)
     , m_placeholderRenderer(QStringLiteral(":/icons/video.svg"))
-    , m_mediaPlayer(new QMediaPlayer(this))
-    , m_videoSink(new QVideoSink(this))
+    , m_videoSurface(new D3DVideoSurface(this))
+    , m_renderTimer(new QTimer(this))
 {
     setAutoFillBackground(false);
-    m_mediaPlayer->setVideoOutput(m_videoSink);
-    qDebug() << "[VideoOpenGLWidget] media player available"
-             << (m_channelName.isEmpty() ? objectName() : m_channelName)
-             << m_mediaPlayer->isAvailable();
-    connect(m_videoSink, &QVideoSink::videoFrameChanged, this, [this](const QVideoFrame &frame) {
-        QImage image = frame.toImage();
-        if (!image.isNull()) {
-            qDebug() << "[VideoOpenGLWidget] frame received"
-                     << (m_channelName.isEmpty() ? objectName() : m_channelName)
-                     << image.size();
-            m_currentFrame = image;
-            update();
-        } else {
-            qDebug() << "[VideoOpenGLWidget] empty frame"
-                     << (m_channelName.isEmpty() ? objectName() : m_channelName);
-        }
-    });
-    connect(m_mediaPlayer, &QMediaPlayer::playbackStateChanged, this, [this](QMediaPlayer::PlaybackState state) {
-        qDebug() << "[VideoOpenGLWidget] playback state"
-                 << (m_channelName.isEmpty() ? objectName() : m_channelName)
-                 << state
-                 << "status=" << m_mediaPlayer->mediaStatus()
-                 << "error=" << m_mediaPlayer->error()
-                 << m_mediaPlayer->errorString();
-        m_playing = (state == QMediaPlayer::PlayingState);
-        update();
-    });
-    connect(m_mediaPlayer, &QMediaPlayer::mediaStatusChanged, this, [this](QMediaPlayer::MediaStatus status) {
-        qDebug() << "[VideoOpenGLWidget] media status"
-                 << (m_channelName.isEmpty() ? objectName() : m_channelName)
-                 << status
-                 << safeUrlForLog(m_mediaPlayer->source())
-                 << "passwordPresent=" << !m_mediaPlayer->source().password().isEmpty();
-    });
-    connect(m_mediaPlayer, &QMediaPlayer::hasVideoChanged, this, [this](bool available) {
-        qDebug() << "[VideoOpenGLWidget] has video changed"
-                 << (m_channelName.isEmpty() ? objectName() : m_channelName)
-                 << available;
-    });
-    connect(m_mediaPlayer, &QMediaPlayer::bufferProgressChanged, this, [this](float progress) {
-        qDebug() << "[VideoOpenGLWidget] buffer progress"
-                 << (m_channelName.isEmpty() ? objectName() : m_channelName)
-                 << progress
-                 << "status=" << m_mediaPlayer->mediaStatus();
-    });
-    connect(m_mediaPlayer, &QMediaPlayer::tracksChanged, this, [this]() {
-        qDebug() << "[VideoOpenGLWidget] tracks changed"
-                 << (m_channelName.isEmpty() ? objectName() : m_channelName)
-                 << "videoTracks=" << m_mediaPlayer->videoTracks().size()
-                 << "audioTracks=" << m_mediaPlayer->audioTracks().size();
-    });
-    connect(m_mediaPlayer, &QMediaPlayer::sourceChanged, this, [this](const QUrl &media) {
-        qDebug() << "[VideoOpenGLWidget] source changed"
-                 << (m_channelName.isEmpty() ? objectName() : m_channelName)
-                 << safeUrlForLog(media)
-                 << "passwordPresent=" << !media.password().isEmpty();
-    });
-    connect(m_mediaPlayer, &QMediaPlayer::errorOccurred, this, [this](QMediaPlayer::Error error, const QString &errorString) {
-        qDebug() << "[VideoOpenGLWidget] media error"
-                 << (m_channelName.isEmpty() ? objectName() : m_channelName)
-                 << error
-                 << errorString
-                 << safeUrlForLog(m_mediaPlayer->source())
-                 << "passwordPresent=" << !m_mediaPlayer->source().password().isEmpty();
-    });
+    setAttribute(Qt::WA_OpaquePaintEvent, true);
+    m_videoSurface->hide();
+    m_videoSurface->lower();
+
+    m_renderTimer->setInterval(15);
+    connect(m_renderTimer, &QTimer::timeout, this, [this]() { refreshVideoFrame(); });
+
     setupOverlayControls();
 }
 
@@ -165,13 +128,12 @@ QString VideoOpenGLWidget::defaultVideoPath()
         return currentDirPath;
     }
 
-    const QString appDirPath = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("1.mp4"));
-    return appDirPath;
+    return QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("1.mp4"));
 }
 
 bool VideoOpenGLWidget::isPlaying() const
 {
-    return m_mediaPlayer && m_mediaPlayer->playbackState() == QMediaPlayer::PlayingState;
+    return m_playing && m_stream != nullptr;
 }
 
 void VideoOpenGLWidget::setPlaying(bool playing)
@@ -185,133 +147,75 @@ void VideoOpenGLWidget::setPlaying(bool playing)
 
 void VideoOpenGLWidget::setStillImage(const QString &imagePath)
 {
-    QImage image(imagePath);
-    if (image.isNull()) {
-        qDebug() << "[VideoOpenGLWidget] failed to load still image"
-                 << (m_channelName.isEmpty() ? objectName() : m_channelName)
-                 << imagePath;
-        return;
-    }
-
-    if (m_mediaPlayer) {
-        m_mediaPlayer->stop();
-    }
+    stopPlayback();
     m_videoPath = imagePath;
-    m_currentFrame = image;
-    m_playing = false;
+    m_statusText = QFileInfo(imagePath).fileName();
     update();
 }
 
 void VideoOpenGLWidget::playDefaultVideo()
 {
-    const QString source = streamUrl();
-    qDebug() << "[VideoOpenGLWidget] playDefaultVideo/playStream"
-             << (m_channelName.isEmpty() ? objectName() : m_channelName)
-             << source;
-    playFile(source);
+    attachStream(previewUrl());
+}
+
+void VideoOpenGLWidget::playMainUrl()
+{
+    attachStream(mainUrl());
+}
+
+void VideoOpenGLWidget::playMainUrlWithFallback(const QString &mainUrl, const QString &fallbackUrl)
+{
+    attachStream(mainUrl, fallbackUrl);
 }
 
 void VideoOpenGLWidget::playFile(const QString &filePath)
 {
-    if (!m_mediaPlayer) {
-        return;
-    }
-
-    const QString source = filePath.trimmed();
-    if (source.isEmpty()) {
-        qDebug() << "[VideoOpenGLWidget] empty media source"
-                 << (m_channelName.isEmpty() ? objectName() : m_channelName);
-        return;
-    }
-
-    const bool urlSource = hasUrlScheme(source);
-    const QString normalizedSource = urlSource ? source : QFileInfo(source).absoluteFilePath();
-    const QUrl mediaUrl = sourceToUrl(source);
-
-    if (!urlSource) {
-        const QFileInfo fileInfo(normalizedSource);
-        qDebug() << "[VideoOpenGLWidget] play local file request"
-                 << (m_channelName.isEmpty() ? objectName() : m_channelName)
-                 << normalizedSource
-                 << "exists=" << fileInfo.exists()
-                 << "size=" << (fileInfo.exists() ? fileInfo.size() : -1);
-        if (!fileInfo.exists()) {
-            qDebug() << "[VideoOpenGLWidget] local file not found:" << normalizedSource;
-        }
-    } else {
-        qDebug() << "[VideoOpenGLWidget] play stream request"
-                 << (m_channelName.isEmpty() ? objectName() : m_channelName)
-                 << safeUrlForLog(mediaUrl)
-                 << "user=" << mediaUrl.userName()
-                 << "passwordPresent=" << !mediaUrl.password().isEmpty();
-    }
-
-    if (m_videoPath != normalizedSource || m_mediaPlayer->source() != mediaUrl) {
-        m_videoPath = normalizedSource;
-        m_mediaPlayer->setSource(mediaUrl);
-        qDebug() << "[VideoOpenGLWidget] set media source"
-                 << safeUrlForLog(m_mediaPlayer->source())
-                 << "passwordPresent=" << !m_mediaPlayer->source().password().isEmpty();
-    }
-    m_mediaPlayer->play();
-    qDebug() << "[VideoOpenGLWidget] play called"
-             << (m_channelName.isEmpty() ? objectName() : m_channelName);
-
-    QTimer::singleShot(3000, this, [this, normalizedSource]() {
-        if (m_videoPath != normalizedSource || !m_mediaPlayer) {
-            return;
-        }
-        qDebug() << "[VideoOpenGLWidget] playback diagnosis after 3s"
-                 << (m_channelName.isEmpty() ? objectName() : m_channelName)
-                 << "state=" << m_mediaPlayer->playbackState()
-                 << "status=" << m_mediaPlayer->mediaStatus()
-                 << "error=" << m_mediaPlayer->error()
-                 << m_mediaPlayer->errorString()
-                 << "hasVideo=" << m_mediaPlayer->hasVideo()
-                 << "buffer=" << m_mediaPlayer->bufferProgress()
-                 << "videoTracks=" << m_mediaPlayer->videoTracks().size()
-                 << "frameReady=" << !m_currentFrame.isNull();
-    });
-    QTimer::singleShot(8000, this, [this, normalizedSource]() {
-        if (m_videoPath != normalizedSource || !m_mediaPlayer || !m_currentFrame.isNull()) {
-            return;
-        }
-        qDebug() << "[VideoOpenGLWidget] no video frame after 8s"
-                 << (m_channelName.isEmpty() ? objectName() : m_channelName)
-                 << "state=" << m_mediaPlayer->playbackState()
-                 << "status=" << m_mediaPlayer->mediaStatus()
-                 << "error=" << m_mediaPlayer->error()
-                 << m_mediaPlayer->errorString()
-                 << "source=" << safeUrlForLog(m_mediaPlayer->source())
-                 << "passwordPresent=" << !m_mediaPlayer->source().password().isEmpty()
-                 << "hint=" << "check whether ffmpegmediaplugin.dll is actually loaded; windowsmediaplugin often cannot decode authenticated RTSP.";
-    });
+    attachStream(filePath);
 }
 
 void VideoOpenGLWidget::pausePlayback()
 {
-    if (m_mediaPlayer) {
-        qDebug() << "[VideoOpenGLWidget] pause"
-                 << (m_channelName.isEmpty() ? objectName() : m_channelName);
-        m_mediaPlayer->pause();
-    }
+    m_stream.reset();
+    m_playing = false;
+    m_statusText = QStringLiteral("已暂停");
+    m_renderTimer->stop();
+    m_videoSurface->setHandPoseResults({});
+    m_videoSurface->hide();
+    notifyStreamChanged();
+    update();
 }
 
 void VideoOpenGLWidget::stopPlayback()
 {
-    if (m_mediaPlayer) {
-        qDebug() << "[VideoOpenGLWidget] stop"
-                 << (m_channelName.isEmpty() ? objectName() : m_channelName);
-        m_mediaPlayer->stop();
-    }
+    m_stream.reset();
     m_playing = false;
-    m_currentFrame = QImage();
+    m_lastPresentedMsec = 0;
+    m_fallbackVideoPath.clear();
+    m_usingFallback = false;
+    m_statusText.clear();
+    m_renderTimer->stop();
+    m_videoSurface->setHandPoseResults({});
+    m_videoSurface->clearFrame();
+    m_videoSurface->hide();
+    notifyStreamChanged();
     update();
 }
 
 QString VideoOpenGLWidget::currentVideoPath() const
 {
-    return m_videoPath.isEmpty() ? streamUrl() : m_videoPath;
+    return m_videoPath.isEmpty() ? previewUrl() : m_videoPath;
+}
+
+std::shared_ptr<RtspStream> VideoOpenGLWidget::activeStream() const
+{
+    return m_stream;
+}
+
+void VideoOpenGLWidget::setHandPoseResults(const QVector<HandPoseResult> &results)
+{
+    if (m_videoSurface) {
+        m_videoSurface->setHandPoseResults(results);
+    }
 }
 
 QString VideoOpenGLWidget::placeholderText() const
@@ -343,6 +247,7 @@ void VideoOpenGLWidget::setOverlayControlsVisible(bool visible)
     for (auto *button : {m_playButton, m_pauseButton, m_stopButton, m_configButton}) {
         if (button) {
             button->setVisible(visible);
+            button->raise();
         }
     }
     layoutOverlayControls();
@@ -380,44 +285,17 @@ QString VideoOpenGLWidget::streamPath() const
 
 QString VideoOpenGLWidget::streamUrl() const
 {
-    const QString path = m_streamPath.trimmed();
-    const QString ip = m_streamIp.trimmed();
-    const QString port = m_streamPort.trimmed();
+    return previewUrl();
+}
 
-    if (hasUrlScheme(path)) {
-        return path;
-    }
+QString VideoOpenGLWidget::previewUrl() const
+{
+    return m_previewUrl.isEmpty() ? composeStreamUrl(m_streamIp, m_streamPort, m_streamPath) : m_previewUrl;
+}
 
-    if (hasUrlScheme(ip)) {
-        QString url = ip;
-        if (!path.isEmpty()) {
-            if (!url.endsWith(QLatin1Char('/')) && !path.startsWith(QLatin1Char('/'))) {
-                url += QLatin1Char('/');
-            } else if (url.endsWith(QLatin1Char('/')) && path.startsWith(QLatin1Char('/'))) {
-                url.chop(1);
-            }
-            url += path;
-        }
-        return url;
-    }
-
-    if (ip.isEmpty()) {
-        return path;
-    }
-
-    QString url = QStringLiteral("rtsp://") + ip;
-    if (!port.isEmpty()) {
-        url += QStringLiteral(":") + port;
-    }
-
-    if (!path.isEmpty()) {
-        if (!path.startsWith(QLatin1Char('/'))) {
-            url += QLatin1Char('/');
-        }
-        url += path;
-    }
-
-    return url;
+QString VideoOpenGLWidget::mainUrl() const
+{
+    return m_mainUrl.isEmpty() ? previewUrl() : m_mainUrl;
 }
 
 void VideoOpenGLWidget::setStreamConfig(const QString &ip, const QString &port, const QString &path)
@@ -425,11 +303,30 @@ void VideoOpenGLWidget::setStreamConfig(const QString &ip, const QString &port, 
     m_streamIp = ip.trimmed();
     m_streamPort = port.trimmed();
     m_streamPath = path.trimmed();
+    m_previewUrl = composeStreamUrl(m_streamIp, m_streamPort, m_streamPath);
+    if (m_mainUrl.isEmpty()) {
+        m_mainUrl = m_previewUrl;
+    }
     m_videoPath.clear();
 
-    setToolTip(QStringLiteral("%1\n%2")
+    setToolTip(QStringLiteral("%1\n预览：%2\n主码流：%3")
                    .arg(m_channelName.isEmpty() ? QStringLiteral("视频源") : m_channelName,
-                        streamUrl()));
+                        safeUrlForLog(previewUrl()),
+                        safeUrlForLog(mainUrl())));
+}
+
+void VideoOpenGLWidget::setStreamUrls(const QString &previewUrl, const QString &mainUrl)
+{
+    m_previewUrl = previewUrl.trimmed();
+    m_mainUrl = mainUrl.trimmed().isEmpty() ? m_previewUrl : mainUrl.trimmed();
+    m_streamIp = m_previewUrl;
+    m_streamPort.clear();
+    m_streamPath.clear();
+    m_videoPath.clear();
+    setToolTip(QStringLiteral("%1\n预览：%2\n主码流：%3")
+                   .arg(m_channelName.isEmpty() ? QStringLiteral("视频源") : m_channelName,
+                        safeUrlForLog(this->previewUrl()),
+                        safeUrlForLog(this->mainUrl())));
 }
 
 void VideoOpenGLWidget::setDoubleClickHandler(std::function<void(VideoOpenGLWidget *)> handler)
@@ -442,7 +339,115 @@ void VideoOpenGLWidget::setConfigChangedHandler(std::function<void(VideoOpenGLWi
     m_configChangedHandler = std::move(handler);
 }
 
-void VideoOpenGLWidget::paintGL()
+void VideoOpenGLWidget::setStreamChangedHandler(std::function<void(VideoOpenGLWidget *)> handler)
+{
+    m_streamChangedHandler = std::move(handler);
+}
+
+void VideoOpenGLWidget::attachStream(const QString &source)
+{
+    attachStream(source, QString());
+}
+
+void VideoOpenGLWidget::attachStream(const QString &source, const QString &fallbackSource)
+{
+    const QString normalizedSource = normalizedMediaSource(source);
+    if (normalizedSource.isEmpty()) {
+        m_statusText = QStringLiteral("视频源为空");
+        update();
+        return;
+    }
+
+    if (!hasUrlScheme(normalizedSource) && !QFileInfo::exists(normalizedSource)) {
+        m_statusText = QStringLiteral("文件不存在");
+        update();
+        qWarning() << "[VideoOpenGLWidget] local file not found" << normalizedSource;
+        return;
+    }
+
+    qDebug() << "[VideoOpenGLWidget] attach low-latency D3D11 stream"
+             << (m_channelName.isEmpty() ? objectName() : m_channelName)
+             << safeUrlForLog(normalizedSource);
+    m_stream = StreamRegistry::instance().acquire(normalizedSource);
+    m_videoPath = normalizedSource;
+    const QString normalizedFallback = normalizedMediaSource(fallbackSource);
+    m_fallbackVideoPath = normalizedFallback == normalizedSource ? QString() : normalizedFallback;
+    m_usingFallback = false;
+    m_statusText = QStringLiteral("连接中");
+    m_playing = true;
+    m_lastPresentedMsec = 0;
+    m_renderTimer->start();
+    notifyStreamChanged();
+    update();
+}
+
+void VideoOpenGLWidget::notifyStreamChanged()
+{
+    if (m_streamChangedHandler) {
+        m_streamChangedHandler(this);
+    }
+}
+
+void VideoOpenGLWidget::refreshVideoFrame()
+{
+    if (!m_stream) {
+        return;
+    }
+
+    const QString streamStatus = m_stream->statusText();
+    if (!streamStatus.isEmpty() && streamStatus != m_statusText) {
+        m_statusText = streamStatus;
+        update();
+    }
+
+    const auto streamState = m_stream->state();
+    if (streamState == RtspStream::State::Error
+        && !m_usingFallback
+        && !m_fallbackVideoPath.trimmed().isEmpty()
+        && (streamStatus.contains(QStringLiteral("D3D11VA"))
+            || streamStatus.contains(QStringLiteral("硬解"))
+            || streamStatus.contains(QStringLiteral("D3D11")))) {
+        const QString fallback = m_fallbackVideoPath;
+        qWarning() << "[VideoOpenGLWidget] main stream unavailable, falling back to preview stream"
+                   << (m_channelName.isEmpty() ? objectName() : m_channelName)
+                   << safeUrlForLog(m_videoPath)
+                   << "->"
+                   << safeUrlForLog(fallback)
+                   << streamStatus;
+        m_usingFallback = true;
+        m_fallbackVideoPath.clear();
+        m_stream = StreamRegistry::instance().acquire(fallback);
+        m_videoPath = fallback;
+        m_statusText = QStringLiteral("主码流不可用，已回退预览码流");
+        m_lastPresentedMsec = 0;
+        notifyStreamChanged();
+        update();
+        return;
+    }
+
+    auto frame = m_stream->latestFrame();
+    if (!frame) {
+        return;
+    }
+    if (frame->receivedMsec == m_lastPresentedMsec) {
+        return;
+    }
+
+    m_lastPresentedMsec = frame->receivedMsec;
+    if (!m_videoSurface->isVisible()) {
+        m_videoSurface->setGeometry(rect().adjusted(1, 1, -1, -1));
+        m_videoSurface->show();
+        m_videoSurface->lower();
+        for (auto *button : {m_playButton, m_pauseButton, m_stopButton, m_configButton}) {
+            if (button) {
+                button->raise();
+            }
+        }
+    }
+    m_videoSurface->presentFrame(frame);
+}
+
+void VideoOpenGLWidget::paintEvent(QPaintEvent *)
 {
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
@@ -467,21 +472,7 @@ void VideoOpenGLWidget::paintGL()
         painter.drawRoundedRect(rect().adjusted(0, 0, -1, -1), 10, 10);
     }
 
-    if (!m_currentFrame.isNull()) {
-        const QRect target = rect().adjusted(1, 1, -1, -1);
-        QSize drawSize = m_currentFrame.size();
-        drawSize.scale(target.size(), Qt::KeepAspectRatioByExpanding);
-        const QRect drawRect(target.center().x() - drawSize.width() / 2,
-                             target.center().y() - drawSize.height() / 2,
-                             drawSize.width(),
-                             drawSize.height());
-        painter.save();
-        painter.setClipRect(target);
-        painter.drawImage(drawRect, m_currentFrame);
-        painter.restore();
-    }
-
-    if (m_playing || !m_currentFrame.isNull()) {
+    if (m_videoSurface->isVisible()) {
         return;
     }
 
@@ -491,12 +482,15 @@ void VideoOpenGLWidget::paintGL()
     textFont.setBold(true);
     painter.setFont(textFont);
 
+    const QString displayText = m_statusText.isEmpty() ? m_placeholderText : m_statusText;
     const QFontMetrics fm(textFont);
-    const int textHeight = m_placeholderText.isEmpty() ? 0 : fm.boundingRect(QRect(0, 0, width(), height()),
-                                                                              Qt::AlignCenter | Qt::TextWordWrap,
-                                                                              m_placeholderText)
-                                                            .height();
-    const int gap = m_placeholderText.isEmpty() ? 0 : 8;
+    const int textHeight = displayText.isEmpty()
+                               ? 0
+                               : fm.boundingRect(QRect(0, 0, width(), height()),
+                                                 Qt::AlignCenter | Qt::TextWordWrap,
+                                                 displayText)
+                                     .height();
+    const int gap = displayText.isEmpty() ? 0 : 8;
     const int reservedBottom = m_overlayControlsVisible ? 34 : 0;
     const int side = std::max(24, std::min({width() / 3, std::max(1, (height() - reservedBottom) / 3), 58}));
     const int blockHeight = side + gap + (m_overlayControlsVisible ? 0 : textHeight);
@@ -511,8 +505,6 @@ void VideoOpenGLWidget::paintGL()
         iconPainter.setRenderHint(QPainter::Antialiasing, true);
         iconPainter.setRenderHint(QPainter::SmoothPixmapTransform, true);
         m_placeholderRenderer.render(&iconPainter, QRectF(QPointF(0, 0), QSizeF(iconRect.size())));
-
-        // The raw SVG is white. Tint it to unified inactive gray to indicate idle/no playback.
         iconPainter.setCompositionMode(QPainter::CompositionMode_SourceIn);
         iconPainter.fillRect(iconMask.rect(), QColor(QStringLiteral("#8c8c8c")));
         iconPainter.end();
@@ -522,10 +514,10 @@ void VideoOpenGLWidget::paintGL()
         painter.setOpacity(1.0);
     }
 
-    if (!m_placeholderText.isEmpty() && !m_overlayControlsVisible) {
+    if (!displayText.isEmpty() && !m_overlayControlsVisible) {
         const QRect textRect(8, iconRect.bottom() + gap, width() - 16, std::max(20, height() - iconRect.bottom() - gap - 8));
         painter.setPen(QColor(QStringLiteral("#8c8c8c")));
-        painter.drawText(textRect, Qt::AlignHCenter | Qt::AlignTop | Qt::TextWordWrap, m_placeholderText);
+        painter.drawText(textRect, Qt::AlignHCenter | Qt::AlignTop | Qt::TextWordWrap, displayText);
     }
 
     if (!m_placeholderText.isEmpty() && m_overlayControlsVisible) {
@@ -550,13 +542,14 @@ void VideoOpenGLWidget::paintGL()
 
 void VideoOpenGLWidget::resizeEvent(QResizeEvent *event)
 {
-    QOpenGLWidget::resizeEvent(event);
+    QWidget::resizeEvent(event);
+    m_videoSurface->setGeometry(rect().adjusted(1, 1, -1, -1));
     layoutOverlayControls();
 }
 
 void VideoOpenGLWidget::enterEvent(QEnterEvent *event)
 {
-    QOpenGLWidget::enterEvent(event);
+    QWidget::enterEvent(event);
     if (objectName().startsWith(QLatin1String("cameraButton"))) {
         update();
     }
@@ -564,7 +557,7 @@ void VideoOpenGLWidget::enterEvent(QEnterEvent *event)
 
 void VideoOpenGLWidget::leaveEvent(QEvent *event)
 {
-    QOpenGLWidget::leaveEvent(event);
+    QWidget::leaveEvent(event);
     if (objectName().startsWith(QLatin1String("cameraButton"))) {
         update();
     }
@@ -577,7 +570,7 @@ void VideoOpenGLWidget::mouseDoubleClickEvent(QMouseEvent *event)
         event->accept();
         return;
     }
-    QOpenGLWidget::mouseDoubleClickEvent(event);
+    QWidget::mouseDoubleClickEvent(event);
 }
 
 void VideoOpenGLWidget::setupOverlayControls()
@@ -621,7 +614,7 @@ QToolButton:pressed {
     connect(m_playButton, &QToolButton::clicked, this, [this]() {
         qDebug() << "[VideoOpenGLWidget] play button clicked"
                  << (m_channelName.isEmpty() ? objectName() : m_channelName)
-                 << streamUrl();
+                 << safeUrlForLog(previewUrl());
         playDefaultVideo();
     });
     connect(m_pauseButton, &QToolButton::clicked, this, [this]() {
@@ -664,10 +657,11 @@ void VideoOpenGLWidget::layoutOverlayControls()
     x += m_stopButton->width() + gap;
     m_configButton->move(x, y);
 
-    m_playButton->raise();
-    m_pauseButton->raise();
-    m_stopButton->raise();
-    m_configButton->raise();
+    for (auto *button : {m_playButton, m_pauseButton, m_stopButton, m_configButton}) {
+        if (button) {
+            button->raise();
+        }
+    }
 }
 
 void VideoOpenGLWidget::openConfigDialog()
@@ -678,7 +672,7 @@ void VideoOpenGLWidget::openConfigDialog()
                               : QStringLiteral("%1 配置").arg(m_channelName));
     dialog.setDialogTitle(dialog.windowTitle());
     dialog.setModal(true);
-    dialog.setMinimumWidth(380);
+    dialog.setMinimumWidth(460);
 
     auto *layout = dialog.contentLayout();
     auto *form = new QFormLayout();
@@ -687,24 +681,36 @@ void VideoOpenGLWidget::openConfigDialog()
     form->setHorizontalSpacing(12);
     form->setVerticalSpacing(12);
 
-    auto *urlEdit = new QLineEdit(streamUrl(), &dialog);
-    urlEdit->setPlaceholderText(QStringLiteral("例如：rtsp://user:pwd@192.168.1.100:554/stream"));
-    urlEdit->setClearButtonEnabled(true);
+    auto *previewEdit = new QLineEdit(previewUrl(), &dialog);
+    previewEdit->setPlaceholderText(QStringLiteral("预览子码流，例如 rtsp://user:pwd@192.168.1.100:554/sub"));
+    previewEdit->setClearButtonEnabled(true);
+    auto *mainEdit = new QLineEdit(mainUrl(), &dialog);
+    mainEdit->setPlaceholderText(QStringLiteral("主码流，可留空沿用预览子码流"));
+    mainEdit->setClearButtonEnabled(true);
 
-    form->addRow(QStringLiteral("视频流 URL"), urlEdit);
+    form->addRow(QStringLiteral("预览子码流"), previewEdit);
+    form->addRow(QStringLiteral("主画面码流"), mainEdit);
     layout->addLayout(form);
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
     buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("保存"));
     buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
     layout->addWidget(buttons);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, [&dialog, urlEdit]() {
-        const QString url = urlEdit->text().trimmed();
-        if (url.isEmpty() || !hasUrlScheme(url)) {
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, [&dialog, previewEdit, mainEdit]() {
+        const QString preview = previewEdit->text().trimmed();
+        const QString main = mainEdit->text().trimmed();
+        if (preview.isEmpty() || !hasUrlScheme(preview)) {
             QMessageBox::warning(&dialog,
-                                 QStringLiteral("URL 格式不正确"),
-                                 QStringLiteral("请输入包含协议的视频流 URL，例如：\nrtsp://user:pwd@192.168.1.100:554/stream"));
-            urlEdit->setFocus();
+                                 QStringLiteral("预览 URL 格式不正确"),
+                                 QStringLiteral("请输入包含协议的预览子码流 URL，例如：\nrtsp://user:pwd@192.168.1.100:554/sub"));
+            previewEdit->setFocus();
+            return;
+        }
+        if (!main.isEmpty() && !hasUrlScheme(main)) {
+            QMessageBox::warning(&dialog,
+                                 QStringLiteral("主码流 URL 格式不正确"),
+                                 QStringLiteral("主画面码流需要包含协议，或留空沿用预览子码流。"));
+            mainEdit->setFocus();
             return;
         }
         dialog.accept();
@@ -712,8 +718,7 @@ void VideoOpenGLWidget::openConfigDialog()
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
 
     if (dialog.exec() == QDialog::Accepted) {
-        // 新配置模式只保存完整 URL；协议、端口、用户名和密码均由 URL 自身携带。
-        setStreamConfig(urlEdit->text(), QString(), QString());
+        setStreamUrls(previewEdit->text(), mainEdit->text());
         if (m_configChangedHandler) {
             m_configChangedHandler(this);
         }

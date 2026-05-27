@@ -1,20 +1,25 @@
 #ifndef VIDEOOPENGLWIDGET_H
 #define VIDEOOPENGLWIDGET_H
 
-#include <QOpenGLWidget>
+#include "handposeresult.h"
+
 #include <QSvgRenderer>
 #include <QString>
+#include <QWidget>
 
 #include <functional>
+#include <memory>
 
-class QMediaPlayer;
 class QEnterEvent;
 class QEvent;
 class QMouseEvent;
+class QPaintEvent;
 class QToolButton;
-class QVideoSink;
+class QTimer;
+class D3DVideoSurface;
+class RtspStream;
 
-class VideoOpenGLWidget : public QOpenGLWidget
+class VideoOpenGLWidget : public QWidget
 {
 public:
     explicit VideoOpenGLWidget(QWidget *parent = nullptr);
@@ -41,12 +46,20 @@ public:
     QString streamPort() const;
     QString streamPath() const;
     QString streamUrl() const;
+    QString previewUrl() const;
+    QString mainUrl() const;
     void setStreamConfig(const QString &ip, const QString &port, const QString &path);
+    void setStreamUrls(const QString &previewUrl, const QString &mainUrl);
+    void playMainUrl();
+    void playMainUrlWithFallback(const QString &mainUrl, const QString &fallbackUrl);
+    std::shared_ptr<RtspStream> activeStream() const;
+    void setHandPoseResults(const QVector<HandPoseResult> &results);
     void setDoubleClickHandler(std::function<void(VideoOpenGLWidget *)> handler);
     void setConfigChangedHandler(std::function<void(VideoOpenGLWidget *)> handler);
+    void setStreamChangedHandler(std::function<void(VideoOpenGLWidget *)> handler);
 
 protected:
-    void paintGL() override;
+    void paintEvent(QPaintEvent *event) override;
     void enterEvent(QEnterEvent *event) override;
     void leaveEvent(QEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
@@ -56,26 +69,37 @@ private:
     void setupOverlayControls();
     void layoutOverlayControls();
     void openConfigDialog();
+    void attachStream(const QString &source);
+    void attachStream(const QString &source, const QString &fallbackSource);
+    void notifyStreamChanged();
+    void refreshVideoFrame();
 
     bool m_playing = false;
     bool m_placeholderIconVisible = true;
     bool m_overlayControlsVisible = false;
     QString m_placeholderText;
     QString m_channelName;
-    QString m_streamIp = QStringLiteral("192.168.1.100");
-    QString m_streamPort = QStringLiteral("554");
-    QString m_streamPath = QStringLiteral("/stream");
+    QString m_streamIp;
+    QString m_streamPort;
+    QString m_streamPath;
+    QString m_previewUrl;
+    QString m_mainUrl;
     QString m_videoPath;
-    QImage m_currentFrame;
+    QString m_fallbackVideoPath;
+    QString m_statusText;
+    bool m_usingFallback = false;
+    qint64 m_lastPresentedMsec = 0;
     QSvgRenderer m_placeholderRenderer;
-    QMediaPlayer *m_mediaPlayer = nullptr;
-    QVideoSink *m_videoSink = nullptr;
+    D3DVideoSurface *m_videoSurface = nullptr;
+    QTimer *m_renderTimer = nullptr;
+    std::shared_ptr<RtspStream> m_stream;
     QToolButton *m_playButton = nullptr;
     QToolButton *m_pauseButton = nullptr;
     QToolButton *m_stopButton = nullptr;
     QToolButton *m_configButton = nullptr;
     std::function<void(VideoOpenGLWidget *)> m_doubleClickHandler;
     std::function<void(VideoOpenGLWidget *)> m_configChangedHandler;
+    std::function<void(VideoOpenGLWidget *)> m_streamChangedHandler;
 };
 
 #endif // VIDEOOPENGLWIDGET_H
