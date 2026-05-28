@@ -13,6 +13,7 @@ class QLabel;
 class PoseStandardnessScorer;
 struct PoseFrameResult;
 class QEvent;
+class QProgressBar;
 class QPushButton;
 class SkeletonViewWidget;
 class QVBoxLayout;
@@ -51,6 +52,7 @@ protected:
 private:
     void setupUiState();
     void setupConnections();
+    void installMetricBars();
     void installTrajectoryWidget();
     void installSkeletonView();
     void installStaticImages();
@@ -97,6 +99,8 @@ private:
     QVector<QPushButton *> m_navButtons;
     QVector<VideoOpenGLWidget *> m_cameraButtons;
     QVector<QLabel *> m_summaryValues;
+    QVector<QProgressBar *> m_metricBars;
+    QVector<QLabel *> m_metricValueLabels;
     QPushButton *m_fullScreenButton = nullptr;
     std::unique_ptr<HandAnalysisManager> m_handAnalysisManager;
     std::unique_ptr<PoseStandardnessScorer> m_poseStandardnessScorer;

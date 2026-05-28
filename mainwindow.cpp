@@ -239,6 +239,7 @@ MainWindow::MainWindow(QWidget *parent)
     applyStyleSheet();
     installStaticImages();
     installSkeletonView();
+    installMetricBars();
 
     auto *fullScreenShortcut = new QShortcut(QKeySequence(Qt::Key_F11), this);
     fullScreenShortcut->setContext(Qt::WindowShortcut);
@@ -401,6 +402,67 @@ void MainWindow::installSkeletonView()
 
     m_skeletonView = new SkeletonViewWidget(ui->poseCard);
     ui->poseImageLayout->insertWidget(0, m_skeletonView, 1);
+}
+
+// 在训练统计卡片里装配分项评分条，替代原来的单行文字指标。
+void MainWindow::installMetricBars()
+{
+    if (!ui->metricsLayout || !ui->saveTipLabel || !m_metricBars.isEmpty()) {
+        return;
+    }
+
+    ui->saveTipLabel->hide();
+
+    auto *metricContainer = new QWidget(ui->metricsCard);
+    metricContainer->setObjectName(QStringLiteral("metricBarsContainer"));
+    auto *metricLayout = new QVBoxLayout(metricContainer);
+    metricLayout->setContentsMargins(0, 0, 0, 0);
+    metricLayout->setSpacing(4);
+
+    const QVector<QString> metricNames = {
+        QStringLiteral("关键点"),
+        QStringLiteral("对称"),
+        QStringLiteral("重心"),
+        QStringLiteral("稳定"),
+        QStringLiteral("3D")
+    };
+
+    for (const QString &metricName : metricNames) {
+        auto *row = new QWidget(metricContainer);
+        row->setObjectName(QStringLiteral("metricBarRow"));
+        auto *rowLayout = new QHBoxLayout(row);
+        rowLayout->setContentsMargins(0, 0, 0, 0);
+        rowLayout->setSpacing(6);
+
+        auto *nameLabel = new QLabel(metricName, row);
+        nameLabel->setProperty("role", "metricName");
+        nameLabel->setMinimumWidth(38);
+        nameLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+
+        auto *bar = new QProgressBar(row);
+        bar->setRange(0, 100);
+        bar->setValue(0);
+        bar->setTextVisible(false);
+        bar->setProperty("role", "metricBar");
+        bar->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+
+        auto *valueLabel = new QLabel(QStringLiteral("0"), row);
+        valueLabel->setProperty("role", "metricValue");
+        valueLabel->setMinimumWidth(24);
+        valueLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+
+        rowLayout->addWidget(nameLabel);
+        rowLayout->addWidget(bar, 1);
+        rowLayout->addWidget(valueLabel);
+        metricLayout->addWidget(row);
+
+        m_metricBars.append(bar);
+        m_metricValueLabels.append(valueLabel);
+    }
+
+    const int scoreBarIndex = ui->metricsLayout->indexOf(ui->scoreProgressBar);
+    ui->metricsLayout->insertWidget(scoreBarIndex >= 0 ? scoreBarIndex : ui->metricsLayout->count(),
+                                    metricContainer);
 }
 
 // 从资源系统读取 QSS，统一应用暗色仪表盘主题样式。
@@ -843,16 +905,25 @@ void MainWindow::refreshCameraButtons()
 // 刷新动作计数、训练时长、实时得分等统计卡片。
 void MainWindow::refreshStats()
 {
+    const QVector<int> metricScores = {
+        m_detectionScore,
+        m_symmetryScore,
+        m_balanceScore,
+        m_stabilityScore,
+        m_depthScore
+    };
+
     ui->actionValueLabel->setText(QString::number(m_actionCount));
     ui->durationValueLabel->setText(formatTime(m_durationSec));
     ui->scoreValueLabel->setText(QStringLiteral("%1/100 · %2").arg(m_realtimeScore).arg(m_feedbackText));
-    ui->saveTipLabel->setText(QStringLiteral("关键点 %1 · 对称 %2 · 重心 %3 · 稳定 %4 · 3D %5")
-                                  .arg(m_detectionScore)
-                                  .arg(m_symmetryScore)
-                                  .arg(m_balanceScore)
-                                  .arg(m_stabilityScore)
-                                  .arg(m_depthScore));
     ui->scoreProgressBar->setValue(std::clamp(m_realtimeScore, 0, 100));
+
+    const int metricCount = std::min({metricScores.size(), m_metricBars.size(), m_metricValueLabels.size()});
+    for (int i = 0; i < metricCount; ++i) {
+        const int value = std::clamp(metricScores.at(i), 0, 100);
+        m_metricBars.at(i)->setValue(value);
+        m_metricValueLabels.at(i)->setText(QString::number(value));
+    }
 }
 
 // 重新生成训练历史列表和概要统计卡片。
