@@ -2,6 +2,7 @@
 #define TENSORRTBODYPOSEBACKEND_H
 
 #include "poseresult.h"
+#include "tensorrtrtmw3dbackend.h"
 
 #include <QImage>
 #include <QMutex>
@@ -25,7 +26,9 @@ public:
 private:
     mutable QMutex m_mutex;
     std::unique_ptr<TensorRtRunner> m_runner;
+    TensorRtRtmw3dBackend m_rtmw3dBackend;
     bool m_ready = false;
+    bool m_rtmw3dReady = false;
     QString m_statusText = QStringLiteral("人体姿态模型未加载");
 };
 

@@ -75,6 +75,7 @@ dist/
 *.lastbuildstate
 *.log
 *.engine
+models/body/rtmw3d-*.onnx
 
 # ---- Node / frontend generated files ----
 node_modules/

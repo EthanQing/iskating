@@ -68,6 +68,56 @@ QRectF keypointBounds(const QVector<PoseKeypoint> &keypoints)
     return bounds;
 }
 
+bool hasEnough3dPoints(const QVector<PoseKeypoint> &keypoints)
+{
+    int count = 0;
+    for (const PoseKeypoint &keypoint : keypoints) {
+        if (keypoint.valid && keypoint.hasPoint3d) {
+            ++count;
+        }
+    }
+    return count >= 8;
+}
+
+QRectF keypoint3dBounds(const QVector<PoseKeypoint> &keypoints)
+{
+    bool hasPoint = false;
+    qreal minX = 0.0;
+    qreal maxX = minX;
+    qreal minY = 0.0;
+    qreal maxY = minY;
+    for (const PoseKeypoint &keypoint : keypoints) {
+        if (!keypoint.valid || !keypoint.hasPoint3d) {
+            continue;
+        }
+        const QVector3D point = keypoint.point3d;
+        const qreal projectedX = point.x() + point.z() * 0.42;
+        const qreal projectedY = point.y() - point.z() * 0.18;
+        if (!hasPoint) {
+            minX = maxX = projectedX;
+            minY = maxY = projectedY;
+            hasPoint = true;
+        } else {
+            minX = std::min(minX, projectedX);
+            maxX = std::max(maxX, projectedX);
+            minY = std::min(minY, projectedY);
+            maxY = std::max(maxY, projectedY);
+        }
+    }
+    if (!hasPoint) {
+        return {};
+    }
+
+    QRectF bounds(QPointF(minX, minY), QPointF(maxX, maxY));
+    if (bounds.width() < 1.0) {
+        bounds.adjust(-0.5, 0.0, 0.5, 0.0);
+    }
+    if (bounds.height() < 1.0) {
+        bounds.adjust(0.0, -0.5, 0.0, 0.5);
+    }
+    return bounds;
+}
+
 QPointF projectedPoint(const QPointF &point, const QRectF &sourceBounds, const QRectF &targetRect)
 {
     const QPointF center = sourceBounds.center();
@@ -81,6 +131,18 @@ QPointF projectedPoint(const QPointF &point, const QRectF &sourceBounds, const Q
     const qreal depth = (0.5 - normalizedY) * targetSpan * 0.24;
     return QPointF(targetRect.center().x() + nx + depth * 0.40,
                    targetRect.center().y() + ny - depth * 0.28);
+}
+
+QPointF projected3dPoint(const QVector3D &point, const QRectF &sourceBounds, const QRectF &targetRect)
+{
+    const qreal projectedX = point.x() + point.z() * 0.42;
+    const qreal projectedY = point.y() - point.z() * 0.18;
+    const QPointF center = sourceBounds.center();
+    const qreal sourceSpan = std::max(sourceBounds.width(), sourceBounds.height());
+    const qreal targetSpan = std::min(targetRect.width(), targetRect.height()) * 0.68;
+    const qreal scale = targetSpan / std::max<qreal>(1.0, sourceSpan);
+    return QPointF(targetRect.center().x() + (projectedX - center.x()) * scale,
+                   targetRect.center().y() - (projectedY - center.y()) * scale);
 }
 
 void drawStage(QPainter *painter, const QRectF &rect)
@@ -210,7 +272,8 @@ void SkeletonViewWidget::paintEvent(QPaintEvent *event)
                     contentRect.height());
         lane.adjust(8.0, 4.0, -8.0, -4.0);
 
-        const QRectF bounds = keypointBounds(instance.keypoints);
+        const bool use3d = hasEnough3dPoints(instance.keypoints);
+        const QRectF bounds = use3d ? keypoint3dBounds(instance.keypoints) : keypointBounds(instance.keypoints);
         if (!bounds.isValid()) {
             continue;
         }
@@ -222,9 +285,10 @@ void SkeletonViewWidget::paintEvent(QPaintEvent *event)
         valid.resize(instance.keypoints.size());
         for (int i = 0; i < instance.keypoints.size(); ++i) {
             const PoseKeypoint &keypoint = instance.keypoints.at(i);
-            valid[i] = keypoint.valid;
-            if (keypoint.valid) {
-                points[i] = projectedPoint(keypoint.imagePoint, bounds, lane);
+            valid[i] = keypoint.valid && (!use3d || keypoint.hasPoint3d);
+            if (valid[i]) {
+                points[i] = use3d ? projected3dPoint(keypoint.point3d, bounds, lane)
+                                  : projectedPoint(keypoint.imagePoint, bounds, lane);
             }
         }
 
@@ -250,7 +314,11 @@ void SkeletonViewWidget::paintEvent(QPaintEvent *event)
             }
         }
 
-        const QString confidence = QString::number(std::round(instance.confidence * 100.0f) / 100.0f, 'f', 2);
+        const QString confidence = use3d
+                                       ? QStringLiteral("RTMW3D · %1")
+                                             .arg(QString::number(std::round(instance.confidence * 100.0f) / 100.0f, 'f', 2))
+                                       : QStringLiteral("2D · %1")
+                                             .arg(QString::number(std::round(instance.confidence * 100.0f) / 100.0f, 'f', 2));
         QFont labelFont = painter.font();
         labelFont.setPixelSize(11);
         labelFont.setBold(true);

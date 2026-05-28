@@ -126,6 +126,7 @@ SOURCES += \
     skeletonviewwidget.cpp \
     streamregistry.cpp \
     tensorrtbodyposebackend.cpp \
+    tensorrtrtmw3dbackend.cpp \
     tensorrtrunner.cpp \
     videoopenglwidget.cpp
 
@@ -144,6 +145,7 @@ HEADERS += \
     skeletonviewwidget.h \
     streamregistry.h \
     tensorrtbodyposebackend.h \
+    tensorrtrtmw3dbackend.h \
     tensorrtrunner.h \
     videoopenglwidget.h
 
@@ -207,16 +209,33 @@ POST_TARGETDEPS += ffmpeg_dlls
 tensorrt_dlls.commands = \
     $(COPY_FILE) $$shell_quote($$shell_path($$TENSORRT_LIB_DIR/nvinfer_10.dll)) $$shell_quote($$shell_path($$DESTDIR)) $$escape_expand(\\n\\t) \
     $(COPY_FILE) $$shell_quote($$shell_path($$TENSORRT_LIB_DIR/nvinfer_plugin_10.dll)) $$shell_quote($$shell_path($$DESTDIR)) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_quote($$shell_path($$TENSORRT_LIB_DIR/nvinfer_vc_plugin_10.dll)) $$shell_quote($$shell_path($$DESTDIR)) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_quote($$shell_path($$TENSORRT_LIB_DIR/nvinfer_dispatch_10.dll)) $$shell_quote($$shell_path($$DESTDIR)) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_quote($$shell_path($$TENSORRT_LIB_DIR/nvinfer_lean_10.dll)) $$shell_quote($$shell_path($$DESTDIR)) $$escape_expand(\\n\\t) \
     $(COPY_FILE) $$shell_quote($$shell_path($$TENSORRT_LIB_DIR/nvonnxparser_10.dll)) $$shell_quote($$shell_path($$DESTDIR)) $$escape_expand(\\n\\t) \
     $(COPY_FILE) $$shell_quote($$shell_path($$TENSORRT_LIB_DIR/nvinfer_builder_resource_10.dll)) $$shell_quote($$shell_path($$DESTDIR)) $$escape_expand(\\n\\t) \
-    $(COPY_FILE) $$shell_quote($$shell_path($$CUDA_BIN_DIR/cudart64_110.dll)) $$shell_quote($$shell_path($$DESTDIR))
+    $(COPY_FILE) $$shell_quote($$shell_path($$CUDA_BIN_DIR/cudart64_110.dll)) $$shell_quote($$shell_path($$DESTDIR)) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_quote($$shell_path($$CUDA_BIN_DIR/cublas64_11.dll)) $$shell_quote($$shell_path($$DESTDIR)) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_quote($$shell_path($$CUDA_BIN_DIR/cublasLt64_11.dll)) $$shell_quote($$shell_path($$DESTDIR)) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_quote($$shell_path($$CUDA_BIN_DIR/cufft64_10.dll)) $$shell_quote($$shell_path($$DESTDIR)) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_quote($$shell_path($$CUDA_BIN_DIR/cufftw64_10.dll)) $$shell_quote($$shell_path($$DESTDIR)) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_quote($$shell_path($$CUDA_BIN_DIR/curand64_10.dll)) $$shell_quote($$shell_path($$DESTDIR)) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_quote($$shell_path($$CUDA_BIN_DIR/cusolver64_11.dll)) $$shell_quote($$shell_path($$DESTDIR)) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_quote($$shell_path($$CUDA_BIN_DIR/cusolverMg64_11.dll)) $$shell_quote($$shell_path($$DESTDIR)) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_quote($$shell_path($$CUDA_BIN_DIR/cusparse64_11.dll)) $$shell_quote($$shell_path($$DESTDIR)) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_quote($$shell_path($$CUDA_BIN_DIR/nvrtc64_112_0.dll)) $$shell_quote($$shell_path($$DESTDIR)) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_quote($$shell_path($$CUDA_BIN_DIR/nvrtc-builtins64_118.dll)) $$shell_quote($$shell_path($$DESTDIR))
 QMAKE_EXTRA_TARGETS += tensorrt_dlls
 POST_TARGETDEPS += tensorrt_dlls
 
-hand_models.commands = \
+ai_models.commands = \
     $(COPY_DIR) $$shell_quote($$shell_path($$PWD/models)) $$shell_quote($$shell_path($$DESTDIR/models))
-QMAKE_EXTRA_TARGETS += hand_models
-POST_TARGETDEPS += hand_models
+QMAKE_EXTRA_TARGETS += ai_models
+POST_TARGETDEPS += ai_models
+
+CONFIG(release, debug|release) {
+    QMAKE_POST_LINK += $$escape_expand(\\n\\t) $$shell_quote($$shell_path($$QT_BIN_DIR/windeployqt.exe)) --release --no-translations $$shell_quote($$shell_path($$DESTDIR/$${TARGET}.exe))
+}
 
 # ---- MSVC: generate debug info in Release ----
 PDB_PATH = $$shell_path($$DESTDIR/$${TARGET}.pdb)

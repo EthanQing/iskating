@@ -106,40 +106,6 @@ QPointF mapModelPointToFrame(float x, float y, const BodyPreprocess &preprocess)
                    (y - preprocess.padTop) / std::max(0.0001f, preprocess.ratio));
 }
 
-QVector3D estimateBodyPoint3d(int index, const QPointF &point, const QSizeF &frameSize)
-{
-    const qreal w = std::max<qreal>(1.0, frameSize.width());
-    const qreal h = std::max<qreal>(1.0, frameSize.height());
-    const float x = static_cast<float>((point.x() / w - 0.5) * 2.0);
-    const float y = static_cast<float>((0.5 - point.y() / h) * 2.0);
-
-    float z = 0.0f;
-    switch (index) {
-    case 5:
-    case 6:
-    case 11:
-    case 12:
-        z = 0.0f;
-        break;
-    case 7:
-    case 8:
-    case 13:
-    case 14:
-        z = -0.08f;
-        break;
-    case 9:
-    case 10:
-    case 15:
-    case 16:
-        z = -0.16f;
-        break;
-    default:
-        z = 0.06f;
-        break;
-    }
-    return QVector3D(x, y, z);
-}
-
 QVector<BodyDetection> decodeYoloPoseOutput(const std::vector<TensorRtOutput> &outputs,
                                             const BodyPreprocess &preprocess)
 {
@@ -237,7 +203,7 @@ PoseFrameResult detectionsToPoseFrame(const QVector<BodyDetection> &detections,
     frame.cameraId = cameraId;
     frame.timestampMs = timestampMs;
     frame.frameSize = QSizeF(frameSize);
-    frame.skeletonType = PoseSkeletonType::FullBody3D;
+    frame.skeletonType = PoseSkeletonType::Body17;
     frame.sourceName = QStringLiteral("yolov8n_pose_body17");
     frame.instances.reserve(detections.size());
 
@@ -246,7 +212,7 @@ PoseFrameResult detectionsToPoseFrame(const QVector<BodyDetection> &detections,
         const BodyDetection &detection = detections.at(personIndex);
         PoseInstance instance;
         instance.trackId = personIndex;
-        instance.skeletonType = PoseSkeletonType::FullBody3D;
+        instance.skeletonType = PoseSkeletonType::Body17;
         instance.kind = PoseInstanceKind::Person;
         instance.box = detection.box;
         instance.confidence = detection.score;
@@ -264,10 +230,6 @@ PoseFrameResult detectionsToPoseFrame(const QVector<BodyDetection> &detections,
                              && point.y() >= 0.0
                              && point.x() <= frameSize.width()
                              && point.y() <= frameSize.height();
-            if (keypoint.valid) {
-                keypoint.point3d = estimateBodyPoint3d(i, point, QSizeF(frameSize));
-                keypoint.hasPoint3d = true;
-            }
             instance.keypoints.push_back(keypoint);
         }
         frame.instances.push_back(instance);
@@ -294,8 +256,16 @@ bool TensorRtBodyPoseBackend::initialize(const QString &modelDir, QString *error
         return false;
     }
 
+    QString rtmw3dError;
+    m_rtmw3dReady = m_rtmw3dBackend.initialize(modelDir, &rtmw3dError);
+    if (!m_rtmw3dReady) {
+        qWarning() << "[BodyPose]" << rtmw3dError;
+    }
+
     m_ready = true;
-    m_statusText = QStringLiteral("人体 2D/3D 姿态 TensorRT 已就绪");
+    m_statusText = m_rtmw3dReady
+                       ? QStringLiteral("人体 2D + RTMW3D TensorRT 已就绪")
+                       : QStringLiteral("人体 2D TensorRT 已就绪，RTMW3D模型缺失：%1").arg(rtmw3dError);
     return true;
 }
 
@@ -330,8 +300,15 @@ PoseFrameResult TensorRtBodyPoseBackend::infer(const QImage &rgbFrame, int camer
 
     const QVector<BodyDetection> detections = decodeYoloPoseOutput(outputs, preprocess);
     PoseFrameResult frame = detectionsToPoseFrame(detections, rgbFrame.size(), cameraId, timestampMs);
+    QString rtmw3dError;
+    const bool has3d = m_rtmw3dReady && m_rtmw3dBackend.infer(rgbFrame, &frame, &rtmw3dError);
     m_statusText = frame.instances.isEmpty()
                        ? QStringLiteral("人体姿态 TensorRT 运行中：未检测到人体")
-                       : QStringLiteral("人体姿态 TensorRT 运行中：%1 人").arg(frame.instances.size());
+                       : (has3d
+                              ? QStringLiteral("人体姿态 TensorRT 运行中：%1 人，RTMW3D 3D已输出")
+                                    .arg(frame.instances.size())
+                              : QStringLiteral("人体姿态 TensorRT 运行中：%1 人，等待RTMW3D：%2")
+                                    .arg(frame.instances.size())
+                                    .arg(rtmw3dError.isEmpty() ? m_rtmw3dBackend.statusText() : rtmw3dError));
     return frame;
 }
