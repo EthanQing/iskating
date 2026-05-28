@@ -8,6 +8,7 @@
 #include <QSize>
 #include <QString>
 
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -21,9 +22,12 @@ struct TensorRtOutput
 class TensorRtRunner
 {
 public:
+    using StatusCallback = std::function<void(const QString &)>;
+
     TensorRtRunner();
     ~TensorRtRunner();
 
+    void setStatusCallback(StatusCallback callback);
     bool initialize(const QString &onnxPath, QString *error);
     bool infer(const std::vector<float> &input, std::vector<TensorRtOutput> *outputs, QString *error);
     QSize inputImageSize() const;

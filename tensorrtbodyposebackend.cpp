@@ -244,24 +244,52 @@ TensorRtBodyPoseBackend::TensorRtBodyPoseBackend() = default;
 
 TensorRtBodyPoseBackend::~TensorRtBodyPoseBackend() = default;
 
-bool TensorRtBodyPoseBackend::initialize(const QString &modelDir, QString *error)
+void TensorRtBodyPoseBackend::setStatusCallback(StatusCallback callback)
 {
     QMutexLocker locker(&m_mutex);
+    m_statusCallback = std::move(callback);
+}
+
+bool TensorRtBodyPoseBackend::initialize(const QString &modelDir, QString *error)
+{
     const QDir dir(modelDir);
     const QString onnxPath = dir.absoluteFilePath(QStringLiteral("yolov8n-pose.onnx"));
 
-    m_runner = std::make_unique<TensorRtRunner>();
-    if (!m_runner->initialize(onnxPath, error)) {
+    auto runner = std::make_unique<TensorRtRunner>();
+    if (!runner->initialize(onnxPath, error)) {
+        QMutexLocker locker(&m_mutex);
         m_statusText = error ? *error : QStringLiteral("人体姿态模型加载失败");
         return false;
     }
 
+    StatusCallback statusCallback;
+    {
+        QMutexLocker locker(&m_mutex);
+        statusCallback = m_statusCallback;
+    }
     QString rtmw3dError;
-    m_rtmw3dReady = m_rtmw3dBackend.initialize(modelDir, &rtmw3dError);
-    if (!m_rtmw3dReady) {
+    m_rtmw3dBackend.setStatusCallback([this](const QString &status) {
+        StatusCallback callback;
+        {
+            QMutexLocker locker(&m_mutex);
+            m_statusText = status;
+            callback = m_statusCallback;
+        }
+        if (callback) {
+            callback(status);
+        }
+    });
+    if (statusCallback) {
+        statusCallback(QStringLiteral("RTMW3D TensorRT 初始化中"));
+    }
+    const bool rtmw3dReady = m_rtmw3dBackend.initialize(modelDir, &rtmw3dError);
+    if (!rtmw3dReady) {
         qWarning() << "[BodyPose]" << rtmw3dError;
     }
 
+    QMutexLocker locker(&m_mutex);
+    m_runner = std::move(runner);
+    m_rtmw3dReady = rtmw3dReady;
     m_ready = true;
     m_statusText = m_rtmw3dReady
                        ? QStringLiteral("人体 2D + RTMW3D TensorRT 已就绪")

@@ -269,6 +269,7 @@ struct TensorRtRunner::Impl
     }
 
     TrtLogger logger;
+    TensorRtRunner::StatusCallback statusCallback;
     TrtPtr<nvinfer1::IRuntime> runtime;
     TrtPtr<nvinfer1::ICudaEngine> engine;
     TrtPtr<nvinfer1::IExecutionContext> context;
@@ -290,6 +291,11 @@ TensorRtRunner::TensorRtRunner()
 
 TensorRtRunner::~TensorRtRunner() = default;
 
+void TensorRtRunner::setStatusCallback(StatusCallback callback)
+{
+    m_impl->statusCallback = std::move(callback);
+}
+
 bool TensorRtRunner::initialize(const QString &onnxPath, QString *error)
 {
     configureDllSearchPaths();
@@ -305,6 +311,9 @@ bool TensorRtRunner::initialize(const QString &onnxPath, QString *error)
     const QString enginePath = enginePathFor(onnxPath);
     QByteArray engineData;
     if (QFileInfo::exists(enginePath)) {
+        if (m_impl->statusCallback) {
+            m_impl->statusCallback(QStringLiteral("正在加载 TensorRT engine：%1").arg(enginePath));
+        }
         qDebug() << "[TensorRT] loading cached engine" << enginePath;
         QFile file(enginePath);
         if (!file.open(QIODevice::ReadOnly)) {
@@ -315,12 +324,18 @@ bool TensorRtRunner::initialize(const QString &onnxPath, QString *error)
         }
         engineData = file.readAll();
     } else {
+        if (m_impl->statusCallback) {
+            m_impl->statusCallback(QStringLiteral("首次构建 TensorRT engine，可能需要几分钟：%1").arg(enginePath));
+        }
         qWarning() << "[TensorRT] cached engine not found; building may take several minutes" << enginePath;
         if (!m_impl->buildEngine(onnxPath, enginePath, &engineData, error)) {
             return false;
         }
     }
 
+    if (m_impl->statusCallback) {
+        m_impl->statusCallback(QStringLiteral("正在反序列化 TensorRT engine"));
+    }
     m_impl->runtime.reset(nvinfer1::createInferRuntime(m_impl->logger));
     if (!m_impl->runtime) {
         if (error) {
@@ -350,7 +365,13 @@ bool TensorRtRunner::initialize(const QString &onnxPath, QString *error)
         return false;
     }
 
-    return m_impl->allocateIo(error);
+    if (!m_impl->allocateIo(error)) {
+        return false;
+    }
+    if (m_impl->statusCallback) {
+        m_impl->statusCallback(QStringLiteral("TensorRT engine 已加载"));
+    }
+    return true;
 }
 
 bool TensorRtRunner::infer(const std::vector<float> &input, std::vector<TensorRtOutput> *outputs, QString *error)

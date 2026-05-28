@@ -190,25 +190,46 @@ TensorRtRtmw3dBackend::TensorRtRtmw3dBackend() = default;
 
 TensorRtRtmw3dBackend::~TensorRtRtmw3dBackend() = default;
 
-bool TensorRtRtmw3dBackend::initialize(const QString &modelDir, QString *error)
+void TensorRtRtmw3dBackend::setStatusCallback(StatusCallback callback)
 {
     QMutexLocker locker(&m_mutex);
+    m_statusCallback = std::move(callback);
+}
+
+bool TensorRtRtmw3dBackend::initialize(const QString &modelDir, QString *error)
+{
     const QDir dir(modelDir);
     const QString onnxPath = dir.absoluteFilePath(QStringLiteral("rtmw3d-x.onnx"));
     if (!QFileInfo::exists(onnxPath)) {
-        m_statusText = QStringLiteral("RTMW3D模型缺失：%1").arg(onnxPath);
+        const QString status = QStringLiteral("RTMW3D模型缺失：%1").arg(onnxPath);
+        QMutexLocker locker(&m_mutex);
+        m_statusText = status;
         if (error) {
-            *error = m_statusText;
+            *error = status;
         }
         return false;
     }
 
-    m_runner = std::make_unique<TensorRtRunner>();
-    if (!m_runner->initialize(onnxPath, error)) {
+    auto runner = std::make_unique<TensorRtRunner>();
+    runner->setStatusCallback([this](const QString &status) {
+        StatusCallback callback;
+        {
+            QMutexLocker locker(&m_mutex);
+            m_statusText = QStringLiteral("RTMW3D：%1").arg(status);
+            callback = m_statusCallback;
+        }
+        if (callback) {
+            callback(m_statusText);
+        }
+    });
+    if (!runner->initialize(onnxPath, error)) {
+        QMutexLocker locker(&m_mutex);
         m_statusText = error ? *error : QStringLiteral("RTMW3D模型加载失败");
         return false;
     }
 
+    QMutexLocker locker(&m_mutex);
+    m_runner = std::move(runner);
     m_ready = true;
     m_statusText = QStringLiteral("RTMW3D TensorRT 已就绪");
     qDebug() << "[RTMW3D]" << m_statusText << m_runner->ioSummary();

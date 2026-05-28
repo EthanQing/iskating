@@ -117,6 +117,9 @@ private:
         publishStatus(QStringLiteral("人体姿态 AI 初始化中：%1").arg(modelPath));
 
         QString error;
+        m_backend.setStatusCallback([this](const QString &status) {
+            publishStatus(status, true);
+        });
         if (!m_backend.initialize(modelPath, &error)) {
             publishStatus(QStringLiteral("人体姿态 AI 初始化失败：%1").arg(error));
             qWarning() << "[HandAnalysis]" << error;

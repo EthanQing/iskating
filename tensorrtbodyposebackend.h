@@ -8,6 +8,7 @@
 #include <QMutex>
 #include <QString>
 
+#include <functional>
 #include <memory>
 
 class TensorRtRunner;
@@ -15,9 +16,12 @@ class TensorRtRunner;
 class TensorRtBodyPoseBackend
 {
 public:
+    using StatusCallback = std::function<void(const QString &)>;
+
     TensorRtBodyPoseBackend();
     ~TensorRtBodyPoseBackend();
 
+    void setStatusCallback(StatusCallback callback);
     bool initialize(const QString &modelDir, QString *error);
     bool isReady() const;
     QString statusText() const;
@@ -27,6 +31,7 @@ private:
     mutable QMutex m_mutex;
     std::unique_ptr<TensorRtRunner> m_runner;
     TensorRtRtmw3dBackend m_rtmw3dBackend;
+    StatusCallback m_statusCallback;
     bool m_ready = false;
     bool m_rtmw3dReady = false;
     QString m_statusText = QStringLiteral("人体姿态模型未加载");
