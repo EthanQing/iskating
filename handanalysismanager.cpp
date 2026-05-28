@@ -2,7 +2,7 @@
 
 #include "d3dframeextractor.h"
 #include "rtspstream.h"
-#include "tensortrthandposebackend.h"
+#include "tensorrtbodyposebackend.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -27,11 +27,11 @@ constexpr qint64 kResultTtlMs = 350;
 QString modelDirPath()
 {
     const QDir appDir(QCoreApplication::applicationDirPath());
-    const QString deployed = appDir.absoluteFilePath(QStringLiteral("models/hand"));
+    const QString deployed = appDir.absoluteFilePath(QStringLiteral("models/body"));
     if (QDir(deployed).exists()) {
         return deployed;
     }
-    return QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("../../models/hand"));
+    return QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("../../models/body"));
 }
 
 } // namespace
@@ -98,18 +98,18 @@ public:
     {
         m_paused = paused;
         if (paused) {
-            publishStatus(QStringLiteral("手部 AI 已暂停"));
+            publishStatus(QStringLiteral("人体姿态 AI 已暂停"));
         }
     }
 
 private:
     void run()
     {
-        publishStatus(QStringLiteral("手部 AI 初始化中"));
+        publishStatus(QStringLiteral("人体姿态 AI 初始化中"));
 
         QString error;
         if (!m_backend.initialize(modelDirPath(), &error)) {
-            publishStatus(QStringLiteral("手部 AI 初始化失败：%1").arg(error));
+            publishStatus(QStringLiteral("人体姿态 AI 初始化失败：%1").arg(error));
             qWarning() << "[HandAnalysis]" << error;
             while (!m_stopRequested) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -157,15 +157,15 @@ private:
         QString error;
         QImage rgb = m_extractor.copyToRgb(frame, &error);
         if (rgb.isNull()) {
-            publishStatus(QStringLiteral("手部 AI 取帧失败：%1").arg(error));
+            publishStatus(QStringLiteral("人体姿态 AI 取帧失败：%1").arg(error));
             return;
         }
 
-        QVector<HandPoseResult> results = m_backend.infer(rgb, cameraId, frame->receivedMsec);
+        PoseFrameResult results = m_backend.infer(rgb, cameraId, frame->receivedMsec);
         {
             QMutexLocker locker(&m_mutex);
             m_lastFrameMsec = frame->receivedMsec;
-            m_lastResultMsec = results.isEmpty() ? m_lastResultMsec : QDateTime::currentMSecsSinceEpoch();
+            m_lastResultMsec = results.instances.isEmpty() ? m_lastResultMsec : QDateTime::currentMSecsSinceEpoch();
         }
         publishResults(results);
         publishStatus(m_backend.statusText());
@@ -187,7 +187,7 @@ private:
         }
     }
 
-    void publishResults(const QVector<HandPoseResult> &results)
+    void publishResults(const PoseFrameResult &results)
     {
         ResultCallback callback;
         {
@@ -233,7 +233,7 @@ private:
     StatusCallback m_statusCallback;
     std::atomic_bool m_stopRequested = false;
     std::atomic_bool m_paused = false;
-    TensorRtHandPoseBackend m_backend;
+    TensorRtBodyPoseBackend m_backend;
     D3DFrameExtractor m_extractor;
 };
 

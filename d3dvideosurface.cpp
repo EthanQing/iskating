@@ -42,29 +42,6 @@ struct OverlayColor
     float a;
 };
 
-constexpr std::array<std::pair<int, int>, 20> kHandBones = {{
-    {0, 1},
-    {1, 2},
-    {2, 3},
-    {3, 4},
-    {0, 5},
-    {5, 6},
-    {6, 7},
-    {7, 8},
-    {0, 9},
-    {9, 10},
-    {10, 11},
-    {11, 12},
-    {0, 13},
-    {13, 14},
-    {14, 15},
-    {15, 16},
-    {0, 17},
-    {17, 18},
-    {18, 19},
-    {19, 20},
-}};
-
 QString hresultText(HRESULT hr)
 {
     return QStringLiteral("HRESULT 0x%1").arg(static_cast<qulonglong>(static_cast<unsigned long>(hr)),
@@ -132,14 +109,16 @@ float4 psMain(PSIn input) : SV_TARGET {
 }
 )HLSL";
 
-OverlayColor colorForHand(Handedness handedness)
+OverlayColor colorForInstance(const PoseInstance &instance)
 {
-    switch (handedness) {
-    case Handedness::Left:
+    switch (instance.kind) {
+    case PoseInstanceKind::LeftHand:
         return {0.22f, 0.55f, 1.0f, 0.95f};
-    case Handedness::Right:
+    case PoseInstanceKind::RightHand:
         return {0.10f, 0.86f, 0.54f, 0.95f};
-    case Handedness::Unknown:
+    case PoseInstanceKind::Person:
+        return {0.44f, 0.80f, 1.0f, 0.95f};
+    case PoseInstanceKind::Unknown:
     default:
         return {1.0f, 0.74f, 0.22f, 0.95f};
     }
@@ -215,9 +194,9 @@ void D3DVideoSurface::clearFrame()
     m_swapChain->Present(0, 0);
 }
 
-void D3DVideoSurface::setHandPoseResults(const QVector<HandPoseResult> &results)
+void D3DVideoSurface::setPoseFrame(const PoseFrameResult &frame)
 {
-    m_handPoseResults = results;
+    m_poseFrame = frame;
 }
 
 QString D3DVideoSurface::lastError() const
@@ -655,18 +634,18 @@ void D3DVideoSurface::render(const D3DFrame &frame)
 
     ID3D11ShaderResourceView *nullViews[] = {nullptr, nullptr};
     context->PSSetShaderResources(0, 2, nullViews);
-    renderHandPoseOverlay(frame, u0, u1, v0, v1, viewport);
+    renderPoseOverlay(frame, u0, u1, v0, v1, viewport);
     m_swapChain->Present(0, 0);
 }
 
-void D3DVideoSurface::renderHandPoseOverlay(const D3DFrame &frame,
-                                            float u0,
-                                            float u1,
-                                            float v0,
-                                            float v1,
-                                            const D3D11_VIEWPORT &viewport)
+void D3DVideoSurface::renderPoseOverlay(const D3DFrame &frame,
+                                        float u0,
+                                        float u1,
+                                        float v0,
+                                        float v1,
+                                        const D3D11_VIEWPORT &viewport)
 {
-    if (m_handPoseResults.isEmpty() || !m_overlayVertexBuffer) {
+    if (m_poseFrame.instances.isEmpty() || !m_overlayVertexBuffer) {
         return;
     }
 
@@ -675,23 +654,27 @@ void D3DVideoSurface::renderHandPoseOverlay(const D3DFrame &frame,
     const float pointDx = 2.0f * 4.0f / std::max(1.0f, viewport.Width);
     const float pointDy = 2.0f * 4.0f / std::max(1.0f, viewport.Height);
 
-    for (const HandPoseResult &hand : m_handPoseResults) {
-        if (hand.landmarks.size() < 21) {
+    for (const PoseInstance &pose : m_poseFrame.instances) {
+        if (pose.keypoints.isEmpty()) {
             continue;
         }
 
-        QSizeF sourceSize = hand.frameSize;
+        QSizeF sourceSize = m_poseFrame.frameSize;
         if (sourceSize.width() <= 0.0 || sourceSize.height() <= 0.0) {
             sourceSize = QSizeF(frame.width, frame.height);
         }
 
-        const OverlayColor color = colorForHand(hand.handedness);
-        std::array<std::pair<float, float>, 21> mappedPoints = {};
-        std::array<bool, 21> visible = {};
-        for (int i = 0; i < 21; ++i) {
+        const OverlayColor color = colorForInstance(pose);
+        std::vector<std::pair<float, float>> mappedPoints(static_cast<size_t>(pose.keypoints.size()));
+        std::vector<bool> visible(static_cast<size_t>(pose.keypoints.size()), false);
+        for (int i = 0; i < pose.keypoints.size(); ++i) {
+            const PoseKeypoint &keypoint = pose.keypoints.at(i);
+            if (!keypoint.valid) {
+                continue;
+            }
             float x = 0.0f;
             float y = 0.0f;
-            visible[static_cast<size_t>(i)] = mapLandmarkToNdc(hand.landmarks.at(i),
+            visible[static_cast<size_t>(i)] = mapLandmarkToNdc(keypoint.imagePoint,
                                                                sourceSize,
                                                                u0,
                                                                u1,
@@ -702,8 +685,12 @@ void D3DVideoSurface::renderHandPoseOverlay(const D3DFrame &frame,
             mappedPoints[static_cast<size_t>(i)] = {x, y};
         }
 
-        for (const auto &bone : kHandBones) {
-            if (!visible[static_cast<size_t>(bone.first)] || !visible[static_cast<size_t>(bone.second)]) {
+        for (const auto &bone : poseSkeletonBones(pose.skeletonType)) {
+            if (bone.first < 0 || bone.second < 0
+                || bone.first >= static_cast<int>(visible.size())
+                || bone.second >= static_cast<int>(visible.size())
+                || !visible[static_cast<size_t>(bone.first)]
+                || !visible[static_cast<size_t>(bone.second)]) {
                 continue;
             }
             const auto [x0, y0] = mappedPoints[static_cast<size_t>(bone.first)];
@@ -712,7 +699,7 @@ void D3DVideoSurface::renderHandPoseOverlay(const D3DFrame &frame,
         }
 
         const OverlayColor pointColor = {1.0f, 1.0f, 1.0f, 0.95f};
-        for (int i = 0; i < 21; ++i) {
+        for (int i = 0; i < static_cast<int>(visible.size()); ++i) {
             if (!visible[static_cast<size_t>(i)]) {
                 continue;
             }
@@ -721,12 +708,12 @@ void D3DVideoSurface::renderHandPoseOverlay(const D3DFrame &frame,
             appendLine(&vertices, x, y - pointDy, x, y + pointDy, pointColor);
         }
 
-        if (hand.handBox.isValid()) {
+        if (pose.box.isValid()) {
             const QPointF corners[] = {
-                hand.handBox.topLeft(),
-                hand.handBox.topRight(),
-                hand.handBox.bottomRight(),
-                hand.handBox.bottomLeft(),
+                pose.box.topLeft(),
+                pose.box.topRight(),
+                pose.box.bottomRight(),
+                pose.box.bottomLeft(),
             };
             std::array<std::pair<float, float>, 4> mappedBox = {};
             std::array<bool, 4> boxVisible = {};

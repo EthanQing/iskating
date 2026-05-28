@@ -1,0 +1,12 @@
+{
+  "model": "yolov8n-pose",
+  "onnx": "yolov8n-pose.onnx",
+  "inputWidth": 640,
+  "inputHeight": 640,
+  "skeletonType": "Body17",
+  "scoreThreshold": 0.35,
+  "keypointThreshold": 0.25,
+  "nmsIouThreshold": 0.45,
+  "maxPersons": 2,
+  "outputLayout": "YOLOv8 pose: box cx cy w h, object score, 17*(x y confidence)"
+}

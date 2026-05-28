@@ -1,6 +1,5 @@
 #include "mainwindow.h"
 #include "handanalysismanager.h"
-#include "handposeadapter.h"
 #include "iconutils.h"
 #include "posestandardnessscorer.h"
 #include "skeletonviewwidget.h"
@@ -165,7 +164,7 @@ MainWindow::MainWindow(QWidget *parent)
     setTopbarModule(ui->modelStatusLabel,
                     QStringLiteral("AI"),
                     QStringLiteral("模型状态 Status"),
-                    QStringLiteral("手部 AI 初始化中"));
+                    QStringLiteral("人体姿态 AI 初始化中"));
     setTopbarModule(ui->storageStatusLabel,
                     QStringLiteral("DB"),
                     QStringLiteral("存储 Storage"),
@@ -173,15 +172,20 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_poseStandardnessScorer = std::make_unique<PoseStandardnessScorer>();
     m_handAnalysisManager = std::make_unique<HandAnalysisManager>(this);
-    m_handAnalysisManager->setResultCallback([this](const QVector<HandPoseResult> &results) {
-        ui->mainImageLabel->setHandPoseResults(results);
-        const PoseFrameResult poseFrame = handPoseResultsToPoseFrame(results);
+    m_handAnalysisManager->setResultCallback([this](const PoseFrameResult &poseFrame) {
+        ui->mainImageLabel->setPoseFrame(poseFrame);
         if (m_skeletonView) {
             m_skeletonView->setPoseFrame(poseFrame);
         }
+        updateActionCounter(poseFrame);
         if (m_poseStandardnessScorer) {
             const PoseStandardnessResult standardness = m_poseStandardnessScorer->scoreFrame(poseFrame);
             m_realtimeScore = standardness.score;
+            m_detectionScore = standardness.detectionScore;
+            m_symmetryScore = standardness.symmetryScore;
+            m_balanceScore = standardness.balanceScore;
+            m_stabilityScore = standardness.stabilityScore;
+            m_depthScore = standardness.depthScore;
             m_feedbackText = standardness.feedback;
             refreshStats();
         }
@@ -298,6 +302,8 @@ MainWindow::MainWindow(QWidget *parent)
         captureLayout->setStretch(0, 1);
         captureLayout->setStretch(1, 0);
     }
+    m_timer.setInterval(1000);
+    connect(&m_timer, &QTimer::timeout, this, [this]() { tick(); });
 
     setupConnections();
     setTrajectoryMode(TrajectoryNormal);
@@ -691,6 +697,11 @@ void MainWindow::refreshTrajectoryModeButton()
 void MainWindow::startCapture()
 {
     qDebug() << "[MainWindow] startCapture clicked";
+    m_isRecording = true;
+    m_isPaused = false;
+    if (!m_timer.isActive()) {
+        m_timer.start();
+    }
     if (m_handAnalysisManager) {
         m_handAnalysisManager->setPaused(false);
     }
@@ -710,6 +721,8 @@ void MainWindow::startCapture()
 void MainWindow::pauseCapture()
 {
     qDebug() << "[MainWindow] pauseCapture clicked";
+    m_isPaused = true;
+    m_timer.stop();
     if (m_handAnalysisManager) {
         m_handAnalysisManager->setPaused(true);
     }
@@ -724,6 +737,14 @@ void MainWindow::pauseCapture()
 void MainWindow::stopCapture()
 {
     qDebug() << "[MainWindow] stopCapture clicked";
+    m_isRecording = false;
+    m_isPaused = false;
+    m_timer.stop();
+    m_durationSec = 0;
+    m_actionCount = 0;
+    m_previousKneeBend = 0.0;
+    m_actionArmed = false;
+    m_lastActionMsec = 0;
     if (m_handAnalysisManager) {
         m_handAnalysisManager->setPaused(true);
         m_handAnalysisManager->setActiveStream(0, {});
@@ -744,7 +765,63 @@ void MainWindow::saveRecord()
 // 训练计时器回调：用于累计训练时长、刷新统计数据和实时反馈。
 void MainWindow::tick()
 {
-    
+    if (!m_isRecording || m_isPaused) {
+        return;
+    }
+    ++m_durationSec;
+    refreshStats();
+}
+
+void MainWindow::updateActionCounter(const PoseFrameResult &poseFrame)
+{
+    if (!m_isRecording || m_isPaused || poseFrame.instances.isEmpty()) {
+        return;
+    }
+
+    const PoseInstance *person = nullptr;
+    for (const PoseInstance &instance : poseFrame.instances) {
+        if (!person || instance.confidence > person->confidence) {
+            person = &instance;
+        }
+    }
+    if (!person || person->keypoints.size() <= 16) {
+        return;
+    }
+
+    auto keypoint = [person](int index) -> const PoseKeypoint * {
+        if (index < 0 || index >= person->keypoints.size()) {
+            return nullptr;
+        }
+        const PoseKeypoint &kp = person->keypoints.at(index);
+        return kp.valid ? &kp : nullptr;
+    };
+
+    const PoseKeypoint *leftHip = keypoint(11);
+    const PoseKeypoint *rightHip = keypoint(12);
+    const PoseKeypoint *leftKnee = keypoint(13);
+    const PoseKeypoint *rightKnee = keypoint(14);
+    if (!leftHip || !rightHip || !leftKnee || !rightKnee) {
+        return;
+    }
+
+    const qreal hipY = (leftHip->imagePoint.y() + rightHip->imagePoint.y()) * 0.5;
+    const qreal kneeY = (leftKnee->imagePoint.y() + rightKnee->imagePoint.y()) * 0.5;
+    const qreal bodyScale = std::max<qreal>(1.0, person->box.height());
+    const qreal kneeBend = (kneeY - hipY) / bodyScale;
+
+    if (kneeBend > 0.28) {
+        m_actionArmed = true;
+    }
+    if (m_actionArmed && kneeBend < 0.18) {
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        if (now - m_lastActionMsec > 900) {
+            ++m_actionCount;
+            m_lastActionMsec = now;
+            refreshStats();
+        }
+        m_actionArmed = false;
+    }
+    m_previousKneeBend = kneeBend;
 }
 
 // 根据当前页面刷新左侧导航按钮的选中/普通状态。
@@ -769,6 +846,12 @@ void MainWindow::refreshStats()
     ui->actionValueLabel->setText(QString::number(m_actionCount));
     ui->durationValueLabel->setText(formatTime(m_durationSec));
     ui->scoreValueLabel->setText(QStringLiteral("%1/100 · %2").arg(m_realtimeScore).arg(m_feedbackText));
+    ui->saveTipLabel->setText(QStringLiteral("关键点 %1 · 对称 %2 · 重心 %3 · 稳定 %4 · 3D %5")
+                                  .arg(m_detectionScore)
+                                  .arg(m_symmetryScore)
+                                  .arg(m_balanceScore)
+                                  .arg(m_stabilityScore)
+                                  .arg(m_depthScore));
     ui->scoreProgressBar->setValue(std::clamp(m_realtimeScore, 0, 100));
 }
 
@@ -842,11 +925,16 @@ void MainWindow::refreshModelStatus(const QString &statusText)
 
 void MainWindow::clearRealtimePose()
 {
-    ui->mainImageLabel->setHandPoseResults({});
+    ui->mainImageLabel->setPoseFrame({});
     if (m_skeletonView) {
         m_skeletonView->clearPoseFrame();
     }
     m_realtimeScore = 0;
+    m_detectionScore = 0;
+    m_symmetryScore = 0;
+    m_balanceScore = 0;
+    m_stabilityScore = 0;
+    m_depthScore = 0;
     m_feedbackText = QStringLiteral("等待姿态");
     refreshStats();
 }

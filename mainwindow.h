@@ -11,6 +11,7 @@
 
 class QLabel;
 class PoseStandardnessScorer;
+struct PoseFrameResult;
 class QEvent;
 class QPushButton;
 class SkeletonViewWidget;
@@ -73,6 +74,7 @@ private:
     void stopCapture();
     void saveRecord();
     void tick();
+    void updateActionCounter(const PoseFrameResult &poseFrame);
 
     void refreshNavButtons();
     void refreshCameraButtons();
@@ -125,6 +127,14 @@ private:
     int m_durationSec = 0;
     int m_actionCount = 0;
     int m_realtimeScore = 90;
+    int m_detectionScore = 0;
+    int m_symmetryScore = 0;
+    int m_balanceScore = 0;
+    int m_stabilityScore = 0;
+    int m_depthScore = 0;
+    qreal m_previousKneeBend = 0.0;
+    bool m_actionArmed = false;
+    qint64 m_lastActionMsec = 0;
     QString m_feedbackText = QStringLiteral("动作标准");
 };
 

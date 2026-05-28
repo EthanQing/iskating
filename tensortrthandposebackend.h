@@ -8,7 +8,6 @@
 #include <QString>
 
 #include <memory>
-#include <vector>
 
 class TensorRtRunner;
 

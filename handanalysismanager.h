@@ -1,7 +1,7 @@
 #ifndef HANDANALYSISMANAGER_H
 #define HANDANALYSISMANAGER_H
 
-#include "handposeresult.h"
+#include "poseresult.h"
 
 #include <QObject>
 #include <QVector>
@@ -17,7 +17,7 @@ class HandAnalysisManager : public QObject
     Q_OBJECT
 
 public:
-    using ResultCallback = std::function<void(const QVector<HandPoseResult> &)>;
+    using ResultCallback = std::function<void(const PoseFrameResult &)>;
     using StatusCallback = std::function<void(const QString &)>;
 
     explicit HandAnalysisManager(QObject *parent = nullptr);

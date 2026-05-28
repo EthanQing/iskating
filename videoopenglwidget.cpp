@@ -179,7 +179,7 @@ void VideoOpenGLWidget::pausePlayback()
     m_playing = false;
     m_statusText = QStringLiteral("已暂停");
     m_renderTimer->stop();
-    m_videoSurface->setHandPoseResults({});
+    m_videoSurface->setPoseFrame({});
     m_videoSurface->hide();
     notifyStreamChanged();
     update();
@@ -194,7 +194,7 @@ void VideoOpenGLWidget::stopPlayback()
     m_usingFallback = false;
     m_statusText.clear();
     m_renderTimer->stop();
-    m_videoSurface->setHandPoseResults({});
+    m_videoSurface->setPoseFrame({});
     m_videoSurface->clearFrame();
     m_videoSurface->hide();
     notifyStreamChanged();
@@ -211,10 +211,10 @@ std::shared_ptr<RtspStream> VideoOpenGLWidget::activeStream() const
     return m_stream;
 }
 
-void VideoOpenGLWidget::setHandPoseResults(const QVector<HandPoseResult> &results)
+void VideoOpenGLWidget::setPoseFrame(const PoseFrameResult &frame)
 {
     if (m_videoSurface) {
-        m_videoSurface->setHandPoseResults(results);
+        m_videoSurface->setPoseFrame(frame);
     }
 }
 

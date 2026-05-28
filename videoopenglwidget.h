@@ -1,7 +1,7 @@
 #ifndef VIDEOOPENGLWIDGET_H
 #define VIDEOOPENGLWIDGET_H
 
-#include "handposeresult.h"
+#include "poseresult.h"
 
 #include <QSvgRenderer>
 #include <QString>
@@ -53,7 +53,7 @@ public:
     void playMainUrl();
     void playMainUrlWithFallback(const QString &mainUrl, const QString &fallbackUrl);
     std::shared_ptr<RtspStream> activeStream() const;
-    void setHandPoseResults(const QVector<HandPoseResult> &results);
+    void setPoseFrame(const PoseFrameResult &frame);
     void setDoubleClickHandler(std::function<void(VideoOpenGLWidget *)> handler);
     void setConfigChangedHandler(std::function<void(VideoOpenGLWidget *)> handler);
     void setStreamChangedHandler(std::function<void(VideoOpenGLWidget *)> handler);
