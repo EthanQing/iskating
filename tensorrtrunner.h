@@ -35,5 +35,6 @@ private:
 };
 
 std::vector<float> imageToNhwcFloat(const QImage &image, const QSize &targetSize);
+std::vector<float> imageToNchwFloat(const QImage &image, const QSize &targetSize);
 
 #endif // TENSORRTRUNNER_H

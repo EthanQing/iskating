@@ -455,3 +455,21 @@ std::vector<float> imageToNhwcFloat(const QImage &image, const QSize &targetSize
     }
     return result;
 }
+
+std::vector<float> imageToNchwFloat(const QImage &image, const QSize &targetSize)
+{
+    const QImage scaled = image.convertToFormat(QImage::Format_RGB888)
+                              .scaled(targetSize, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    const int planeSize = targetSize.width() * targetSize.height();
+    std::vector<float> result(static_cast<size_t>(planeSize * 3), 0.0f);
+    for (int y = 0; y < scaled.height(); ++y) {
+        const uchar *line = scaled.constScanLine(y);
+        for (int x = 0; x < scaled.width(); ++x) {
+            const int pixelIndex = y * scaled.width() + x;
+            result[static_cast<size_t>(pixelIndex)] = line[x * 3 + 0] / 255.0f;
+            result[static_cast<size_t>(planeSize + pixelIndex)] = line[x * 3 + 1] / 255.0f;
+            result[static_cast<size_t>(planeSize * 2 + pixelIndex)] = line[x * 3 + 2] / 255.0f;
+        }
+    }
+    return result;
+}

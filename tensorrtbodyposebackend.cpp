@@ -96,7 +96,7 @@ BodyPreprocess preprocessBody(const QImage &image, const QSize &targetSize)
     painter.drawImage(QRect(QPoint(result.padLeft, result.padTop), scaledSize), rgb);
     painter.end();
 
-    result.tensor = imageToNhwcFloat(letterboxed, targetSize);
+    result.tensor = imageToNchwFloat(letterboxed, targetSize);
     return result;
 }
 
