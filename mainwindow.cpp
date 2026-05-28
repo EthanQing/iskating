@@ -1,6 +1,9 @@
 #include "mainwindow.h"
 #include "handanalysismanager.h"
+#include "handposeadapter.h"
 #include "iconutils.h"
+#include "posestandardnessscorer.h"
+#include "skeletonviewwidget.h"
 #include "ui_mainwindow.h"
 #include "videoopenglwidget.h"
 
@@ -168,9 +171,20 @@ MainWindow::MainWindow(QWidget *parent)
                     QStringLiteral("存储 Storage"),
                     QStringLiteral("1.82T/4.00TB"));
 
+    m_poseStandardnessScorer = std::make_unique<PoseStandardnessScorer>();
     m_handAnalysisManager = std::make_unique<HandAnalysisManager>(this);
     m_handAnalysisManager->setResultCallback([this](const QVector<HandPoseResult> &results) {
         ui->mainImageLabel->setHandPoseResults(results);
+        const PoseFrameResult poseFrame = handPoseResultsToPoseFrame(results);
+        if (m_skeletonView) {
+            m_skeletonView->setPoseFrame(poseFrame);
+        }
+        if (m_poseStandardnessScorer) {
+            const PoseStandardnessResult standardness = m_poseStandardnessScorer->scoreFrame(poseFrame);
+            m_realtimeScore = standardness.score;
+            m_feedbackText = standardness.feedback;
+            refreshStats();
+        }
     });
     m_handAnalysisManager->setStatusCallback([this](const QString &statusText) {
         refreshModelStatus(statusText);
@@ -220,6 +234,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     applyStyleSheet();
     installStaticImages();
+    installSkeletonView();
 
     auto *fullScreenShortcut = new QShortcut(QKeySequence(Qt::Key_F11), this);
     fullScreenShortcut->setContext(Qt::WindowShortcut);
@@ -286,6 +301,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     setupConnections();
     setTrajectoryMode(TrajectoryNormal);
+    refreshStats();
 }
 
 // 释放由 Qt Designer 生成的界面对象。
@@ -362,6 +378,23 @@ void MainWindow::installStaticImages()
     ui->poseImageLabelB->setPlaceholderText(QString());
     ui->poseImageLabelB->setPlaceholderIconVisible(false);
     ui->poseImageLabelB->setOverlayControlsVisible(false);
+}
+
+// 将实时 AI 骨架结果显示到下方“运动员3D骨架”窗口；主视频叠加仍走 D3D surface。
+void MainWindow::installSkeletonView()
+{
+    if (m_skeletonView) {
+        return;
+    }
+
+    ui->poseTitleLabel->setText(QStringLiteral("运动员3D骨架"));
+    ui->poseImageLayout->removeWidget(ui->poseImageLabelA);
+    ui->poseImageLayout->removeWidget(ui->poseImageLabelB);
+    ui->poseImageLabelA->hide();
+    ui->poseImageLabelB->hide();
+
+    m_skeletonView = new SkeletonViewWidget(ui->poseCard);
+    ui->poseImageLayout->insertWidget(0, m_skeletonView, 1);
 }
 
 // 从资源系统读取 QSS，统一应用暗色仪表盘主题样式。
@@ -444,6 +477,7 @@ void MainWindow::showCameraInMainView(int cameraIndex)
     auto *cameraWidget = m_cameraButtons.at(cameraIndex);
     m_selectedCamera = cameraIndex + 1;
     const QString source = cameraWidget->mainUrl();
+    clearRealtimePose();
     if (source.trimmed().isEmpty()) {
         ui->mainImageLabel->stopPlayback();
         ui->mainImageLabel->setPlaceholderText(QStringLiteral("主视频\n未配置"));
@@ -679,6 +713,7 @@ void MainWindow::pauseCapture()
     if (m_handAnalysisManager) {
         m_handAnalysisManager->setPaused(true);
     }
+    clearRealtimePose();
     ui->mainImageLabel->pausePlayback();
     for (auto *videoWidget : m_cameraButtons) {
         videoWidget->pausePlayback();
@@ -693,6 +728,7 @@ void MainWindow::stopCapture()
         m_handAnalysisManager->setPaused(true);
         m_handAnalysisManager->setActiveStream(0, {});
     }
+    clearRealtimePose();
     ui->mainImageLabel->stopPlayback();
     for (auto *videoWidget : m_cameraButtons) {
         videoWidget->stopPlayback();
@@ -730,7 +766,10 @@ void MainWindow::refreshCameraButtons()
 // 刷新动作计数、训练时长、实时得分等统计卡片。
 void MainWindow::refreshStats()
 {
-  
+    ui->actionValueLabel->setText(QString::number(m_actionCount));
+    ui->durationValueLabel->setText(formatTime(m_durationSec));
+    ui->scoreValueLabel->setText(QStringLiteral("%1/100 · %2").arg(m_realtimeScore).arg(m_feedbackText));
+    ui->scoreProgressBar->setValue(std::clamp(m_realtimeScore, 0, 100));
 }
 
 // 重新生成训练历史列表和概要统计卡片。
@@ -799,6 +838,17 @@ void MainWindow::refreshModelStatus(const QString &statusText)
     ui->modelStatusLabel->setText(topbarModuleHtml(QStringLiteral("AI"),
                                                    QStringLiteral("模型状态 Status"),
                                                    statusText));
+}
+
+void MainWindow::clearRealtimePose()
+{
+    ui->mainImageLabel->setHandPoseResults({});
+    if (m_skeletonView) {
+        m_skeletonView->clearPoseFrame();
+    }
+    m_realtimeScore = 0;
+    m_feedbackText = QStringLiteral("等待姿态");
+    refreshStats();
 }
 
 // 重新应用指定控件的 QSS，用于动态属性变化后立即刷新外观。

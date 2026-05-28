@@ -117,10 +117,14 @@ SOURCES += \
     d3dvideosurface.cpp \
     framelessdialog.cpp \
     handanalysismanager.cpp \
+    handposeadapter.cpp \
     iconutils.cpp \
     main.cpp \
     mainwindow.cpp \
+    poseresult.cpp \
+    posestandardnessscorer.cpp \
     rtspstream.cpp \
+    skeletonviewwidget.cpp \
     streamregistry.cpp \
     tensortrthandposebackend.cpp \
     videoopenglwidget.cpp
@@ -132,10 +136,14 @@ HEADERS += \
     d3dvideosurface.h \
     framelessdialog.h \
     handanalysismanager.h \
+    handposeadapter.h \
     handposeresult.h \
     iconutils.h \
     mainwindow.h \
+    poseresult.h \
+    posestandardnessscorer.h \
     rtspstream.h \
+    skeletonviewwidget.h \
     streamregistry.h \
     tensortrthandposebackend.h \
     videoopenglwidget.h

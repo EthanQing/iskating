@@ -10,8 +10,10 @@
 #include <memory>
 
 class QLabel;
+class PoseStandardnessScorer;
 class QEvent;
 class QPushButton;
+class SkeletonViewWidget;
 class QVBoxLayout;
 class TrajectoryWidget;
 class VideoOpenGLWidget;
@@ -49,6 +51,7 @@ private:
     void setupUiState();
     void setupConnections();
     void installTrajectoryWidget();
+    void installSkeletonView();
     void installStaticImages();
     void applyStyleSheet();
     void loadCameraSettings();
@@ -79,6 +82,7 @@ private:
     void refreshSidebarButton();
     void refreshFullScreenButton();
     void refreshModelStatus(const QString &statusText);
+    void clearRealtimePose();
     void repolish(QWidget *widget) const;
 
     QString pad(int num) const;
@@ -93,6 +97,8 @@ private:
     QVector<QLabel *> m_summaryValues;
     QPushButton *m_fullScreenButton = nullptr;
     std::unique_ptr<HandAnalysisManager> m_handAnalysisManager;
+    std::unique_ptr<PoseStandardnessScorer> m_poseStandardnessScorer;
+    SkeletonViewWidget *m_skeletonView = nullptr;
 
     TrajectoryWidget *m_trajectoryWidget = nullptr;
     QTimer m_timer;
