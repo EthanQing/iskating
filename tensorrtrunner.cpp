@@ -4,13 +4,39 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QCoreApplication>
 #include <QSaveFile>
 #include <QStringList>
 
 #include <NvInferPlugin.h>
 #include <NvOnnxParser.h>
 
+#ifdef Q_OS_WIN
+#include <qt_windows.h>
+#endif
+
 namespace {
+
+void configureDllSearchPaths()
+{
+#ifdef Q_OS_WIN
+    static bool configured = false;
+    if (configured) {
+        return;
+    }
+    configured = true;
+
+    const QStringList paths = {
+        QCoreApplication::applicationDirPath(),
+        QStringLiteral("C:/Program Files/TensorRT-10.1.0.27/lib"),
+        QStringLiteral("C:/Program Files/TensorRT-10.1.0.27/bin"),
+        QStringLiteral("C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.8/bin"),
+    };
+    for (const QString &path : paths) {
+        AddDllDirectory(reinterpret_cast<PCWSTR>(path.utf16()));
+    }
+#endif
+}
 
 class TrtLogger final : public nvinfer1::ILogger
 {
@@ -266,6 +292,7 @@ TensorRtRunner::~TensorRtRunner() = default;
 
 bool TensorRtRunner::initialize(const QString &onnxPath, QString *error)
 {
+    configureDllSearchPaths();
     initLibNvInferPlugins(&m_impl->logger, "");
 
     if (!QFileInfo::exists(onnxPath)) {
@@ -278,6 +305,7 @@ bool TensorRtRunner::initialize(const QString &onnxPath, QString *error)
     const QString enginePath = enginePathFor(onnxPath);
     QByteArray engineData;
     if (QFileInfo::exists(enginePath)) {
+        qDebug() << "[TensorRT] loading cached engine" << enginePath;
         QFile file(enginePath);
         if (!file.open(QIODevice::ReadOnly)) {
             if (error) {
@@ -286,8 +314,11 @@ bool TensorRtRunner::initialize(const QString &onnxPath, QString *error)
             return false;
         }
         engineData = file.readAll();
-    } else if (!m_impl->buildEngine(onnxPath, enginePath, &engineData, error)) {
-        return false;
+    } else {
+        qWarning() << "[TensorRT] cached engine not found; building may take several minutes" << enginePath;
+        if (!m_impl->buildEngine(onnxPath, enginePath, &engineData, error)) {
+            return false;
+        }
     }
 
     m_impl->runtime.reset(nvinfer1::createInferRuntime(m_impl->logger));

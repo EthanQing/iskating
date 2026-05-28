@@ -54,9 +54,17 @@ public:
 
     void setCallbacks(ResultCallback resultCallback, StatusCallback statusCallback)
     {
+        QString statusToReplay;
         QMutexLocker locker(&m_mutex);
         m_resultCallback = std::move(resultCallback);
         m_statusCallback = std::move(statusCallback);
+        if (m_statusCallback && !m_lastPublishedStatus.isEmpty()) {
+            statusToReplay = m_lastPublishedStatus;
+        }
+        locker.unlock();
+        if (!statusToReplay.isEmpty()) {
+            publishStatus(statusToReplay, true);
+        }
     }
 
     void start()
@@ -105,10 +113,11 @@ public:
 private:
     void run()
     {
-        publishStatus(QStringLiteral("人体姿态 AI 初始化中"));
+        const QString modelPath = modelDirPath();
+        publishStatus(QStringLiteral("人体姿态 AI 初始化中：%1").arg(modelPath));
 
         QString error;
-        if (!m_backend.initialize(modelDirPath(), &error)) {
+        if (!m_backend.initialize(modelPath, &error)) {
             publishStatus(QStringLiteral("人体姿态 AI 初始化失败：%1").arg(error));
             qWarning() << "[HandAnalysis]" << error;
             while (!m_stopRequested) {
@@ -202,12 +211,12 @@ private:
                                   Qt::QueuedConnection);
     }
 
-    void publishStatus(const QString &status)
+    void publishStatus(const QString &status, bool force = false)
     {
         StatusCallback callback;
         {
             QMutexLocker locker(&m_mutex);
-            if (status == m_lastPublishedStatus) {
+            if (!force && status == m_lastPublishedStatus) {
                 return;
             }
             m_lastPublishedStatus = status;
