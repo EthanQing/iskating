@@ -18,6 +18,7 @@
 #include <QEvent>
 #include <QFile>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QFrame>
 #include <QGridLayout>
@@ -66,6 +67,11 @@ constexpr int kDefaultPreviewStreamFps = 30;
 constexpr int kDefaultMainStreamFps = 120;
 constexpr int kDefaultRtspPort = 554;
 constexpr int kMaxVisibleHistoryItems = 10;
+constexpr int kTopIconButtonWidth = 92;
+constexpr int kOperationRailWidth = 110;
+constexpr int kOperationButtonHeight = 72;
+constexpr int kHistoryActionButtonWidth = 92;
+constexpr int kScoreTagWidth = 68;
 constexpr const char *kPreviousWindowStateProperty = "previousWindowStateBeforeFullScreen";
 constexpr const char *kMutedInactiveColor = "#8c8c8c";
 constexpr const char *kHoverActionColor = "#3b8dff";
@@ -250,6 +256,11 @@ QString safeUrlForLog(const QString &source)
     return source;
 }
 
+bool hasMediaUrlScheme(const QString &source)
+{
+    return source.trimmed().contains(QStringLiteral("://"));
+}
+
 QString displayMediaSource(const QString &source)
 {
     const QString trimmed = source.trimmed();
@@ -257,14 +268,26 @@ QString displayMediaSource(const QString &source)
         return QStringLiteral("未记录");
     }
 
-    QUrl url = QUrl::fromEncoded(trimmed.toUtf8(), QUrl::TolerantMode);
-    if (!url.isValid() || url.scheme().isEmpty()) {
-        return trimmed;
+    if (!hasMediaUrlScheme(trimmed)) {
+        const QFileInfo fileInfo(trimmed);
+        return fileInfo.exists()
+                   ? QStringLiteral("%1（%2）").arg(fileInfo.fileName(), QDir::toNativeSeparators(fileInfo.absoluteFilePath()))
+                   : QDir::toNativeSeparators(trimmed);
     }
+
+    QUrl url = QUrl::fromEncoded(trimmed.toUtf8(), QUrl::TolerantMode);
     if (!url.password().isEmpty()) {
         url.setPassword(QStringLiteral("***"));
     }
     return url.toString(QUrl::RemoveQuery | QUrl::RemoveFragment);
+}
+
+QString offlineVideoDisplayName(const QString &filePath)
+{
+    const QString fileName = QFileInfo(filePath).fileName();
+    return fileName.isEmpty()
+               ? QStringLiteral("离线视频")
+               : QStringLiteral("离线视频 · %1").arg(fileName);
 }
 
 QString issueSummary(const QString &errorCodes)
@@ -294,6 +317,22 @@ QString repetitionReportLine(const ActionRepetition &repetition, int index, cons
         .arg(qualityLabel(repetition.score, repetition.valid))
         .arg(issueSummary(repetition.errorCodes))
         .arg(repetition.feedback.trimmed().isEmpty() ? QStringLiteral("无") : repetition.feedback.trimmed());
+}
+
+void configureStableButton(QPushButton *button,
+                           int width,
+                           int height,
+                           const QSize &iconSize)
+{
+    if (!button) {
+        return;
+    }
+
+    button->setMinimumSize(width, height);
+    button->setMaximumSize(width, height);
+    button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    button->setIconSize(iconSize);
+    button->setFocusPolicy(Qt::NoFocus);
 }
 
 QString topbarModuleHtml(const QString &icon, const QString &title, const QString &value)
@@ -476,8 +515,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_fullScreenButton = new QPushButton(ui->toggleSidebarButton->parentWidget());
     m_fullScreenButton->setObjectName(QStringLiteral("fullScreenButton"));
     m_fullScreenButton->setProperty("role", "plain");
-    m_fullScreenButton->setFocusPolicy(Qt::NoFocus);
-    ui->toggleSidebarButton->setFocusPolicy(Qt::NoFocus);
+    configureStableButton(ui->toggleSidebarButton, kTopIconButtonWidth, 40, QSize(22, 22));
+    configureStableButton(m_fullScreenButton, kTopIconButtonWidth, 40, QSize(22, 22));
     ui->toggleSidebarButton->installEventFilter(this);
     m_fullScreenButton->installEventFilter(this);
     refreshSidebarButton();
@@ -488,6 +527,27 @@ MainWindow::MainWindow(QWidget *parent)
     } else {
         ui->topbarLayout->addWidget(m_fullScreenButton);
     }
+
+    m_importVideoButton = new QPushButton(ui->leftCard);
+    m_importVideoButton->setObjectName(QStringLiteral("importOfflineVideoButton"));
+    m_importVideoButton->setProperty("role", "secondaryButton");
+    m_importVideoButton->setText(QStringLiteral("导入视频"));
+    m_importVideoButton->setIcon(makeNormalizedTintedSvgIcon(QStringLiteral(":/icons/video.svg"),
+                                                             QColor(QString::fromLatin1(kMutedInactiveColor)),
+                                                             18,
+                                                             16));
+    m_importVideoButton->setIconSize(QSize(18, 18));
+    m_importVideoButton->setToolTip(QStringLiteral("导入本地视频用于姿态分析和训练复盘"));
+    m_importVideoButton->setStatusTip(m_importVideoButton->toolTip());
+    m_importVideoButton->setAccessibleName(QStringLiteral("导入离线视频"));
+    configureStableButton(m_importVideoButton, kHistoryActionButtonWidth, 32, QSize(18, 18));
+    const int focusTitleIndex = ui->headlineLayout->indexOf(ui->focusTitleLabel);
+    if (focusTitleIndex >= 0) {
+        ui->headlineLayout->insertWidget(focusTitleIndex, m_importVideoButton, 0, Qt::AlignRight | Qt::AlignVCenter);
+    } else {
+        ui->headlineLayout->addWidget(m_importVideoButton, 0, Qt::AlignRight | Qt::AlignVCenter);
+    }
+    connect(m_importVideoButton, &QPushButton::clicked, this, [this]() { importOfflineVideo(); });
 
     ui->mainImageLabel->setPlaceholderText(QStringLiteral("主视频\n未播放"));
     ui->mainImageLabel->setOverlayControlsVisible(false);
@@ -528,6 +588,12 @@ MainWindow::MainWindow(QWidget *parent)
     escapeShortcut->setContext(Qt::WindowShortcut);
     connect(escapeShortcut, &QShortcut::activated, this, [this]() { exitFullScreenMode(); });
 
+    if (ui->opsCard) {
+        ui->opsCard->setMinimumWidth(kOperationRailWidth);
+        ui->opsCard->setMaximumWidth(kOperationRailWidth);
+        ui->opsCard->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    }
+
     auto makeButtonAction = [this](QPushButton *button, const QString &label, const QString &iconPath) {
         auto *action = new QAction(makeNormalizedTintedSvgIcon(iconPath,
                                                                QColor(QString::fromLatin1(kMutedInactiveColor)),
@@ -538,14 +604,18 @@ MainWindow::MainWindow(QWidget *parent)
         action->setToolTip(label);
         action->setStatusTip(label);
 
-        button->setText(QString());
+        button->setText(QStringLiteral("\n%1").arg(label));
         button->setIcon(action->icon());
-        button->setIconSize(QSize(38, 38));
         button->setToolTip(label);
         button->setStatusTip(label);
         button->setAccessibleName(label);
+        button->setProperty("compactText", label);
         button->setProperty("showTipTextOnHover", true);
         button->installEventFilter(this);
+        configureStableButton(button,
+                              kOperationRailWidth - 20,
+                              kOperationButtonHeight,
+                              QSize(30, 30));
 
         connect(button, &QPushButton::clicked, action, &QAction::trigger);
         return action;
@@ -603,7 +673,7 @@ MainWindow::~MainWindow()
     delete ui;
 }
 
-// 监听图标按钮的悬停状态：右上角按钮悬停时点亮，右侧控制按钮悬停时显示提示文字。
+// 监听图标按钮的悬停状态：只刷新固定宽度内的视觉提示，避免悬浮时改变布局宽度。
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 {
     if (watched == ui->toggleSidebarButton
@@ -613,10 +683,9 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                && (event->type() == QEvent::Enter || event->type() == QEvent::Leave)) {
         refreshFullScreenButton();
     } else if ((event->type() == QEvent::Enter || event->type() == QEvent::Leave)
-               && watched->property("showTipTextOnHover").toBool()) {
-        if (auto *button = qobject_cast<QPushButton *>(watched)) {
-            button->setText(event->type() == QEvent::Enter ? button->accessibleName() : QString());
-        }
+               && watched->property("showTipTextOnHover").toBool()
+               && qobject_cast<QPushButton *>(watched)) {
+        repolish(qobject_cast<QWidget *>(watched));
     }
 
     return QMainWindow::eventFilter(watched, event);
@@ -656,6 +725,12 @@ void MainWindow::setupUiState()
     if (ui->fpsComboBox && ui->fpsComboBox->count() == 0) {
         for (int fps : {15, 25, 30, 50, 60, 90, 120}) {
             ui->fpsComboBox->addItem(QStringLiteral("%1 FPS").arg(fps), fps);
+        }
+    }
+    for (QLabel *label : {ui->scoreValueLabel, ui->saveTipLabel}) {
+        if (label) {
+            label->setWordWrap(true);
+            label->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
         }
     }
     applyCapturePreferencesToUi();
@@ -842,6 +917,7 @@ void MainWindow::installTrainingContextPanel()
     m_standardDetailLabel = new QLabel(QStringLiteral("动作标准库初始化中"), m_trainingContextPanel);
     m_standardDetailLabel->setProperty("role", "muted");
     m_standardDetailLabel->setWordWrap(true);
+    m_standardDetailLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     titleRow->addWidget(titleLabel, 0);
     titleRow->addWidget(m_standardDetailLabel, 1);
     panelLayout->addLayout(titleRow);
@@ -904,6 +980,8 @@ void MainWindow::installTrainingContextPanel()
     grid->addWidget(m_restSecondsSpinBox, 4, 1);
     m_trainingTargetLabel = new QLabel(QStringLiteral("目标完成度：0/0"), m_trainingContextPanel);
     m_trainingTargetLabel->setProperty("role", "muted");
+    m_trainingTargetLabel->setWordWrap(true);
+    m_trainingTargetLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     grid->addWidget(m_trainingTargetLabel, 4, 2, 1, 4);
 
     panelLayout->addLayout(grid);
@@ -1154,6 +1232,7 @@ void MainWindow::applyCameraSettingsToWidgets(bool restorePlayback)
         m_cameraSlotSettings.resize(m_cameraButtons.size());
     }
 
+    const bool offlineMode = !m_offlineVideoPath.trimmed().isEmpty();
     QVector<bool> previewWasPlaying;
     previewWasPlaying.reserve(m_cameraButtons.size());
     for (auto *cameraWidget : m_cameraButtons) {
@@ -1172,6 +1251,11 @@ void MainWindow::applyCameraSettingsToWidgets(bool restorePlayback)
         cameraWidget->setPlaceholderText(channelName);
         cameraWidget->setStreamUrls(previewUrl, mainUrl);
 
+        if (offlineMode) {
+            cameraWidget->stopPlayback();
+            continue;
+        }
+
         if (!restorePlayback) {
             continue;
         }
@@ -1183,7 +1267,9 @@ void MainWindow::applyCameraSettingsToWidgets(bool restorePlayback)
         }
     }
 
-    if (!m_cameraButtons.isEmpty()) {
+    if (offlineMode) {
+        showOfflineVideoInMainView(shouldResumeStreams || mainWasPlaying);
+    } else if (!m_cameraButtons.isEmpty()) {
         int selectedIndex = std::max(0, m_selectedCamera - 1);
         if (selectedIndex >= m_cameraButtons.size()) {
             selectedIndex = m_cameraButtons.size() - 1;
@@ -1455,6 +1541,88 @@ void MainWindow::recordCompletedRepetition(const ActionRepetition &repetition)
     refreshStats();
 }
 
+void MainWindow::importOfflineVideo()
+{
+    if (m_isRecording) {
+        QMessageBox::information(this,
+                                 QStringLiteral("正在训练"),
+                                 QStringLiteral("请先保存或停止当前训练，再导入离线视频。"));
+        return;
+    }
+
+    QSettings settings;
+    const QString lastDir = settings.value(QStringLiteral("offlineVideo/lastDir"), QDir::homePath()).toString();
+    const QString filePath = QFileDialog::getOpenFileName(this,
+                                                          QStringLiteral("导入离线视频"),
+                                                          lastDir,
+                                                          QStringLiteral("视频文件 (*.mp4 *.mov *.avi *.mkv *.m4v *.wmv *.flv *.webm);;所有文件 (*.*)"));
+    if (filePath.trimmed().isEmpty()) {
+        return;
+    }
+
+    const QFileInfo fileInfo(filePath);
+    if (!fileInfo.exists() || !fileInfo.isFile()) {
+        QMessageBox::warning(this,
+                             QStringLiteral("导入失败"),
+                             QStringLiteral("找不到所选视频文件：%1").arg(QDir::toNativeSeparators(filePath)));
+        return;
+    }
+
+    settings.setValue(QStringLiteral("offlineVideo/lastDir"), fileInfo.absolutePath());
+    m_offlineVideoPath = fileInfo.absoluteFilePath();
+    m_offlineVideoName = offlineVideoDisplayName(m_offlineVideoPath);
+
+    for (auto *videoWidget : m_cameraButtons) {
+        if (videoWidget && videoWidget->isPlaying()) {
+            videoWidget->stopPlayback();
+        }
+    }
+    showOfflineVideoInMainView(true);
+    ui->saveTipLabel->setText(QStringLiteral("已导入离线视频：%1。点击“开始采集”后将基于该视频记录训练复盘。")
+                                  .arg(QDir::toNativeSeparators(m_offlineVideoPath)));
+    ui->saveTipLabel->show();
+}
+
+void MainWindow::showOfflineVideoInMainView(bool autoPlay)
+{
+    if (m_offlineVideoPath.trimmed().isEmpty()) {
+        return;
+    }
+
+    const QFileInfo fileInfo(m_offlineVideoPath);
+    m_offlineVideoName = offlineVideoDisplayName(m_offlineVideoPath);
+    m_selectedCamera = 0;
+    clearRealtimePose();
+
+    if (!fileInfo.exists() || !fileInfo.isFile()) {
+        ui->mainImageLabel->stopPlayback();
+        ui->mainImageLabel->setPlaceholderText(QStringLiteral("离线视频\n文件不存在"));
+        ui->saveTipLabel->setText(QStringLiteral("离线视频文件不存在：%1").arg(QDir::toNativeSeparators(m_offlineVideoPath)));
+        ui->saveTipLabel->show();
+        if (m_handAnalysisManager) {
+            m_handAnalysisManager->setPaused(true);
+            m_handAnalysisManager->setActiveStream(0, {});
+        }
+    } else if (!autoPlay) {
+        ui->mainImageLabel->stopPlayback();
+        ui->mainImageLabel->setPlaceholderText(m_offlineVideoName);
+        if (m_handAnalysisManager) {
+            m_handAnalysisManager->setPaused(true);
+            m_handAnalysisManager->setActiveStream(0, {});
+        }
+    } else {
+        ui->mainImageLabel->setPlaceholderText(m_offlineVideoName);
+        ui->mainImageLabel->playFile(m_offlineVideoPath);
+        if (m_handAnalysisManager) {
+            m_handAnalysisManager->setPaused(m_isPaused);
+            m_handAnalysisManager->setActiveStream(0, ui->mainImageLabel->activeStream());
+        }
+    }
+
+    ui->focusTitleLabel->setText(QStringLiteral("当前来源：%1").arg(m_offlineVideoName));
+    refreshCameraButtons();
+}
+
 // 将指定摄像头主码流显示到主视图；小窗预览仍保持子码流。
 void MainWindow::showCameraInMainView(int cameraIndex, bool autoPlay)
 {
@@ -1462,6 +1630,8 @@ void MainWindow::showCameraInMainView(int cameraIndex, bool autoPlay)
         return;
     }
 
+    m_offlineVideoPath.clear();
+    m_offlineVideoName.clear();
     auto *cameraWidget = m_cameraButtons.at(cameraIndex);
     m_selectedCamera = cameraIndex + 1;
     const QString source = cameraWidget->mainUrl();
@@ -1519,28 +1689,17 @@ void MainWindow::toggleSidebar()
     if (!m_sidebarMetricsCaptured) {
         m_sidebarLayoutMargins = ui->sidebarLayout->contentsMargins();
         m_sidebarLayoutSpacing = ui->sidebarLayout->spacing();
+        m_sidebarNormalMinimumWidth = ui->sidebar->minimumWidth();
+        m_sidebarNormalMaximumWidth = ui->sidebar->maximumWidth();
         m_sidebarMetricsCaptured = true;
     }
 
     setLayoutItemsVisible(ui->sidebarLayout, m_sidebarVisible);
     ui->sidebarLayout->setContentsMargins(m_sidebarVisible ? m_sidebarLayoutMargins : QMargins(0, 0, 0, 0));
     ui->sidebarLayout->setSpacing(m_sidebarVisible ? m_sidebarLayoutSpacing : 0);
-
-    if (auto *sidebarWidget = ui->sidebarLayout->parentWidget();
-        sidebarWidget && sidebarWidget->objectName() == QLatin1String("sidebar")) {
-        if (!sidebarWidget->property("normalMinimumWidth").isValid()) {
-            sidebarWidget->setProperty("normalMinimumWidth", sidebarWidget->minimumWidth());
-            sidebarWidget->setProperty("normalMaximumWidth", sidebarWidget->maximumWidth());
-        }
-
-        if (m_sidebarVisible) {
-            sidebarWidget->setMinimumWidth(sidebarWidget->property("normalMinimumWidth").toInt());
-            sidebarWidget->setMaximumWidth(sidebarWidget->property("normalMaximumWidth").toInt());
-        } else {
-            sidebarWidget->setMinimumWidth(0);
-            sidebarWidget->setMaximumWidth(0);
-        }
-    }
+    ui->sidebar->setMinimumWidth(m_sidebarVisible ? m_sidebarNormalMinimumWidth : 0);
+    ui->sidebar->setMaximumWidth(m_sidebarVisible ? m_sidebarNormalMaximumWidth : 0);
+    ui->sidebar->setVisible(m_sidebarVisible);
 
     if (auto *sideBarAfter = findChild<QWidget *>(QStringLiteral("sideBarAfter"))) {
         sideBarAfter->setVisible(m_sidebarVisible);
@@ -1718,6 +1877,15 @@ void MainWindow::startCapture()
         ui->saveTipLabel->show();
         return;
     }
+    const bool useOfflineVideo = !m_offlineVideoPath.trimmed().isEmpty();
+    if (useOfflineVideo) {
+        const QFileInfo offlineFile(m_offlineVideoPath);
+        if (!offlineFile.exists() || !offlineFile.isFile()) {
+            ui->saveTipLabel->setText(QStringLiteral("离线视频文件不存在，请重新导入。"));
+            ui->saveTipLabel->show();
+            return;
+        }
+    }
     if (!m_isRecording) {
         resetCurrentTrainingSession();
     }
@@ -1728,6 +1896,16 @@ void MainWindow::startCapture()
     }
     if (m_handAnalysisManager) {
         m_handAnalysisManager->setPaused(false);
+    }
+    if (useOfflineVideo) {
+        qDebug() << "[MainWindow] offline video stream" << QDir::toNativeSeparators(m_offlineVideoPath);
+        for (auto *videoWidget : m_cameraButtons) {
+            videoWidget->stopPlayback();
+        }
+        showOfflineVideoInMainView(true);
+        ui->saveTipLabel->setText(QStringLiteral("离线视频分析中：%1").arg(QFileInfo(m_offlineVideoPath).fileName()));
+        ui->saveTipLabel->show();
+        return;
     }
     if (!m_cameraButtons.isEmpty()) {
         qDebug() << "[MainWindow] main view stream" << safeUrlForLog(m_cameraButtons.first()->mainUrl());
@@ -1776,6 +1954,7 @@ void MainWindow::stopCapture()
     for (auto *videoWidget : m_cameraButtons) {
         videoWidget->stopPlayback();
     }
+    refreshCameraButtons();
 }
 
 // 保存当前训练记录；后续可在此持久化训练时长、动作数量和模型评分。
@@ -1847,7 +2026,8 @@ void MainWindow::saveRecord()
                                ? std::clamp((m_actionScoreTotal + m_actionCount / 2) / std::max(1, m_actionCount), 0, 100)
                                : m_realtimeScore;
     session.bestScore = m_bestActionScore > 0 ? m_bestActionScore : m_realtimeScore;
-    session.camera = m_selectedCamera;
+    const bool offlineSession = !m_offlineVideoPath.trimmed().isEmpty() && m_selectedCamera == 0;
+    session.camera = offlineSession ? 0 : m_selectedCamera;
     session.modelPrecision = ui->precisionComboBox
                                  ? ui->precisionComboBox->currentData().toString()
                                  : QStringLiteral("balanced");
@@ -1870,7 +2050,13 @@ void MainWindow::saveRecord()
     session.targetScore = targetScore;
     session.setCount = setCount;
     session.restSeconds = restSeconds;
-    if (m_selectedCamera > 0 && m_selectedCamera <= m_cameraButtons.size()) {
+    if (offlineSession) {
+        session.videoSource = m_offlineVideoPath.trimmed();
+        session.videoFallbackSource.clear();
+        session.videoCameraName = m_offlineVideoName.trimmed().isEmpty()
+                                      ? offlineVideoDisplayName(m_offlineVideoPath)
+                                      : m_offlineVideoName.trimmed();
+    } else if (m_selectedCamera > 0 && m_selectedCamera <= m_cameraButtons.size()) {
         const VideoOpenGLWidget *cameraWidget = m_cameraButtons.at(m_selectedCamera - 1);
         session.videoSource = cameraWidget->mainUrl().trimmed();
         session.videoFallbackSource = cameraWidget->previewUrl().trimmed();
@@ -2081,13 +2267,24 @@ void MainWindow::refreshHistory()
                                          .arg(record.time, record.athleteName, record.actionName),
                                      card);
         timeLabel->setWordWrap(true);
+        timeLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 
         auto *scoreTag = new QLabel(QStringLiteral("%1 分").arg(record.score), card);
         scoreTag->setProperty("role", "scoreTag");
         scoreTag->setAlignment(Qt::AlignCenter);
+        scoreTag->setMinimumWidth(kScoreTagWidth);
+        scoreTag->setMaximumWidth(kScoreTagWidth);
+        scoreTag->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+
+        auto *headerActions = new QWidget(card);
+        auto *headerActionsLayout = new QHBoxLayout(headerActions);
+        headerActionsLayout->setContentsMargins(0, 0, 0, 0);
+        headerActionsLayout->setSpacing(6);
+        headerActions->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
 
         auto *playButton = new QPushButton(QStringLiteral("回看视频"), card);
         playButton->setProperty("role", "secondaryButton");
+        configureStableButton(playButton, kHistoryActionButtonWidth, 32, QSize(0, 0));
         playButton->setEnabled(!record.videoSource.trimmed().isEmpty()
                                || !record.videoFallbackSource.trimmed().isEmpty());
         connect(playButton, &QPushButton::clicked, this, [this, record]() {
@@ -2096,32 +2293,47 @@ void MainWindow::refreshHistory()
 
         auto *commentButton = new QPushButton(QStringLiteral("教练批注"), card);
         commentButton->setProperty("role", "secondaryButton");
+        configureStableButton(commentButton, kHistoryActionButtonWidth, 32, QSize(0, 0));
         connect(commentButton, &QPushButton::clicked, this, [this, record]() {
             editCoachComment(record.id);
         });
 
         auto *exportButton = new QPushButton(QStringLiteral("导出报告"), card);
         exportButton->setProperty("role", "secondaryButton");
+        configureStableButton(exportButton, kHistoryActionButtonWidth, 32, QSize(0, 0));
         connect(exportButton, &QPushButton::clicked, this, [this, record]() {
             exportTrainingReport(record.id);
         });
 
-        headerLayout->addWidget(timeLabel, 1);
-        headerLayout->addWidget(playButton, 0, Qt::AlignRight | Qt::AlignTop);
-        headerLayout->addWidget(commentButton, 0, Qt::AlignRight | Qt::AlignTop);
-        headerLayout->addWidget(exportButton, 0, Qt::AlignRight | Qt::AlignTop);
-        headerLayout->addWidget(scoreTag, 0, Qt::AlignRight | Qt::AlignTop);
-        cardLayout->addLayout(headerLayout);
+        headerActionsLayout->addWidget(playButton);
+        headerActionsLayout->addWidget(commentButton);
+        headerActionsLayout->addWidget(exportButton);
+        if (ui->historyPage && ui->historyPage->width() < 900) {
+            headerLayout->addWidget(timeLabel, 1);
+            headerLayout->addWidget(scoreTag, 0, Qt::AlignRight | Qt::AlignTop);
+            cardLayout->addLayout(headerLayout);
+            cardLayout->addWidget(headerActions, 0, Qt::AlignRight);
+        } else {
+            headerLayout->addWidget(timeLabel, 1);
+            headerLayout->addWidget(headerActions, 0, Qt::AlignRight | Qt::AlignTop);
+            headerLayout->addWidget(scoreTag, 0, Qt::AlignRight | Qt::AlignTop);
+            cardLayout->addLayout(headerLayout);
+        }
 
+        const QString sourceLabel = !record.videoCameraName.trimmed().isEmpty()
+                                        ? record.videoCameraName.trimmed()
+                                        : (record.camera > 0
+                                               ? QStringLiteral("CAM %1").arg(pad(record.camera))
+                                               : QStringLiteral("离线视频"));
         auto *metaLabel = new QLabel(
-            QStringLiteral("时长 %1   有效/总动作 %2/%3   目标 %4 次/%5 分   最佳 %6 分   机位 CAM %7   精度 %8   主码流 %9 FPS")
+            QStringLiteral("时长 %1   有效/总动作 %2/%3   目标 %4 次/%5 分   最佳 %6 分   来源 %7   精度 %8   分析 %9 FPS")
                 .arg(formatTime(record.duration))
                 .arg(record.validReps)
                 .arg(record.totalReps)
                 .arg(record.targetReps)
                 .arg(record.targetScore)
                 .arg(record.bestScore)
-                .arg(pad(record.camera))
+                .arg(sourceLabel)
                 .arg(precisionLabel(record.modelPrecision))
                 .arg(record.fps),
             card);
@@ -2227,6 +2439,7 @@ void MainWindow::refreshHistory()
 
                 auto *clipButton = new QPushButton(QStringLiteral("定位片段"), row);
                 clipButton->setProperty("role", "secondaryButton");
+                configureStableButton(clipButton, kHistoryActionButtonWidth, 32, QSize(0, 0));
                 clipButton->setEnabled(!record.videoSource.trimmed().isEmpty()
                                        || !record.videoFallbackSource.trimmed().isEmpty());
                 connect(clipButton, &QPushButton::clicked, this, [this, record, repetition]() {
@@ -2541,16 +2754,16 @@ void MainWindow::refreshSidebarButton()
 {
     const bool hovered = ui->toggleSidebarButton->underMouse();
     const QString label = m_sidebarVisible ? QStringLiteral("隐藏侧栏") : QStringLiteral("显示侧栏");
-    ui->toggleSidebarButton->setText(hovered ? label : QString());
+    ui->toggleSidebarButton->setText(label);
     ui->toggleSidebarButton->setIcon(makeNormalizedTintedSvgIcon(QStringLiteral(":/icons/sidebar.svg"),
                                                                  QColor(QString::fromLatin1(hovered ? kHoverActionColor : kMutedInactiveColor)),
                                                                  22,
                                                                  18));
     ui->toggleSidebarButton->setIconSize(QSize(22, 22));
-    ui->toggleSidebarButton->setMinimumWidth(40);
     ui->toggleSidebarButton->setToolTip(label);
     ui->toggleSidebarButton->setStatusTip(label);
     ui->toggleSidebarButton->setAccessibleName(label);
+    configureStableButton(ui->toggleSidebarButton, kTopIconButtonWidth, 40, QSize(22, 22));
 }
 
 // 根据当前窗口状态刷新顶部全屏按钮：默认仅显示灰色图标，悬停时显示文字并变为蓝色。
@@ -2567,18 +2780,18 @@ void MainWindow::refreshFullScreenButton()
                                  ? QStringLiteral(":/icons/exit_fullscreen.svg")
                                  : QStringLiteral(":/icons/fullscreen.svg");
 
-    m_fullScreenButton->setText(hovered ? label : QString());
+    m_fullScreenButton->setText(label);
     m_fullScreenButton->setIcon(makeNormalizedTintedSvgIcon(iconPath,
                                                             QColor(QString::fromLatin1(hovered ? kHoverActionColor : kMutedInactiveColor)),
                                                             22,
                                                             18));
     m_fullScreenButton->setIconSize(QSize(22, 22));
-    m_fullScreenButton->setMinimumWidth(40);
     m_fullScreenButton->setToolTip(fullScreen
                                        ? QStringLiteral("退出全屏显示（Esc）")
                                        : QStringLiteral("进入全屏显示（F11）"));
     m_fullScreenButton->setStatusTip(m_fullScreenButton->toolTip());
     m_fullScreenButton->setAccessibleName(label);
+    configureStableButton(m_fullScreenButton, kTopIconButtonWidth, 40, QSize(22, 22));
 }
 
 void MainWindow::refreshModelStatus(const QString &statusText)

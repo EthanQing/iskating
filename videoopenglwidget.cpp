@@ -546,16 +546,25 @@ void VideoOpenGLWidget::paintEvent(QPaintEvent *)
         painter.setFont(labelFont);
 
         const QFontMetrics labelMetrics(labelFont);
-        const int labelWidth = labelMetrics.horizontalAdvance(m_placeholderText) + 8;
         constexpr int buttonWidth = 22;
         constexpr int buttonGap = 3;
         const int buttonCount = m_configButtonVisible ? 4 : 3;
-        const int totalWidth = labelWidth + buttonWidth * buttonCount + buttonGap * buttonCount;
+        const int controlsWidth = buttonWidth * buttonCount + buttonGap * std::max(0, buttonCount - 1);
+        const int availableLabelWidth = width() - controlsWidth - buttonGap - 16;
+        if (availableLabelWidth <= 34) {
+            return;
+        }
+
+        const QString labelText = labelMetrics.elidedText(m_placeholderText,
+                                                          Qt::ElideRight,
+                                                          availableLabelWidth);
+        const int labelWidth = std::min(labelMetrics.horizontalAdvance(labelText) + 8, availableLabelWidth);
+        const int totalWidth = labelWidth + controlsWidth + buttonGap;
         const int labelX = std::max(8, (width() - totalWidth) / 2);
         const int labelY = std::max(8, height() - 22 - 8);
         const QRect labelRect(labelX, labelY, labelWidth, 22);
         painter.setPen(QColor(QStringLiteral("#8c8c8c")));
-        painter.drawText(labelRect, Qt::AlignVCenter | Qt::AlignLeft, m_placeholderText);
+        painter.drawText(labelRect, Qt::AlignVCenter | Qt::AlignLeft, labelText);
     }
 }
 
@@ -662,15 +671,22 @@ void VideoOpenGLWidget::layoutOverlayControls()
     labelFont.setFamily(QStringLiteral("Microsoft YaHei"));
     labelFont.setPointSize(width() > 240 ? 11 : 9);
     labelFont.setBold(true);
-    const int labelWidth = m_placeholderText.isEmpty() ? 0 : QFontMetrics(labelFont).horizontalAdvance(m_placeholderText) + 8;
+    const int rawLabelWidth = m_placeholderText.isEmpty()
+                                  ? 0
+                                  : QFontMetrics(labelFont).horizontalAdvance(m_placeholderText) + 8;
     const int buttonWidths = m_playButton->width() + m_pauseButton->width() + m_stopButton->width()
                              + (m_configButtonVisible ? m_configButton->width() : 0);
     const int buttonCount = m_configButtonVisible ? 4 : 3;
-    const int totalWidth = labelWidth + buttonWidths + gap * buttonCount;
+    const int controlsWidth = buttonWidths + gap * std::max(0, buttonCount - 1);
+    const int availableLabelWidth = width() - controlsWidth - gap - margin * 2;
+    const int labelWidth = availableLabelWidth > 34 ? std::min(rawLabelWidth, availableLabelWidth) : 0;
+    const int totalWidth = labelWidth > 0 ? labelWidth + controlsWidth + gap : controlsWidth;
     int x = std::max(margin, (width() - totalWidth) / 2);
     const int y = std::max(margin, height() - m_playButton->height() - margin);
 
-    x += labelWidth + gap;
+    if (labelWidth > 0) {
+        x += labelWidth + gap;
+    }
     m_playButton->move(x, y);
     x += m_playButton->width() + gap;
     m_pauseButton->move(x, y);

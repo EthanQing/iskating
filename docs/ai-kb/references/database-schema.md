@@ -90,13 +90,13 @@ SQLite schema 在 `TrainingRepository::migrate()` 中创建，seed 数据在 `Tr
 
 #### `training_sessions`
 
-保存单次训练 session：运动员、教练、计划/任务、动作标准和版本、训练时间、时长、总动作数、有效动作数、平均/最佳分、机位、模型精度、fps、分项分、场地、阶段、目标、视频源引用、回退视频源、视频机位名称、反馈、备注、教练批注和旧 `QSettings` id。
+保存单次训练 session：运动员、教练、计划/任务、动作标准和版本、训练时间、时长、总动作数、有效动作数、平均/最佳分、机位、模型精度、fps、分项分、场地、阶段、目标、视频源引用、回退视频源、视频机位名称、反馈、备注、教练批注和旧 `QSettings` id。离线视频训练使用 `camera=0` 表示非 RTSP 机位来源。
 
 复盘相关字段：
 
-- `video_source`: 保存时所选主分析机位的主码流或文件引用。
+- `video_source`: 保存时所选主分析机位的主码流或离线视频绝对路径。
 - `video_fallback_source`: 保存时所选机位的预览/回退码流引用。
-- `video_camera_name`: 保存时的机位显示名。
+- `video_camera_name`: 保存时的机位显示名；离线模式为“离线视频 · 文件名”。
 - `coach_comment`: 单次训练教练批注。
 
 #### `action_repetitions`

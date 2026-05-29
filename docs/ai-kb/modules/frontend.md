@@ -29,12 +29,17 @@
 - `installTrajectoryWidget()` 用 `TrajectoryWidget` 替换原轨迹占位控件。
 - `installMetricBars()` 动态插入分项评分进度条。
 - 历史记录和建议卡片在 `refreshHistory()` / `refreshSuggestions()` 中动态生成。
+- 主视频标题栏运行时插入“导入视频”按钮，入口连接到 `MainWindow::importOfflineVideo()`，不直接改 `mainwindow.ui`。
+- 左侧导航栏必须由 `mainwindow.ui` 中的 `QFrame#sidebar` 承载，折叠/展开只操作这个真实容器。
+- 顶部图标按钮和右侧操作栏使用固定宽度，悬浮时只改变固定区域内的视觉状态，不通过 `setText()` 改变布局宽度。
+- 小窗视频 overlay 会在空间不足时隐藏机位文本，只保留图标控制组，避免长机位名/IP 与播放按钮重叠。
 
 ## 对外接口
 
 - 资源路径使用 Qt resource 形式，例如 `:/icons/start_cap.svg`。
 - 动态样式通过 `setProperty()` 与 `repolish()` 刷新。
 - 视频控件通过 `VideoOpenGLWidget` 的 public 方法设置播放源、占位文本和姿态叠加。
+- 离线视频导入按钮使用 `:/icons/video.svg` 和固定尺寸 `secondaryButton` 样式，避免挤压主视频标题栏。
 
 ## 常见修改任务
 
@@ -43,6 +48,12 @@
 1. 优先修改 `styles/iskating.qss`。
 2. 如果需要动态状态，先确认控件是否已有 objectName 或 property。
 3. 修改后启动应用检查主页面、历史页和建议页。
+
+### 调整图标按钮或悬浮提示
+
+1. 不要在 `Enter/Leave` 中通过改变按钮文本来扩展布局。
+2. 对顶部按钮、右侧操作栏按钮和历史卡片按钮使用固定宽高与固定 `QSizePolicy`。
+3. 悬浮说明优先通过固定宽度内文字、tooltip 或 statusTip 表达，确保主布局不横向跳动。
 
 ### 新增资源
 
@@ -60,7 +71,9 @@
 
 - 不要直接编辑生成的 `ui_mainwindow.h`；应改 `mainwindow.ui` 或运行时装配代码。
 - 修改 objectName 会影响 QSS 和 `MainWindow` 中的 `ui->xxx` 访问。
+- 左侧栏折叠逻辑应操作 `ui->sidebar`，不要用 `ui->sidebarLayout->parentWidget()` 猜父控件。
 - `VideoOpenGLWidget` 不是普通 QLabel，主视频和小窗都依赖其播放/状态逻辑。
+- 动态文本（反馈、RTSP 地址、训练报告路径、动作明细）需要 word wrap 或 elide，不能让卡片/侧栏横向撑宽。
 
 ## 相关流程
 

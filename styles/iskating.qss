@@ -4,6 +4,7 @@
 
 QMainWindow,
 #centralWidget,
+#centralwidget,
 #scrollAreaWidgetContents,
 QStackedWidget,
 #capturePage,
@@ -149,7 +150,9 @@ QPushButton[role="plain"] {
     background: transparent;
     color: #8c8c8c;
     border-radius: 0;
-    padding: 8px 10px;
+    padding: 8px 6px;
+    text-align: left;
+    font-size: 12px;
 }
 
 #toggleSidebarButton:hover,
@@ -293,11 +296,15 @@ QFrame[brightCard="true"] {
 #settingsButton,
 QPushButton[role="op"] {
     min-height: 72px;
+    max-height: 72px;
     border: none;
     background: #101623;
     color: #8c8c8c;
     border-radius: 0;
-    padding: 8px 10px;
+    padding: 6px 4px;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 600;
 }
 
 #startCaptureButton,
@@ -384,11 +391,13 @@ QSpinBox:hover {
 
 QPushButton[role="secondaryButton"] {
     min-height: 30px;
+    max-height: 34px;
     border: 1px solid #2b466c;
     background: #121d2d;
     color: #d8e8ff;
     border-radius: 6px;
-    padding: 5px 10px;
+    padding: 5px 8px;
+    font-size: 12px;
 }
 
 QPushButton[role="secondaryButton"]:hover {

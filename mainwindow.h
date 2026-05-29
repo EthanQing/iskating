@@ -70,6 +70,8 @@ private:
     QString selectedCoachId() const;
     void resetCurrentTrainingSession();
     void recordCompletedRepetition(const ActionRepetition &repetition);
+    void importOfflineVideo();
+    void showOfflineVideoInMainView(bool autoPlay = true);
     void showCameraInMainView(int cameraIndex, bool autoPlay = true);
     void applyCameraSettingsToWidgets(bool restorePlayback);
     void applyCapturePreferencesToUi();
@@ -121,6 +123,7 @@ private:
     QVector<QProgressBar *> m_metricBars;
     QVector<QLabel *> m_metricValueLabels;
     QPushButton *m_fullScreenButton = nullptr;
+    QPushButton *m_importVideoButton = nullptr;
     std::unique_ptr<HandAnalysisManager> m_handAnalysisManager;
     std::unique_ptr<PoseStandardnessScorer> m_poseStandardnessScorer;
     std::unique_ptr<ActionStandardScorer> m_actionStandardScorer;
@@ -155,6 +158,8 @@ private:
     bool m_sidebarMetricsCaptured = false;
     QMargins m_sidebarLayoutMargins;
     int m_sidebarLayoutSpacing = 10;
+    int m_sidebarNormalMinimumWidth = 0;
+    int m_sidebarNormalMaximumWidth = QWIDGETSIZE_MAX;
     int m_trajectoryMode = -1;
     int m_middleLayoutNormalSpacing = 14;
     int m_middleLayoutNormalStretch0 = 0;
@@ -184,6 +189,8 @@ private:
     bool m_actionArmed = false;
     qint64 m_lastActionMsec = 0;
     QString m_feedbackText = QStringLiteral("动作标准");
+    QString m_offlineVideoPath;
+    QString m_offlineVideoName;
     SharedCameraSettings m_sharedCameraSettings;
     QVector<CameraSlotSettings> m_cameraSlotSettings;
     CapturePreferenceSettings m_capturePreferenceSettings;

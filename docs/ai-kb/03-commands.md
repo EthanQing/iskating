@@ -33,7 +33,7 @@ nmake
 
 ## 构建
 
-Debug/Release 输出目录由 `mainwindow.pro` 固定到 `x64/Debug` 和 `x64/Release`。
+Debug/Release 输出目录由 `mainwindow.pro` 固定到 `x64/Debug` 和 `x64/Release`。默认构建 `Release` 版本
 
 ```powershell
 & "C:/Qt/6.7.3/msvc2022_64/bin/qmake.exe" mainwindow.pro "CONFIG+=debug"

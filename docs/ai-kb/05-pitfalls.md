@@ -40,6 +40,8 @@
 
 视频播放当前要求 FFmpeg 解码器支持 D3D11VA。`RtspStream` 如果发现解码器不支持 D3D11VA，会进入 fatal error，没有通用软件解码 fallback。
 
+离线视频导入也复用这条硬解链路，不是软件解码 fallback；本地文件如果编码不支持 D3D11VA，仍会播放/分析失败。
+
 相关文件：
 
 - `rtspstream.cpp`
@@ -93,6 +95,14 @@
 - Release 构建才调用 `windeployqt`，Debug 是否完整部署需要本机验证。
 - `mainwindow.pro` 会复制 FFmpeg/TensorRT/CUDA DLL 和 `models/` 到输出目录。
 - `models/body/rtmw3d-x.onnx` 很大且被 `.gitignore` 忽略，缺失时 RTMW3D 会不可用，但 2D 姿态仍可初始化。
+- 如果 `x64/Release/iskating.exe` 正在运行，Release 构建复制 FFmpeg DLL 时会失败并提示文件被占用；先关闭该进程再重新构建。
+
+## UI 布局坑点
+
+- 不要在按钮悬浮事件里通过 `setText()` 增删文字来显示提示，Qt 布局会重新计算宽度导致侧栏或顶栏抖动。
+- 图标按钮、右侧操作栏、历史卡片操作按钮应使用固定宽高；长说明放 tooltip/statusTip 或固定宽度区域。
+- 视频小窗 overlay 文字必须做 elide 或在窄宽度隐藏，否则长机位名/IP 会压住播放控制按钮。
+- `sidebarLayout` 的父控件曾经是 `centralwidget`，不能用 `sidebarLayout->parentWidget()` 推断侧栏容器并设置固定宽度；否则会把整个主窗口锁窄。侧栏必须有真实的 `QFrame#sidebar`，折叠逻辑只操作 `ui->sidebar`。
 
 ## 测试坑点
 

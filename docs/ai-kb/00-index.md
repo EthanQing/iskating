@@ -2,12 +2,6 @@
 
 这是 Codex 和维护者进入项目时的导航页。不要默认全量读取知识库；先读本页，再按任务选择最相关的模块、流程或 runbook。
 
-## Obsidian 图谱约定
-
-- 本页是一级中心节点；分类 README 是二级 MOC；具体文档只连接直接相关文档，避免图谱和 AI 上下文膨胀。
-- 如果从项目根目录打开 Obsidian，建议把 `docs/ai-kb/00-index.md` 固定为知识库入口。
-- 如果只从 `docs/ai-kb/` 打开 Obsidian，本页仍是入口，按下面的“按任务最小读取路径”进入即可。
-
 ## 使用方式
 
 - 先读本页，再按任务进入一个分类 MOC：[[modules/README|模块地图]]、[[flows/README|流程地图]]、[[runbooks/README|Runbook 地图]]、[[references/README|Reference 地图]]。

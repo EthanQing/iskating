@@ -27,6 +27,7 @@
 - `VideoOpenGLWidget` 是 UI 层入口。
 - `StreamRegistry::acquire(url)` 按 URL 返回共享 `RtspStream`。
 - `RtspStream` 后台线程使用 FFmpeg 打开视频源，优先 RTSP UDP，失败后尝试 TCP。
+- 离线视频导入复用同一条链路：`MainWindow::importOfflineVideo()` 选择本地文件后，主视图通过 `VideoOpenGLWidget::playFile()` 打开文件并把 active stream 交给 AI 分析。
 - 解码必须输出 `AV_PIX_FMT_D3D11`，否则视为 fatal error。
 - `D3DVideoSurface` 负责把最新 `D3DFrame` 显示到 Qt 控件。
 - `HandAnalysisManager` 用 `D3DFrameExtractor` 从活动主视图帧转 RGB。
@@ -38,6 +39,7 @@
 - `setStreamUrls(previewUrl, mainUrl)`
 - `playDefaultVideo()`
 - `playMainUrlWithFallback(mainUrl, fallbackUrl)`
+- `playFile(filePath)`
 - `pausePlayback()`
 - `stopPlayback()`
 - `activeStream()`
@@ -63,9 +65,17 @@
 2. 保持状态文本中文且简洁。
 3. 避免日志输出明文密码。
 
+### 调整离线视频导入
+
+1. 入口在主视频标题栏的“导入视频”按钮，逻辑集中在 `MainWindow::importOfflineVideo()` 和 `showOfflineVideoInMainView()`。
+2. 选中离线视频后 `m_selectedCamera` 为 0，开始采集不会切回 CAM 01，也不会启动 12 路 RTSP 预览。
+3. 保存训练记录时 `video_source` 写入本地文件绝对路径，`video_camera_name` 写入“离线视频 · 文件名”。
+
 ## 注意事项
 
 - ⚠️ 高风险区域：当前没有通用软件解码 fallback。
+- 离线视频仍要求解码器支持 D3D11VA；不兼容编码会像 RTSP 一样进入视频错误状态。
+- 离线训练记录只保存本地文件引用，不复制视频文件；后续回看依赖原文件仍在本机可访问。
 - ⚠️ 高风险区域：D3D11 设备是全局共享的，修改线程/生命周期要谨慎。
 - 不要在日志中直接打印未脱敏 RTSP URL。
 - `RtspStream::stop()` 等待 8 秒后会 terminate 线程，这是最后手段，修改时要考虑 FFmpeg 阻塞。
