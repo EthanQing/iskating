@@ -5,6 +5,7 @@
 # ---- local workspace / editor state ----
 .agents/
 .codex/
+.obsidian/
 .vscode/
 .vs/
 *.suo
