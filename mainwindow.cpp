@@ -12,8 +12,12 @@
 #include <QAction>
 #include <QComboBox>
 #include <QDateTime>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QDir>
 #include <QEvent>
 #include <QFile>
+#include <QFileDialog>
 #include <QFormLayout>
 #include <QFrame>
 #include <QGridLayout>
@@ -28,6 +32,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QPixmap>
+#include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QDebug>
@@ -38,13 +43,17 @@
 #include <QSizePolicy>
 #include <QShortcut>
 #include <QSpinBox>
+#include <QStringConverter>
+#include <QStringList>
 #include <QStyle>
+#include <QTextStream>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <utility>
 
 namespace {
@@ -239,6 +248,52 @@ QString safeUrlForLog(const QString &source)
         return url.toString(QUrl::FullyEncoded);
     }
     return source;
+}
+
+QString displayMediaSource(const QString &source)
+{
+    const QString trimmed = source.trimmed();
+    if (trimmed.isEmpty()) {
+        return QStringLiteral("未记录");
+    }
+
+    QUrl url = QUrl::fromEncoded(trimmed.toUtf8(), QUrl::TolerantMode);
+    if (!url.isValid() || url.scheme().isEmpty()) {
+        return trimmed;
+    }
+    if (!url.password().isEmpty()) {
+        url.setPassword(QStringLiteral("***"));
+    }
+    return url.toString(QUrl::RemoveQuery | QUrl::RemoveFragment);
+}
+
+QString issueSummary(const QString &errorCodes)
+{
+    const QStringList issues = errorCodes.split(QStringLiteral("|"), Qt::SkipEmptyParts);
+    return issues.isEmpty() ? QStringLiteral("未触发关键错误") : issues.join(QStringLiteral("、"));
+}
+
+QString qualityLabel(int score, bool valid)
+{
+    if (valid) {
+        return QStringLiteral("达标");
+    }
+    if (score >= 70) {
+        return QStringLiteral("接近");
+    }
+    return QStringLiteral("待纠正");
+}
+
+QString repetitionReportLine(const ActionRepetition &repetition, int index, const std::function<QString(int)> &formatMs)
+{
+    return QStringLiteral("%1. %2-%3  %4分  %5  错误：%6  反馈：%7")
+        .arg(index + 1)
+        .arg(formatMs(repetition.startedMs))
+        .arg(formatMs(repetition.endedMs))
+        .arg(repetition.score)
+        .arg(qualityLabel(repetition.score, repetition.valid))
+        .arg(issueSummary(repetition.errorCodes))
+        .arg(repetition.feedback.trimmed().isEmpty() ? QStringLiteral("无") : repetition.feedback.trimmed());
 }
 
 QString topbarModuleHtml(const QString &icon, const QString &title, const QString &value)
@@ -1815,6 +1870,12 @@ void MainWindow::saveRecord()
     session.targetScore = targetScore;
     session.setCount = setCount;
     session.restSeconds = restSeconds;
+    if (m_selectedCamera > 0 && m_selectedCamera <= m_cameraButtons.size()) {
+        const VideoOpenGLWidget *cameraWidget = m_cameraButtons.at(m_selectedCamera - 1);
+        session.videoSource = cameraWidget->mainUrl().trimmed();
+        session.videoFallbackSource = cameraWidget->previewUrl().trimmed();
+        session.videoCameraName = cameraWidget->channelName();
+    }
     session.feedback = m_feedbackText.trimmed().isEmpty() ? QStringLiteral("等待姿态") : m_feedbackText.trimmed();
 
     QVector<ActionRepetition> repetitions = m_currentRepetitions;
@@ -1822,6 +1883,8 @@ void MainWindow::saveRecord()
         repetition.sessionId = session.id;
         repetition.actionStandardId = standard.id;
         repetition.standardVersion = standard.version;
+        repetition.videoClipStartMs = std::max(0, repetition.startedMs - 1500);
+        repetition.videoClipEndMs = std::max(repetition.endedMs + 1500, repetition.videoClipStartMs);
     }
     if (!m_trainingRepository->saveTrainingSession(&session, repetitions, &errorMessage)) {
         QMessageBox::warning(this, QStringLiteral("保存失败"), errorMessage);
@@ -2000,6 +2063,9 @@ void MainWindow::refreshHistory()
     const int visibleCount = std::min(kMaxVisibleHistoryItems, static_cast<int>(m_records.size()));
     for (int i = 0; i < visibleCount; ++i) {
         const SessionHistoryItem &record = m_records.at(i);
+        const QVector<ActionRepetition> repetitions = m_trainingRepository && m_trainingRepository->isOpen()
+                                                          ? m_trainingRepository->repetitionsForSession(record.id)
+                                                          : QVector<ActionRepetition>();
 
         auto *card = new QFrame(ui->historyPage);
         setRole(card, "historyItem");
@@ -2020,17 +2086,41 @@ void MainWindow::refreshHistory()
         scoreTag->setProperty("role", "scoreTag");
         scoreTag->setAlignment(Qt::AlignCenter);
 
+        auto *playButton = new QPushButton(QStringLiteral("回看视频"), card);
+        playButton->setProperty("role", "secondaryButton");
+        playButton->setEnabled(!record.videoSource.trimmed().isEmpty()
+                               || !record.videoFallbackSource.trimmed().isEmpty());
+        connect(playButton, &QPushButton::clicked, this, [this, record]() {
+            openSessionVideo(record);
+        });
+
+        auto *commentButton = new QPushButton(QStringLiteral("教练批注"), card);
+        commentButton->setProperty("role", "secondaryButton");
+        connect(commentButton, &QPushButton::clicked, this, [this, record]() {
+            editCoachComment(record.id);
+        });
+
+        auto *exportButton = new QPushButton(QStringLiteral("导出报告"), card);
+        exportButton->setProperty("role", "secondaryButton");
+        connect(exportButton, &QPushButton::clicked, this, [this, record]() {
+            exportTrainingReport(record.id);
+        });
+
         headerLayout->addWidget(timeLabel, 1);
+        headerLayout->addWidget(playButton, 0, Qt::AlignRight | Qt::AlignTop);
+        headerLayout->addWidget(commentButton, 0, Qt::AlignRight | Qt::AlignTop);
+        headerLayout->addWidget(exportButton, 0, Qt::AlignRight | Qt::AlignTop);
         headerLayout->addWidget(scoreTag, 0, Qt::AlignRight | Qt::AlignTop);
         cardLayout->addLayout(headerLayout);
 
         auto *metaLabel = new QLabel(
-            QStringLiteral("时长 %1   有效/总动作 %2/%3   目标 %4 次/%5 分   机位 CAM %6   精度 %7   主码流 %8 FPS")
+            QStringLiteral("时长 %1   有效/总动作 %2/%3   目标 %4 次/%5 分   最佳 %6 分   机位 CAM %7   精度 %8   主码流 %9 FPS")
                 .arg(formatTime(record.duration))
                 .arg(record.validReps)
                 .arg(record.totalReps)
                 .arg(record.targetReps)
                 .arg(record.targetScore)
+                .arg(record.bestScore)
                 .arg(pad(record.camera))
                 .arg(precisionLabel(record.modelPrecision))
                 .arg(record.fps),
@@ -2039,17 +2129,131 @@ void MainWindow::refreshHistory()
         metaLabel->setWordWrap(true);
         cardLayout->addWidget(metaLabel);
 
-        auto *feedbackLabel = new QLabel(QStringLiteral("标准 v%1 · %2 · %3\n场地：%4   阶段：%5   目标：%6\n反馈：%7")
+        auto *feedbackLabel = new QLabel(QStringLiteral("标准 v%1 · %2 · %3\n场地：%4   阶段：%5   目标：%6\n视频：%7\n反馈：%8")
                                              .arg(record.standardVersion)
                                              .arg(record.actionCategory)
                                              .arg(record.coachName.isEmpty() ? QStringLiteral("未指定教练") : record.coachName)
                                              .arg(record.site.isEmpty() ? QStringLiteral("未填写") : record.site)
                                              .arg(record.trainingPhase.isEmpty() ? QStringLiteral("未填写") : record.trainingPhase)
                                              .arg(record.goal.isEmpty() ? QStringLiteral("未填写") : record.goal)
+                                             .arg(displayMediaSource(record.videoSource))
                                              .arg(record.feedback),
                                          card);
         feedbackLabel->setWordWrap(true);
         cardLayout->addWidget(feedbackLabel);
+
+        if (repetitions.isEmpty()) {
+            auto *emptyReviewLabel = new QLabel(QStringLiteral("本次尚未保存动作实例。复盘会先展示 session 摘要，后续采集到动作计数后会自动列出动作明细、最好/最差动作和错误时间轴。"),
+                                                card);
+            emptyReviewLabel->setProperty("role", "muted");
+            emptyReviewLabel->setWordWrap(true);
+            cardLayout->addWidget(emptyReviewLabel);
+        } else {
+            const auto bestIt = std::max_element(repetitions.cbegin(),
+                                                 repetitions.cend(),
+                                                 [](const ActionRepetition &lhs, const ActionRepetition &rhs) {
+                                                     return lhs.score < rhs.score;
+                                                 });
+            const auto worstIt = std::min_element(repetitions.cbegin(),
+                                                  repetitions.cend(),
+                                                  [](const ActionRepetition &lhs, const ActionRepetition &rhs) {
+                                                      return lhs.score < rhs.score;
+                                                  });
+
+            const ActionRepetition best = bestIt != repetitions.cend() ? *bestIt : ActionRepetition();
+            const ActionRepetition worst = worstIt != repetitions.cend() ? *worstIt : ActionRepetition();
+            const int bestIndex = bestIt != repetitions.cend()
+                                      ? static_cast<int>(std::distance(repetitions.cbegin(), bestIt))
+                                      : 0;
+            const int worstIndex = worstIt != repetitions.cend()
+                                       ? static_cast<int>(std::distance(repetitions.cbegin(), worstIt))
+                                       : 0;
+            auto *reviewLabel = new QLabel(QStringLiteral("代表动作：最好 #%1 %2-%3 · %4 分 · %5\n待纠正：最差 #%6 %7-%8 · %9 分 · %10")
+                                               .arg(bestIndex + 1)
+                                               .arg(formatMilliseconds(best.startedMs))
+                                               .arg(formatMilliseconds(best.endedMs))
+                                               .arg(best.score)
+                                               .arg(best.feedback.trimmed().isEmpty() ? QStringLiteral("反馈为空") : best.feedback)
+                                               .arg(worstIndex + 1)
+                                               .arg(formatMilliseconds(worst.startedMs))
+                                               .arg(formatMilliseconds(worst.endedMs))
+                                               .arg(worst.score)
+                                               .arg(worst.feedback.trimmed().isEmpty() ? issueSummary(worst.errorCodes) : worst.feedback),
+                                           card);
+            reviewLabel->setProperty("role", "reviewSummary");
+            reviewLabel->setWordWrap(true);
+            cardLayout->addWidget(reviewLabel);
+
+            QStringList timelineLines;
+            for (int repIndex = 0; repIndex < repetitions.size() && timelineLines.size() < 5; ++repIndex) {
+                const ActionRepetition &repetition = repetitions.at(repIndex);
+                if (repetition.valid && repetition.errorCodes.trimmed().isEmpty()) {
+                    continue;
+                }
+                timelineLines.append(QStringLiteral("#%1 关键帧 %2 · %3 · %4")
+                                         .arg(repIndex + 1)
+                                         .arg(formatMilliseconds(repetition.keyFrameMs > 0 ? repetition.keyFrameMs : repetition.startedMs))
+                                         .arg(issueSummary(repetition.errorCodes))
+                                         .arg(repetition.feedback.trimmed().isEmpty()
+                                                  ? qualityLabel(repetition.score, repetition.valid)
+                                                  : repetition.feedback));
+            }
+            auto *timelineLabel = new QLabel(timelineLines.isEmpty()
+                                                 ? QStringLiteral("关键错误时间轴：本次动作未触发明显错误点。")
+                                                 : QStringLiteral("关键错误时间轴：\n%1").arg(timelineLines.join(QLatin1Char('\n'))),
+                                             card);
+            timelineLabel->setProperty("role", "muted");
+            timelineLabel->setWordWrap(true);
+            cardLayout->addWidget(timelineLabel);
+
+            auto *detailTitle = new QLabel(QStringLiteral("动作明细"), card);
+            detailTitle->setProperty("role", "sectionTitle");
+            cardLayout->addWidget(detailTitle);
+
+            const int detailCount = std::min(8, static_cast<int>(repetitions.size()));
+            for (int repIndex = 0; repIndex < detailCount; ++repIndex) {
+                const ActionRepetition repetition = repetitions.at(repIndex);
+                auto *row = new QWidget(card);
+                auto *rowLayout = new QHBoxLayout(row);
+                rowLayout->setContentsMargins(0, 0, 0, 0);
+                rowLayout->setSpacing(8);
+
+                auto *detailLabel = new QLabel(repetitionReportLine(repetition,
+                                                                    repIndex,
+                                                                    [this](int ms) { return formatMilliseconds(ms); }),
+                                               row);
+                detailLabel->setWordWrap(true);
+                detailLabel->setProperty("role", "muted");
+
+                auto *clipButton = new QPushButton(QStringLiteral("定位片段"), row);
+                clipButton->setProperty("role", "secondaryButton");
+                clipButton->setEnabled(!record.videoSource.trimmed().isEmpty()
+                                       || !record.videoFallbackSource.trimmed().isEmpty());
+                connect(clipButton, &QPushButton::clicked, this, [this, record, repetition]() {
+                    openSessionVideo(record, repetition.videoClipStartMs);
+                });
+
+                rowLayout->addWidget(detailLabel, 1);
+                rowLayout->addWidget(clipButton, 0, Qt::AlignRight | Qt::AlignTop);
+                cardLayout->addWidget(row);
+            }
+            if (repetitions.size() > detailCount) {
+                auto *moreLabel = new QLabel(QStringLiteral("还有 %1 个动作实例，可通过导出报告查看完整明细。")
+                                                 .arg(repetitions.size() - detailCount),
+                                             card);
+                moreLabel->setProperty("role", "muted");
+                cardLayout->addWidget(moreLabel);
+            }
+        }
+
+        auto *coachCommentLabel = new QLabel(QStringLiteral("教练批注：%1")
+                                                 .arg(record.coachComment.trimmed().isEmpty()
+                                                          ? QStringLiteral("未填写")
+                                                          : record.coachComment.trimmed()),
+                                             card);
+        coachCommentLabel->setWordWrap(true);
+        coachCommentLabel->setProperty("role", "muted");
+        cardLayout->addWidget(coachCommentLabel);
 
         ui->historyListLayout->addWidget(card);
     }
@@ -2179,6 +2383,159 @@ void MainWindow::refreshSuggestions()
                       nextTrainingText);
 }
 
+void MainWindow::openSessionVideo(const SessionHistoryItem &record, int offsetMs)
+{
+    const QString source = !record.videoSource.trimmed().isEmpty()
+                               ? record.videoSource.trimmed()
+                               : record.videoFallbackSource.trimmed();
+    if (source.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("暂无视频引用"), QStringLiteral("这条训练记录没有保存可回看的视频引用。"));
+        return;
+    }
+
+    ui->mainImageLabel->setPlaceholderText(record.videoCameraName.trimmed().isEmpty()
+                                               ? QStringLiteral("训练回看")
+                                               : record.videoCameraName);
+    ui->mainImageLabel->playMainUrlWithFallback(source, record.videoFallbackSource);
+    if (m_handAnalysisManager) {
+        m_handAnalysisManager->setPaused(true);
+        m_handAnalysisManager->setActiveStream(0, {});
+    }
+    switchPage(kCapturePage);
+
+    const QString offsetTip = offsetMs > 0
+                                  ? QStringLiteral("。片段起点 %1，请在播放器中按该时间回看。").arg(formatMilliseconds(offsetMs))
+                                  : QString();
+    ui->saveTipLabel->setText(QStringLiteral("正在回看：%1%2").arg(displayMediaSource(source), offsetTip));
+    ui->saveTipLabel->show();
+}
+
+void MainWindow::editCoachComment(const QString &sessionId)
+{
+    if (!m_trainingRepository || !m_trainingRepository->isOpen()) {
+        QMessageBox::warning(this, QStringLiteral("数据库未就绪"), QStringLiteral("训练数据库未就绪，无法保存教练批注。"));
+        return;
+    }
+
+    SessionHistoryItem record;
+    for (const SessionHistoryItem &item : std::as_const(m_records)) {
+        if (item.id == sessionId) {
+            record = item;
+            break;
+        }
+    }
+    if (record.id.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("记录不存在"), QStringLiteral("未找到对应训练记录。"));
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("教练批注"));
+    auto *layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(16, 16, 16, 16);
+    layout->setSpacing(10);
+
+    auto *titleLabel = new QLabel(QStringLiteral("%1 · %2 · %3")
+                                      .arg(record.time, record.athleteName, record.actionName),
+                                  &dialog);
+    titleLabel->setWordWrap(true);
+    layout->addWidget(titleLabel);
+
+    auto *editor = new QPlainTextEdit(&dialog);
+    editor->setPlainText(record.coachComment);
+    editor->setPlaceholderText(QStringLiteral("记录教练观察、人工纠正、下次训练重点"));
+    editor->setMinimumSize(520, 180);
+    layout->addWidget(editor);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
+    buttons->button(QDialogButtonBox::Save)->setText(QStringLiteral("保存"));
+    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    QString errorMessage;
+    if (!m_trainingRepository->saveCoachComment(sessionId, editor->toPlainText(), &errorMessage)) {
+        QMessageBox::warning(this, QStringLiteral("保存失败"), errorMessage);
+        return;
+    }
+
+    loadTrainingRecords();
+    refreshHistory();
+    refreshSuggestions();
+}
+
+void MainWindow::exportTrainingReport(const QString &sessionId)
+{
+    SessionHistoryItem record;
+    for (const SessionHistoryItem &item : std::as_const(m_records)) {
+        if (item.id == sessionId) {
+            record = item;
+            break;
+        }
+    }
+    if (record.id.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("记录不存在"), QStringLiteral("未找到对应训练记录。"));
+        return;
+    }
+
+    const QString defaultFileName = QStringLiteral("iSkating-%1-%2.md")
+                                        .arg(record.athleteName)
+                                        .arg(record.time.left(10));
+    const QString filePath = QFileDialog::getSaveFileName(this,
+                                                          QStringLiteral("导出训练报告"),
+                                                          QDir::home().absoluteFilePath(defaultFileName),
+                                                          QStringLiteral("Markdown (*.md);;Text (*.txt)"));
+    if (filePath.trimmed().isEmpty()) {
+        return;
+    }
+
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, QStringLiteral("导出失败"), file.errorString());
+        return;
+    }
+
+    const QVector<ActionRepetition> repetitions = m_trainingRepository && m_trainingRepository->isOpen()
+                                                      ? m_trainingRepository->repetitionsForSession(record.id)
+                                                      : QVector<ActionRepetition>();
+    QTextStream out(&file);
+    out.setEncoding(QStringConverter::Utf8);
+    out << "# iSkating 训练复盘报告\n\n";
+    out << "- 时间：" << record.time << "\n";
+    out << "- 运动员：" << record.athleteName << "\n";
+    out << "- 教练：" << (record.coachName.isEmpty() ? QStringLiteral("未指定") : record.coachName) << "\n";
+    out << "- 动作：" << record.actionCategory << " / " << record.actionName << " v" << record.standardVersion << "\n";
+    out << "- 场地/阶段/目标：" << record.site << " / " << record.trainingPhase << " / " << record.goal << "\n";
+    out << "- 时长：" << formatTime(record.duration) << "\n";
+    out << "- 完成度：" << record.validReps << "/" << record.totalReps << "，目标 "
+        << record.targetReps << " 次/" << record.targetScore << " 分\n";
+    out << "- 平均/最佳分：" << record.score << "/" << record.bestScore << "\n";
+    out << "- 视频：" << displayMediaSource(record.videoSource) << "\n\n";
+    out << "## 综合反馈\n\n" << record.feedback << "\n\n";
+    out << "## 教练批注\n\n"
+        << (record.coachComment.trimmed().isEmpty() ? QStringLiteral("未填写") : record.coachComment.trimmed())
+        << "\n\n";
+    out << "## 动作明细\n\n";
+    if (repetitions.isEmpty()) {
+        out << "本次未保存动作实例。\n";
+    } else {
+        for (int i = 0; i < repetitions.size(); ++i) {
+            out << "- " << repetitionReportLine(repetitions.at(i),
+                                                i,
+                                                [this](int ms) { return formatMilliseconds(ms); })
+                << "\n";
+        }
+    }
+
+    ui->saveTipLabel->setText(QStringLiteral("训练报告已导出：%1").arg(filePath));
+    ui->saveTipLabel->show();
+}
+
 // 根据侧栏显示状态刷新顶部侧栏按钮：默认仅显示灰色图标，悬停时显示文字并变为蓝色。
 void MainWindow::refreshSidebarButton()
 {
@@ -2278,6 +2635,16 @@ QString MainWindow::formatTime(int seconds) const
     return QStringLiteral("%1:%2")
         .arg(seconds / 60, 2, 10, QLatin1Char('0'))
         .arg(seconds % 60, 2, 10, QLatin1Char('0'));
+}
+
+QString MainWindow::formatMilliseconds(int milliseconds) const
+{
+    const int clamped = std::max(0, milliseconds);
+    const int totalSeconds = clamped / 1000;
+    return QStringLiteral("%1:%2.%3")
+        .arg(totalSeconds / 60, 2, 10, QLatin1Char('0'))
+        .arg(totalSeconds % 60, 2, 10, QLatin1Char('0'))
+        .arg((clamped % 1000) / 100, 1, 10, QLatin1Char('0'));
 }
 
 

@@ -10,7 +10,7 @@
 项目使用两类本地持久化：
 
 - Qt `QSettings`: 保存摄像头配置和采集偏好。
-- SQLite: 保存训练动作标准闭环 v1 的运动员、动作标准、计划任务、训练记录和动作明细。
+- SQLite: 保存训练动作标准闭环与训练复盘 v1 的运动员、动作标准、计划任务、训练记录、动作明细、视频引用和教练批注。
 
 相关文件：
 
@@ -25,7 +25,7 @@ QSettings schema 仍分散在读写代码中：
 
 - `MainWindow::loadCameraSettings()`
 - `MainWindow::persistSystemSettings()`
-SQLite schema 在 `TrainingRepository::migrate()` 中创建，seed 数据在 `TrainingRepository::seedDefaults()` 中维护。
+SQLite schema 在 `TrainingRepository::migrate()` 中创建，seed 数据在 `TrainingRepository::seedDefaults()` 中维护。新增列通过 `TrainingRepository::ensureColumn()` 兼容已有本地数据库。
 
 ## 主要数据结构
 
@@ -90,11 +90,24 @@ SQLite schema 在 `TrainingRepository::migrate()` 中创建，seed 数据在 `Tr
 
 #### `training_sessions`
 
-保存单次训练 session：运动员、教练、计划/任务、动作标准和版本、训练时间、时长、总动作数、有效动作数、平均/最佳分、机位、模型精度、fps、分项分、场地、阶段、目标、反馈和旧 `QSettings` id。
+保存单次训练 session：运动员、教练、计划/任务、动作标准和版本、训练时间、时长、总动作数、有效动作数、平均/最佳分、机位、模型精度、fps、分项分、场地、阶段、目标、视频源引用、回退视频源、视频机位名称、反馈、备注、教练批注和旧 `QSettings` id。
+
+复盘相关字段：
+
+- `video_source`: 保存时所选主分析机位的主码流或文件引用。
+- `video_fallback_source`: 保存时所选机位的预览/回退码流引用。
+- `video_camera_name`: 保存时的机位显示名。
+- `coach_comment`: 单次训练教练批注。
 
 #### `action_repetitions`
 
-保存每次动作实例：开始/结束时间、有效性、总分、分项分、错误项、反馈和关键帧时间。
+保存每次动作实例：开始/结束时间、有效性、总分、分项分、错误项、反馈、关键帧时间和视频片段时间窗口。
+
+复盘相关字段：
+
+- `key_frame_ms`: 当前动作中最低分或关键错误帧的相对训练时间。
+- `video_clip_start_ms`: 回看片段起点，当前保存为动作开始前约 1.5 秒。
+- `video_clip_end_ms`: 回看片段终点，当前保存为动作结束后约 1.5 秒。
 
 #### `athlete_action_baselines`
 
@@ -123,7 +136,7 @@ SQLite schema 在 `TrainingRepository::migrate()` 中创建，seed 数据在 `Tr
 
 ## 迁移方式
 
-没有独立迁移命令。应用启动时 `TrainingRepository::open()` 会执行建表、seed 和旧 `trainingHistory` 迁移。
+没有独立迁移命令。应用启动时 `TrainingRepository::open()` 会执行建表、复盘字段补列、seed 和旧 `trainingHistory` 迁移。
 
 相关文件：
 
@@ -135,7 +148,7 @@ SQLite schema 在 `TrainingRepository::migrate()` 中创建，seed 数据在 `Tr
 
 ## 查询入口
 
-训练历史通过 `TrainingRepository::recentSessions()` 查询；动作明细通过 `repetitionsForSession()` 查询；个体基线通过 `baselineFor()` 查询。
+训练历史通过 `TrainingRepository::recentSessions()` 查询；动作明细通过 `repetitionsForSession()` 查询；教练批注通过 `saveCoachComment()` 更新；个体基线通过 `baselineFor()` 查询。
 
 相关文件：
 

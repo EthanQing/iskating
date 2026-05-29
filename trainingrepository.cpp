@@ -270,8 +270,12 @@ bool TrainingRepository::migrate(QString *errorMessage)
                        "target_score INTEGER NOT NULL DEFAULT 0,"
                        "set_count INTEGER NOT NULL DEFAULT 1,"
                        "rest_seconds INTEGER NOT NULL DEFAULT 60,"
+                       "video_source TEXT,"
+                       "video_fallback_source TEXT,"
+                       "video_camera_name TEXT,"
                        "feedback TEXT,"
                        "notes TEXT,"
+                       "coach_comment TEXT,"
                        "FOREIGN KEY (athlete_id) REFERENCES athletes(id),"
                        "FOREIGN KEY (coach_id) REFERENCES coaches(id),"
                        "FOREIGN KEY (plan_id) REFERENCES training_plans(id),"
@@ -294,6 +298,8 @@ bool TrainingRepository::migrate(QString *errorMessage)
                        "error_codes TEXT,"
                        "feedback TEXT,"
                        "key_frame_ms INTEGER NOT NULL DEFAULT 0,"
+                       "video_clip_start_ms INTEGER NOT NULL DEFAULT 0,"
+                       "video_clip_end_ms INTEGER NOT NULL DEFAULT 0,"
                        "FOREIGN KEY (session_id) REFERENCES training_sessions(id),"
                        "FOREIGN KEY (action_standard_id) REFERENCES action_standards(id))"),
         QStringLiteral("CREATE TABLE IF NOT EXISTS athlete_action_baselines ("
@@ -313,7 +319,33 @@ bool TrainingRepository::migrate(QString *errorMessage)
             return false;
         }
     }
-    return setMetaValue(QStringLiteral("schemaVersion"), QStringLiteral("1"), errorMessage);
+    if (!ensureColumn(QStringLiteral("training_sessions"),
+                      QStringLiteral("video_source"),
+                      QStringLiteral("TEXT"),
+                      errorMessage)
+        || !ensureColumn(QStringLiteral("training_sessions"),
+                         QStringLiteral("video_fallback_source"),
+                         QStringLiteral("TEXT"),
+                         errorMessage)
+        || !ensureColumn(QStringLiteral("training_sessions"),
+                         QStringLiteral("video_camera_name"),
+                         QStringLiteral("TEXT"),
+                         errorMessage)
+        || !ensureColumn(QStringLiteral("training_sessions"),
+                         QStringLiteral("coach_comment"),
+                         QStringLiteral("TEXT"),
+                         errorMessage)
+        || !ensureColumn(QStringLiteral("action_repetitions"),
+                         QStringLiteral("video_clip_start_ms"),
+                         QStringLiteral("INTEGER NOT NULL DEFAULT 0"),
+                         errorMessage)
+        || !ensureColumn(QStringLiteral("action_repetitions"),
+                         QStringLiteral("video_clip_end_ms"),
+                         QStringLiteral("INTEGER NOT NULL DEFAULT 0"),
+                         errorMessage)) {
+        return false;
+    }
+    return setMetaValue(QStringLiteral("schemaVersion"), QStringLiteral("2"), errorMessage);
 }
 
 bool TrainingRepository::seedDefaults(QString *errorMessage)
@@ -643,10 +675,13 @@ QVector<SessionHistoryItem> TrainingRepository::recentSessions(int limit) const
     QVector<SessionHistoryItem> result;
     QSqlQuery query(m_db);
     query.prepare(QStringLiteral(
-        "SELECT ts.id, a.name, COALESCE(c.name, ''), s.name, ac.name, ts.standard_version, ts.saved_at,"
+        "SELECT ts.id, ts.athlete_id, COALESCE(ts.coach_id, ''), COALESCE(ts.plan_id, ''), COALESCE(ts.task_id, ''),"
+        "ts.action_standard_id, a.name, COALESCE(c.name, ''), s.name, ac.name, ts.standard_version, ts.saved_at,"
         "ts.duration_sec, ts.total_reps, ts.valid_reps, ts.target_reps, ts.target_score, ts.average_score,"
         "ts.best_score, ts.camera, ts.model_precision, ts.fps, ts.detection_score, ts.symmetry_score,"
-        "ts.balance_score, ts.stability_score, ts.depth_score, ts.site, ts.training_phase, ts.goal, ts.feedback "
+        "ts.balance_score, ts.stability_score, ts.depth_score, ts.site, ts.training_phase, ts.goal,"
+        "COALESCE(ts.video_source, ''), COALESCE(ts.video_fallback_source, ''), COALESCE(ts.video_camera_name, ''),"
+        "ts.feedback, COALESCE(ts.notes, ''), COALESCE(ts.coach_comment, '') "
         "FROM training_sessions ts "
         "JOIN athletes a ON a.id = ts.athlete_id "
         "LEFT JOIN coaches c ON c.id = ts.coach_id "
@@ -661,6 +696,11 @@ QVector<SessionHistoryItem> TrainingRepository::recentSessions(int limit) const
         SessionHistoryItem item;
         int col = 0;
         item.id = query.value(col++).toString();
+        item.athleteId = query.value(col++).toString();
+        item.coachId = query.value(col++).toString();
+        item.planId = query.value(col++).toString();
+        item.taskId = query.value(col++).toString();
+        item.actionStandardId = query.value(col++).toString();
         item.athleteName = query.value(col++).toString();
         item.coachName = query.value(col++).toString();
         item.actionName = query.value(col++).toString();
@@ -687,7 +727,12 @@ QVector<SessionHistoryItem> TrainingRepository::recentSessions(int limit) const
         item.site = query.value(col++).toString();
         item.trainingPhase = query.value(col++).toString();
         item.goal = query.value(col++).toString();
+        item.videoSource = query.value(col++).toString();
+        item.videoFallbackSource = query.value(col++).toString();
+        item.videoCameraName = query.value(col++).toString();
         item.feedback = query.value(col++).toString();
+        item.notes = query.value(col++).toString();
+        item.coachComment = query.value(col++).toString();
         result.append(item);
     }
     return result;
@@ -699,7 +744,7 @@ QVector<ActionRepetition> TrainingRepository::repetitionsForSession(const QStrin
     QSqlQuery query(m_db);
     query.prepare(QStringLiteral("SELECT id, session_id, action_standard_id, standard_version, started_ms, ended_ms,"
                                  "valid, score, detection_score, symmetry_score, balance_score, stability_score,"
-                                 "depth_score, error_codes, feedback, key_frame_ms "
+                                 "depth_score, error_codes, feedback, key_frame_ms, video_clip_start_ms, video_clip_end_ms "
                                  "FROM action_repetitions WHERE session_id = ? ORDER BY started_ms"));
     query.addBindValue(sessionId);
     if (!query.exec()) {
@@ -724,6 +769,8 @@ QVector<ActionRepetition> TrainingRepository::repetitionsForSession(const QStrin
         repetition.errorCodes = query.value(col++).toString();
         repetition.feedback = query.value(col++).toString();
         repetition.keyFrameMs = query.value(col++).toInt();
+        repetition.videoClipStartMs = query.value(col++).toInt();
+        repetition.videoClipEndMs = query.value(col++).toInt();
         result.append(repetition);
     }
     return result;
@@ -744,6 +791,34 @@ TrainingBaseline TrainingRepository::baselineFor(const QString &athleteId, const
         baseline.averageValidReps = query.value(2).toInt();
     }
     return baseline;
+}
+
+bool TrainingRepository::saveCoachComment(const QString &sessionId,
+                                          const QString &comment,
+                                          QString *errorMessage)
+{
+    if (sessionId.trimmed().isEmpty()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("训练记录不存在。");
+        }
+        return false;
+    }
+
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral("UPDATE training_sessions SET coach_comment = ? WHERE id = ?"));
+    if (!bindAndExec(query, {comment.trimmed(), sessionId})) {
+        if (errorMessage) {
+            *errorMessage = query.lastError().text();
+        }
+        return false;
+    }
+    if (query.numRowsAffected() <= 0) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("未找到对应训练记录。");
+        }
+        return false;
+    }
+    return true;
 }
 
 bool TrainingRepository::createAthlete(const QString &name, QString *athleteId, QString *errorMessage)
@@ -943,8 +1018,9 @@ bool TrainingRepository::saveTrainingSession(TrainingSession *session,
         "id, athlete_id, coach_id, plan_id, task_id, action_standard_id, standard_version, legacy_qsettings_id,"
         "started_at, saved_at, duration_sec, total_reps, valid_reps, average_score, best_score, camera,"
         "model_precision, fps, detection_score, symmetry_score, balance_score, stability_score, depth_score,"
-        "site, training_phase, goal, target_reps, target_score, set_count, rest_seconds, feedback, notes) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
+        "site, training_phase, goal, target_reps, target_score, set_count, rest_seconds,"
+        "video_source, video_fallback_source, video_camera_name, feedback, notes, coach_comment) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
     if (!bindAndExec(query,
                      {session->id,
                       session->athleteId,
@@ -976,8 +1052,12 @@ bool TrainingRepository::saveTrainingSession(TrainingSession *session,
                       session->targetScore,
                       session->setCount,
                       session->restSeconds,
+                      session->videoSource,
+                      session->videoFallbackSource,
+                      session->videoCameraName,
                       session->feedback,
-                      session->notes})) {
+                      session->notes,
+                      session->coachComment})) {
         return rollback(query.lastError().text());
     }
 
@@ -987,8 +1067,9 @@ bool TrainingRepository::saveTrainingSession(TrainingSession *session,
         insertRep.prepare(QStringLiteral(
             "INSERT INTO action_repetitions ("
             "id, session_id, action_standard_id, standard_version, started_ms, ended_ms, valid, score,"
-            "detection_score, symmetry_score, balance_score, stability_score, depth_score, error_codes, feedback, key_frame_ms) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
+            "detection_score, symmetry_score, balance_score, stability_score, depth_score, error_codes, feedback, key_frame_ms,"
+            "video_clip_start_ms, video_clip_end_ms) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
         if (!bindAndExec(insertRep,
                          {repetition.id,
                           session->id,
@@ -1005,7 +1086,9 @@ bool TrainingRepository::saveTrainingSession(TrainingSession *session,
                           repetition.depthScore,
                           repetition.errorCodes,
                           repetition.feedback,
-                          repetition.keyFrameMs})) {
+                          repetition.keyFrameMs,
+                          repetition.videoClipStartMs,
+                          repetition.videoClipEndMs})) {
             return rollback(insertRep.lastError().text());
         }
     }
@@ -1120,6 +1203,30 @@ bool TrainingRepository::setMetaValue(const QString &key, const QString &value, 
         return false;
     }
     return true;
+}
+
+bool TrainingRepository::ensureColumn(const QString &tableName,
+                                      const QString &columnName,
+                                      const QString &definition,
+                                      QString *errorMessage) const
+{
+    QSqlQuery pragma(m_db);
+    if (!pragma.exec(QStringLiteral("PRAGMA table_info(%1)").arg(tableName))) {
+        if (errorMessage) {
+            *errorMessage = pragma.lastError().text();
+        }
+        return false;
+    }
+
+    while (pragma.next()) {
+        if (pragma.value(1).toString().compare(columnName, Qt::CaseInsensitive) == 0) {
+            return true;
+        }
+    }
+
+    return execute(QStringLiteral("ALTER TABLE %1 ADD COLUMN %2 %3")
+                       .arg(tableName, columnName, definition),
+                   errorMessage);
 }
 
 QString TrainingRepository::ensureId(const QString &id) const

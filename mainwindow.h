@@ -16,6 +16,7 @@ class QLabel;
 class QComboBox;
 class QLineEdit;
 class QSpinBox;
+class QPlainTextEdit;
 class PoseStandardnessScorer;
 struct PoseFrameResult;
 class QEvent;
@@ -97,6 +98,9 @@ private:
     void refreshStats();
     void refreshHistory();
     void refreshSuggestions();
+    void openSessionVideo(const SessionHistoryItem &record, int offsetMs = 0);
+    void editCoachComment(const QString &sessionId);
+    void exportTrainingReport(const QString &sessionId);
     void refreshSidebarButton();
     void refreshFullScreenButton();
     void refreshModelStatus(const QString &statusText);
@@ -105,6 +109,7 @@ private:
 
     QString pad(int num) const;
     QString formatTime(int seconds) const;
+    QString formatMilliseconds(int milliseconds) const;
     QString precisionLabel(const QString &value) const;
 
 private:

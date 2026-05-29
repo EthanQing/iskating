@@ -7,14 +7,14 @@
 
 ## 作用
 
-负责保存和读取摄像头配置、采集偏好、训练业务数据。摄像头与采集偏好仍使用 Qt `QSettings`；训练动作标准闭环 v1 已迁移到本地 SQLite。
+负责保存和读取摄像头配置、采集偏好、训练业务数据。摄像头与采集偏好仍使用 Qt `QSettings`；训练动作标准闭环和训练复盘 v1 已迁移到本地 SQLite。
 
 ## 关键文件
 
 - `main.cpp`: 设置 `QApplication` applicationName 和 organizationName。
-- `mainwindow.cpp`: 读写摄像头配置、训练上下文、训练历史展示和采集偏好。
+- `mainwindow.cpp`: 读写摄像头配置、训练上下文、训练历史/复盘卡、训练报告导出和采集偏好。
 - `trainingdomain.h`: 训练领域结构，包括运动员、教练、动作标准、训练 session 和动作明细。
-- `trainingrepository.cpp`: SQLite 打开、建表、seed、旧 `trainingHistory` 迁移和训练记录保存。
+- `trainingrepository.cpp`: SQLite 打开、建表、增量补列、seed、旧 `trainingHistory` 迁移和训练记录保存。
 - `systemsettingsdialog.h`: `SharedCameraSettings`, `CameraSlotSettings`, `CapturePreferenceSettings`。
 - `systemsettingsdialog.cpp`: 系统设置对话框读写 settings struct。
 
@@ -49,6 +49,8 @@ SQLite 主要表：
 - `training_sessions`, `action_repetitions`
 - `athlete_action_baselines`
 
+`training_sessions` 记录训练上下文、任务/计划归属、分项分、视频源引用、回退视频源、机位名称、反馈、备注和单次训练教练批注。`action_repetitions` 记录每个动作实例的起止时间、关键帧时间、视频片段起止时间、分项分、错误项和反馈。
+
 `loadCameraSettings()` 兼容旧字段：`previewUrl`, `mainUrl`, `url`, `ip`, `port`, `path`。
 
 ## 对外接口
@@ -66,6 +68,7 @@ SQLite 主要表：
 - `athletes()`, `coaches()`, `actionStandards()`
 - `ensureDailyTask()`
 - `saveTrainingSession()`
+- `saveCoachComment()`
 - `recentSessions()`, `repetitionsForSession()`, `baselineFor()`
 
 ## 常见修改任务
@@ -73,7 +76,7 @@ SQLite 主要表：
 ### 增加训练记录字段
 
 1. 修改 `trainingdomain.h` 中对应 session 或 repetition struct。
-2. 在 `trainingrepository.cpp` 的建表、读取和保存逻辑中同步字段，并考虑迁移默认值。
+2. 在 `trainingrepository.cpp` 的建表、`ensureColumn()` 补列、读取和保存逻辑中同步字段，并考虑迁移默认值。
 3. 更新 `mainwindow.cpp` 的保存、历史和建议页展示。
 
 ### 增加摄像头配置字段
@@ -90,6 +93,7 @@ SQLite 主要表：
 - RTSP 密码会被持久化到本机设置。
 - 删除或重命名 key 会影响旧用户配置；应保留兼容读取。
 - 不再向 `trainingHistory` 写入新训练记录。
+- 视频复盘 v1 保存的是主码流/回退码流引用和动作片段时间窗口，不会录制、剪辑或复制视频文件；RTSP 回看仍依赖原视频源可访问。
 
 ## 相关流程
 
@@ -98,5 +102,5 @@ SQLite 主要表：
 
 ## 未确认问题
 
-- TODO: 后续是否需要训练数据导出文件。
+- TODO: 后续是否需要 PDF/CSV/Excel 等正式训练数据导出格式；当前仅支持 Markdown 单次训练报告。
 - TODO: 未确认 QSettings 中密码是否需要加密。

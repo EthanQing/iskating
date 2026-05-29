@@ -522,6 +522,15 @@ QLabel[role="emptyBox"] {
     color: #8c8c8c;
 }
 
+QLabel[role="reviewSummary"] {
+    border: 1px solid #274160;
+    border-radius: 8px;
+    background: #101b2a;
+    color: #dbeafe;
+    padding: 10px 12px;
+    font-weight: 600;
+}
+
 /* Scroll areas */
 QScrollArea,
 QScrollArea > QWidget,

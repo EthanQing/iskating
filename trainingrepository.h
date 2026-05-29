@@ -25,6 +25,9 @@ public:
     QVector<SessionHistoryItem> recentSessions(int limit) const;
     QVector<ActionRepetition> repetitionsForSession(const QString &sessionId) const;
     TrainingBaseline baselineFor(const QString &athleteId, const QString &actionStandardId) const;
+    bool saveCoachComment(const QString &sessionId,
+                          const QString &comment,
+                          QString *errorMessage = nullptr);
 
     bool createAthlete(const QString &name, QString *athleteId, QString *errorMessage = nullptr);
     bool createCoach(const QString &name, QString *coachId, QString *errorMessage = nullptr);
@@ -53,6 +56,10 @@ private:
     bool execute(const QString &sql, QString *errorMessage) const;
     bool hasMetaValue(const QString &key) const;
     bool setMetaValue(const QString &key, const QString &value, QString *errorMessage) const;
+    bool ensureColumn(const QString &tableName,
+                      const QString &columnName,
+                      const QString &definition,
+                      QString *errorMessage) const;
     QString ensureId(const QString &id = QString()) const;
     QString scalarString(const QString &sql, const QVariantList &args = {}) const;
     int scalarInt(const QString &sql, const QVariantList &args = {}, int defaultValue = 0) const;

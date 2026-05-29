@@ -117,6 +117,8 @@ struct ActionRepetition
     QString errorCodes;
     QString feedback;
     int keyFrameMs = 0;
+    int videoClipStartMs = 0;
+    int videoClipEndMs = 0;
 };
 
 struct TrainingSession
@@ -151,13 +153,22 @@ struct TrainingSession
     int targetScore = 0;
     int setCount = 1;
     int restSeconds = 60;
+    QString videoSource;
+    QString videoFallbackSource;
+    QString videoCameraName;
     QString feedback;
     QString notes;
+    QString coachComment;
 };
 
 struct SessionHistoryItem
 {
     QString id;
+    QString athleteId;
+    QString coachId;
+    QString planId;
+    QString taskId;
+    QString actionStandardId;
     QString athleteName;
     QString coachName;
     QString actionName;
@@ -182,7 +193,12 @@ struct SessionHistoryItem
     QString site;
     QString trainingPhase;
     QString goal;
+    QString videoSource;
+    QString videoFallbackSource;
+    QString videoCameraName;
     QString feedback;
+    QString notes;
+    QString coachComment;
 };
 
 struct TrainingBaseline
