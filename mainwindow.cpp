@@ -1,21 +1,30 @@
 #include "mainwindow.h"
+#include "actionstandardscorer.h"
 #include "handanalysismanager.h"
 #include "iconutils.h"
 #include "posestandardnessscorer.h"
 #include "skeletonviewwidget.h"
+#include "trainingrepository.h"
+#include "trajectorywidget.h"
 #include "ui_mainwindow.h"
 #include "videoopenglwidget.h"
 
 #include <QAction>
+#include <QComboBox>
 #include <QDateTime>
 #include <QEvent>
 #include <QFile>
+#include <QFormLayout>
 #include <QFrame>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QIcon>
+#include <QInputDialog>
 #include <QKeySequence>
 #include <QLabel>
 #include <QLayout>
+#include <QLineEdit>
+#include <QMessageBox>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPixmap>
@@ -24,9 +33,11 @@
 #include <QDebug>
 #include <QRandomGenerator>
 #include <QSettings>
+#include <QSignalBlocker>
 #include <QSize>
 #include <QSizePolicy>
 #include <QShortcut>
+#include <QSpinBox>
 #include <QStyle>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -34,12 +45,18 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace {
 
 constexpr int kCapturePage = 0;
 constexpr int kHistoryPage = 1;
 constexpr int kSuggestionPage = 2;
+constexpr int kDefaultFps = 30;
+constexpr int kDefaultPreviewStreamFps = 30;
+constexpr int kDefaultMainStreamFps = 120;
+constexpr int kDefaultRtspPort = 554;
+constexpr int kMaxVisibleHistoryItems = 10;
 constexpr const char *kPreviousWindowStateProperty = "previousWindowStateBeforeFullScreen";
 constexpr const char *kMutedInactiveColor = "#8c8c8c";
 constexpr const char *kHoverActionColor = "#3b8dff";
@@ -53,6 +70,165 @@ enum TrajectoryMode {
 QString cameraSettingsGroup(int cameraIndex)
 {
     return QStringLiteral("cameras/camera%1").arg(cameraIndex + 1, 2, 10, QLatin1Char('0'));
+}
+
+QString defaultCameraChannelName(int cameraIndex)
+{
+    return QStringLiteral("CAM %1").arg(cameraIndex + 1, 2, 10, QLatin1Char('0'));
+}
+
+QString configuredCameraChannelName(int cameraIndex, const QString &ip)
+{
+    const QString base = defaultCameraChannelName(cameraIndex);
+    const QString trimmedIp = ip.trimmed();
+    return trimmedIp.isEmpty() ? base : QStringLiteral("%1 - %2").arg(base, trimmedIp);
+}
+
+QString normalizedStoredPath(const QString &path)
+{
+    QString normalized = path.trimmed();
+    while (normalized.startsWith(QLatin1Char('/'))) {
+        normalized.remove(0, 1);
+    }
+    return normalized;
+}
+
+QString normalizedRtspPath(const QString &path)
+{
+    const QString normalized = normalizedStoredPath(path);
+    return normalized.isEmpty() ? QString() : QStringLiteral("/") + normalized;
+}
+
+QString composeLegacyStreamUrl(const QString &ipOrUrl, const QString &port, const QString &path)
+{
+    const QString trimmedPath = path.trimmed();
+    const QString trimmedIp = ipOrUrl.trimmed();
+    const QString trimmedPort = port.trimmed();
+
+    if (trimmedPath.contains(QStringLiteral("://"))) {
+        return trimmedPath;
+    }
+
+    if (trimmedIp.contains(QStringLiteral("://"))) {
+        QString url = trimmedIp;
+        if (!trimmedPath.isEmpty()) {
+            if (!url.endsWith(QLatin1Char('/')) && !trimmedPath.startsWith(QLatin1Char('/'))) {
+                url += QLatin1Char('/');
+            } else if (url.endsWith(QLatin1Char('/')) && trimmedPath.startsWith(QLatin1Char('/'))) {
+                url.chop(1);
+            }
+            url += trimmedPath;
+        }
+        return url;
+    }
+
+    if (trimmedIp.isEmpty()) {
+        return trimmedPath;
+    }
+
+    QString url = QStringLiteral("rtsp://") + trimmedIp;
+    if (!trimmedPort.isEmpty()) {
+        url += QStringLiteral(":") + trimmedPort;
+    }
+    if (!trimmedPath.isEmpty()) {
+        if (!trimmedPath.startsWith(QLatin1Char('/'))) {
+            url += QLatin1Char('/');
+        }
+        url += trimmedPath;
+    }
+    return url;
+}
+
+struct ParsedRtspUrl
+{
+    bool valid = false;
+    QString username;
+    QString password;
+    QString host;
+    QString port;
+    QString path;
+};
+
+ParsedRtspUrl parseRtspUrl(const QString &source)
+{
+    ParsedRtspUrl parsed;
+    const QString trimmedSource = source.trimmed();
+    if (trimmedSource.isEmpty()) {
+        return parsed;
+    }
+
+    const QUrl url = QUrl::fromEncoded(trimmedSource.toUtf8(), QUrl::TolerantMode);
+    if (!url.isValid() || url.scheme().compare(QStringLiteral("rtsp"), Qt::CaseInsensitive) != 0) {
+        return parsed;
+    }
+    if (url.host().trimmed().isEmpty()) {
+        return parsed;
+    }
+
+    parsed.valid = true;
+    parsed.username = url.userName(QUrl::FullyDecoded);
+    parsed.password = url.password(QUrl::FullyDecoded);
+    parsed.host = url.host().trimmed();
+    if (url.port() > 0) {
+        parsed.port = QString::number(url.port());
+    }
+    parsed.path = normalizedStoredPath(url.path());
+    return parsed;
+}
+
+QString extractHostFromLegacyValue(const QString &source)
+{
+    const QString trimmed = source.trimmed();
+    if (trimmed.isEmpty()) {
+        return QString();
+    }
+
+    const ParsedRtspUrl parsed = parseRtspUrl(trimmed);
+    return parsed.valid ? parsed.host : trimmed;
+}
+
+QString composeCameraUrl(const SharedCameraSettings &sharedSettings, const QString &ip, bool mainStream)
+{
+    const QString trimmedIp = ip.trimmed();
+    if (trimmedIp.isEmpty()) {
+        return QString();
+    }
+
+    QUrl url;
+    url.setScheme(QStringLiteral("rtsp"));
+    if (!sharedSettings.username.trimmed().isEmpty()) {
+        url.setUserName(sharedSettings.username.trimmed());
+    }
+    if (!sharedSettings.password.isEmpty()) {
+        url.setPassword(sharedSettings.password);
+    }
+    url.setHost(trimmedIp);
+
+    const QString normalizedPort = sharedSettings.port.trimmed();
+    if (normalizedPort.isEmpty()) {
+        url.setPort(kDefaultRtspPort);
+    } else {
+        bool ok = false;
+        const int port = normalizedPort.toInt(&ok);
+        if (ok && port > 0) {
+            url.setPort(port);
+        }
+    }
+
+    const QString selectedPath = mainStream && !sharedSettings.mainPath.trimmed().isEmpty()
+                                     ? sharedSettings.mainPath
+                                     : sharedSettings.previewPath;
+    url.setPath(normalizedRtspPath(selectedPath));
+    return url.toString(QUrl::FullyEncoded);
+}
+
+bool hasStructuredCameraDefaults(QSettings &settings)
+{
+    return settings.contains(QStringLiteral("cameraDefaults/username"))
+           || settings.contains(QStringLiteral("cameraDefaults/password"))
+           || settings.contains(QStringLiteral("cameraDefaults/port"))
+           || settings.contains(QStringLiteral("cameraDefaults/previewPath"))
+           || settings.contains(QStringLiteral("cameraDefaults/mainPath"));
 }
 
 QString safeUrlForLog(const QString &source)
@@ -83,10 +259,21 @@ QString topbarModuleHtml(const QString &icon, const QString &title, const QStrin
 // 清空布局中的子项；保留该工具函数供动态重建列表类界面时复用。
 void clearLayout(QLayout *layout)
 {
-  
+    if (!layout) {
+        return;
+    }
+
+    while (QLayoutItem *item = layout->takeAt(0)) {
+        if (QWidget *widget = item->widget()) {
+            delete widget;
+        } else if (QLayout *childLayout = item->layout()) {
+            clearLayout(childLayout);
+            delete childLayout;
+        }
+
+        delete item;
+    }
 }
- 
- 
 
 // 设置控件的样式角色属性，配合 QSS 中的属性选择器刷新外观。
 void setRole(QWidget *widget, const char *role)
@@ -171,22 +358,58 @@ MainWindow::MainWindow(QWidget *parent)
                     QStringLiteral("1.82T/4.00TB"));
 
     m_poseStandardnessScorer = std::make_unique<PoseStandardnessScorer>();
+    m_actionStandardScorer = std::make_unique<ActionStandardScorer>();
+    m_actionRepetitionTracker = std::make_unique<ActionRepetitionTracker>();
+    m_trainingRepository = std::make_unique<TrainingRepository>();
     m_handAnalysisManager = std::make_unique<HandAnalysisManager>(this);
     m_handAnalysisManager->setResultCallback([this](const PoseFrameResult &poseFrame) {
         ui->mainImageLabel->setPoseFrame(poseFrame);
         if (m_skeletonView) {
             m_skeletonView->setPoseFrame(poseFrame);
         }
-        updateActionCounter(poseFrame);
+        if (m_trajectoryWidget) {
+            m_trajectoryWidget->setPoseFrame(poseFrame);
+        }
         if (m_poseStandardnessScorer) {
-            const PoseStandardnessResult standardness = m_poseStandardnessScorer->scoreFrame(poseFrame);
-            m_realtimeScore = standardness.score;
-            m_detectionScore = standardness.detectionScore;
-            m_symmetryScore = standardness.symmetryScore;
-            m_balanceScore = standardness.balanceScore;
-            m_stabilityScore = standardness.stabilityScore;
-            m_depthScore = standardness.depthScore;
-            m_feedbackText = standardness.feedback;
+            const PoseStandardnessResult baseStandardness = m_poseStandardnessScorer->scoreFrame(poseFrame);
+            const ActionStandard standard = selectedActionStandard();
+            ActionAssessment assessment;
+            if (m_actionStandardScorer && !standard.id.isEmpty()) {
+                assessment = m_actionStandardScorer->score(baseStandardness, standard);
+                m_realtimeScore = assessment.score;
+                m_detectionScore = assessment.detectionScore;
+                m_symmetryScore = assessment.symmetryScore;
+                m_balanceScore = assessment.balanceScore;
+                m_stabilityScore = assessment.stabilityScore;
+                m_depthScore = assessment.depthScore;
+                m_feedbackText = assessment.feedback;
+            } else {
+                assessment.score = baseStandardness.score;
+                assessment.detectionScore = baseStandardness.detectionScore;
+                assessment.symmetryScore = baseStandardness.symmetryScore;
+                assessment.balanceScore = baseStandardness.balanceScore;
+                assessment.stabilityScore = baseStandardness.stabilityScore;
+                assessment.depthScore = baseStandardness.depthScore;
+                assessment.feedback = baseStandardness.feedback;
+                assessment.valid = baseStandardness.valid;
+                m_realtimeScore = baseStandardness.score;
+                m_detectionScore = baseStandardness.detectionScore;
+                m_symmetryScore = baseStandardness.symmetryScore;
+                m_balanceScore = baseStandardness.balanceScore;
+                m_stabilityScore = baseStandardness.stabilityScore;
+                m_depthScore = baseStandardness.depthScore;
+                m_feedbackText = baseStandardness.feedback;
+            }
+            if (m_isRecording && !m_isPaused && m_actionRepetitionTracker) {
+                ActionRepetition repetition;
+                if (m_actionRepetitionTracker->update(poseFrame,
+                                                      assessment,
+                                                      QDateTime::currentMSecsSinceEpoch(),
+                                                      m_recordingStartedAtMsec,
+                                                      &repetition)) {
+                    recordCompletedRepetition(repetition);
+                }
+            }
             refreshStats();
         }
     });
@@ -220,26 +443,27 @@ MainWindow::MainWindow(QWidget *parent)
     });
     for (int i = 0; i < m_cameraButtons.size(); ++i) {
         auto *cameraWidget = m_cameraButtons.at(i);
-        const QString cameraName = QStringLiteral("CAM %1").arg(i + 1, 2, 10, QLatin1Char('0'));
+        const QString cameraName = defaultCameraChannelName(i);
         cameraWidget->setChannelName(cameraName);
         cameraWidget->setPlaceholderText(cameraName);
         cameraWidget->setOverlayControlsVisible(true);
+        cameraWidget->setConfigButtonVisible(false);
         cameraWidget->setDoubleClickHandler([this, i](VideoOpenGLWidget *) {
             qDebug() << "[MainWindow] camera double clicked, play in main view"
                      << m_cameraButtons.at(i)->channelName()
                      << safeUrlForLog(m_cameraButtons.at(i)->mainUrl());
             showCameraInMainView(i);
         });
-        cameraWidget->setConfigChangedHandler([this, i](VideoOpenGLWidget *) {
-            saveCameraSetting(i);
-        });
     }
     loadCameraSettings();
+    initializeTrainingRepository();
 
     applyStyleSheet();
     installStaticImages();
     installSkeletonView();
+    installTrajectoryWidget();
     installMetricBars();
+    installTrainingContextPanel();
 
     auto *fullScreenShortcut = new QShortcut(QKeySequence(Qt::Key_F11), this);
     fullScreenShortcut->setContext(Qt::WindowShortcut);
@@ -282,12 +506,13 @@ MainWindow::MainWindow(QWidget *parent)
     connect(pauseAction, &QAction::triggered, this, [this]() { pauseCapture(); });
     connect(stopAction, &QAction::triggered, this, [this]() { stopCapture(); });
     connect(saveAction, &QAction::triggered, this, [this]() { saveRecord(); });
-    connect(settingsAction, &QAction::triggered, this, [this]() {
-        ui->settingsBox->setVisible(!ui->settingsBox->isVisible());
-    });
+    connect(settingsAction, &QAction::triggered, this, [this]() { openSystemSettings(); });
 
-    m_trajectoryViewNormalMinSize = ui->trajectoryViewFrame->minimumSize();
-    m_trajectoryViewNormalMaxSize = ui->trajectoryViewFrame->maximumSize();
+    QWidget *trajectoryView = m_trajectoryWidget
+                                  ? static_cast<QWidget *>(m_trajectoryWidget)
+                                  : static_cast<QWidget *>(ui->trajectoryViewFrame);
+    m_trajectoryViewNormalMinSize = trajectoryView->minimumSize();
+    m_trajectoryViewNormalMaxSize = trajectoryView->maximumSize();
     m_trajectoryCardNormalMinSize = ui->trajectoryCard->minimumSize();
     m_trajectoryCardNormalMaxSize = ui->trajectoryCard->maximumSize();
     m_middleLayoutNormalSpacing = ui->middleLayout->spacing();
@@ -306,6 +531,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_timer.setInterval(1000);
     connect(&m_timer, &QTimer::timeout, this, [this]() { tick(); });
 
+    setupUiState();
     setupConnections();
     setTrajectoryMode(TrajectoryNormal);
     refreshStats();
@@ -353,12 +579,68 @@ void MainWindow::changeEvent(QEvent *event)
 // 初始化运行时 UI 状态；当前界面主要在构造函数中完成初始化，保留该入口便于后续扩展。
 void MainWindow::setupUiState()
 {
-     
+    m_navButtons = {ui->navCaptureButton, ui->navHistoryButton, ui->navSuggestionButton};
+    for (auto *button : m_navButtons) {
+        setRole(button, "nav");
+        button->setFocusPolicy(Qt::NoFocus);
+    }
+
+    m_summaryValues = {
+        ui->summarySessionsValue,
+        ui->summaryActionsValue,
+        ui->summaryAvgValue,
+        ui->summaryBestValue
+    };
+
+    if (ui->precisionComboBox && ui->precisionComboBox->count() == 0) {
+        ui->precisionComboBox->addItem(precisionLabel(QStringLiteral("fast")), QStringLiteral("fast"));
+        ui->precisionComboBox->addItem(precisionLabel(QStringLiteral("balanced")), QStringLiteral("balanced"));
+        ui->precisionComboBox->addItem(precisionLabel(QStringLiteral("high")), QStringLiteral("high"));
+    }
+
+    if (ui->fpsComboBox && ui->fpsComboBox->count() == 0) {
+        for (int fps : {15, 25, 30, 50, 60, 90, 120}) {
+            ui->fpsComboBox->addItem(QStringLiteral("%1 FPS").arg(fps), fps);
+        }
+    }
+    applyCapturePreferencesToUi();
+    reloadTrainingContext();
+    ui->settingsBox->hide();
+    if (m_trainingRepository && !m_trainingRepository->isOpen() && !m_trainingRepository->lastError().isEmpty()) {
+        ui->saveTipLabel->setText(QStringLiteral("训练数据库初始化失败：%1").arg(m_trainingRepository->lastError()));
+        ui->saveTipLabel->show();
+    }
+
+    loadTrainingRecords();
+    const bool hasDatabaseError = m_trainingRepository && !m_trainingRepository->isOpen() && !m_trainingRepository->lastError().isEmpty();
+    if (!m_lastSavedAt.isEmpty()) {
+        ui->saveTipLabel->setText(QStringLiteral("最近保存：%1").arg(m_lastSavedAt));
+        ui->saveTipLabel->show();
+    } else if (!hasDatabaseError) {
+        ui->saveTipLabel->clear();
+        ui->saveTipLabel->hide();
+    }
+
+    m_activePage = kCapturePage;
+    ui->pages->setCurrentIndex(kCapturePage);
+    refreshNavButtons();
+    refreshCameraButtons();
+    refreshHistory();
+    refreshSuggestions();
 }
 
 // 绑定页面上的交互信号：侧栏开关、全屏切换、三维轨迹三态切换等。
 void MainWindow::setupConnections()
 {
+    connect(ui->navCaptureButton, &QPushButton::clicked, this, [this]() {
+        switchPage(kCapturePage);
+    });
+    connect(ui->navHistoryButton, &QPushButton::clicked, this, [this]() {
+        switchPage(kHistoryPage);
+    });
+    connect(ui->navSuggestionButton, &QPushButton::clicked, this, [this]() {
+        switchPage(kSuggestionPage);
+    });
     connect(ui->toggleSidebarButton, &QPushButton::clicked, this, [this]() {
         toggleSidebar();
     });
@@ -402,6 +684,20 @@ void MainWindow::installSkeletonView()
 
     m_skeletonView = new SkeletonViewWidget(ui->poseCard);
     ui->poseImageLayout->insertWidget(0, m_skeletonView, 1);
+}
+
+void MainWindow::installTrajectoryWidget()
+{
+    if (m_trajectoryWidget || !ui->trajectoryCardLayout || !ui->trajectoryViewFrame) {
+        return;
+    }
+
+    ui->trajectoryCardLayout->removeWidget(ui->trajectoryViewFrame);
+    ui->trajectoryViewFrame->hide();
+
+    m_trajectoryWidget = new TrajectoryWidget(ui->trajectoryCard);
+    m_trajectoryWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    ui->trajectoryCardLayout->insertWidget(1, m_trajectoryWidget, 1);
 }
 
 // 在训练统计卡片里装配分项评分条，替代原来的单行文字指标。
@@ -465,6 +761,111 @@ void MainWindow::installMetricBars()
                                     metricContainer);
 }
 
+void MainWindow::installTrainingContextPanel()
+{
+    if (m_trainingContextPanel || !ui->capturePage || !ui->capturePage->layout()) {
+        return;
+    }
+
+    auto *captureLayout = qobject_cast<QVBoxLayout *>(ui->capturePage->layout());
+    if (!captureLayout) {
+        return;
+    }
+
+    m_trainingContextPanel = new QFrame(ui->capturePage);
+    m_trainingContextPanel->setObjectName(QStringLiteral("trainingContextPanel"));
+    setRole(m_trainingContextPanel, "trainingContextPanel");
+    auto *panelLayout = new QVBoxLayout(m_trainingContextPanel);
+    panelLayout->setContentsMargins(12, 10, 12, 10);
+    panelLayout->setSpacing(8);
+
+    auto *titleRow = new QHBoxLayout();
+    titleRow->setContentsMargins(0, 0, 0, 0);
+    titleRow->setSpacing(8);
+    auto *titleLabel = new QLabel(QStringLiteral("训练上下文"), m_trainingContextPanel);
+    titleLabel->setProperty("role", "sectionTitle");
+    m_standardDetailLabel = new QLabel(QStringLiteral("动作标准库初始化中"), m_trainingContextPanel);
+    m_standardDetailLabel->setProperty("role", "muted");
+    m_standardDetailLabel->setWordWrap(true);
+    titleRow->addWidget(titleLabel, 0);
+    titleRow->addWidget(m_standardDetailLabel, 1);
+    panelLayout->addLayout(titleRow);
+
+    auto *grid = new QGridLayout();
+    grid->setContentsMargins(0, 0, 0, 0);
+    grid->setHorizontalSpacing(8);
+    grid->setVerticalSpacing(6);
+
+    m_athleteComboBox = new QComboBox(m_trainingContextPanel);
+    m_coachComboBox = new QComboBox(m_trainingContextPanel);
+    m_actionStandardComboBox = new QComboBox(m_trainingContextPanel);
+    m_siteLineEdit = new QLineEdit(m_trainingContextPanel);
+    m_trainingPhaseComboBox = new QComboBox(m_trainingContextPanel);
+    m_goalLineEdit = new QLineEdit(m_trainingContextPanel);
+    m_targetRepsSpinBox = new QSpinBox(m_trainingContextPanel);
+    m_targetScoreSpinBox = new QSpinBox(m_trainingContextPanel);
+    m_setCountSpinBox = new QSpinBox(m_trainingContextPanel);
+    m_restSecondsSpinBox = new QSpinBox(m_trainingContextPanel);
+
+    m_siteLineEdit->setPlaceholderText(QStringLiteral("训练场地"));
+    m_goalLineEdit->setPlaceholderText(QStringLiteral("本次训练目标"));
+    m_trainingPhaseComboBox->addItems({QStringLiteral("热身"), QStringLiteral("基础训练"), QStringLiteral("专项训练"), QStringLiteral("复盘测试")});
+    m_targetRepsSpinBox->setRange(1, 999);
+    m_targetScoreSpinBox->setRange(1, 100);
+    m_setCountSpinBox->setRange(1, 20);
+    m_restSecondsSpinBox->setRange(0, 600);
+    m_restSecondsSpinBox->setSingleStep(15);
+
+    auto *addAthleteButton = new QPushButton(QStringLiteral("新增运动员"), m_trainingContextPanel);
+    auto *addCoachButton = new QPushButton(QStringLiteral("新增教练"), m_trainingContextPanel);
+    addAthleteButton->setProperty("role", "secondaryButton");
+    addCoachButton->setProperty("role", "secondaryButton");
+
+    grid->addWidget(new QLabel(QStringLiteral("运动员"), m_trainingContextPanel), 0, 0);
+    grid->addWidget(m_athleteComboBox, 0, 1);
+    grid->addWidget(addAthleteButton, 0, 2);
+    grid->addWidget(new QLabel(QStringLiteral("教练"), m_trainingContextPanel), 0, 3);
+    grid->addWidget(m_coachComboBox, 0, 4);
+    grid->addWidget(addCoachButton, 0, 5);
+
+    grid->addWidget(new QLabel(QStringLiteral("动作"), m_trainingContextPanel), 1, 0);
+    grid->addWidget(m_actionStandardComboBox, 1, 1, 1, 2);
+    grid->addWidget(new QLabel(QStringLiteral("场地"), m_trainingContextPanel), 1, 3);
+    grid->addWidget(m_siteLineEdit, 1, 4, 1, 2);
+
+    grid->addWidget(new QLabel(QStringLiteral("阶段"), m_trainingContextPanel), 2, 0);
+    grid->addWidget(m_trainingPhaseComboBox, 2, 1);
+    grid->addWidget(new QLabel(QStringLiteral("目标"), m_trainingContextPanel), 2, 2);
+    grid->addWidget(m_goalLineEdit, 2, 3, 1, 3);
+
+    grid->addWidget(new QLabel(QStringLiteral("次数"), m_trainingContextPanel), 3, 0);
+    grid->addWidget(m_targetRepsSpinBox, 3, 1);
+    grid->addWidget(new QLabel(QStringLiteral("目标分"), m_trainingContextPanel), 3, 2);
+    grid->addWidget(m_targetScoreSpinBox, 3, 3);
+    grid->addWidget(new QLabel(QStringLiteral("组数"), m_trainingContextPanel), 3, 4);
+    grid->addWidget(m_setCountSpinBox, 3, 5);
+
+    grid->addWidget(new QLabel(QStringLiteral("休息秒"), m_trainingContextPanel), 4, 0);
+    grid->addWidget(m_restSecondsSpinBox, 4, 1);
+    m_trainingTargetLabel = new QLabel(QStringLiteral("目标完成度：0/0"), m_trainingContextPanel);
+    m_trainingTargetLabel->setProperty("role", "muted");
+    grid->addWidget(m_trainingTargetLabel, 4, 2, 1, 4);
+
+    panelLayout->addLayout(grid);
+    captureLayout->insertWidget(0, m_trainingContextPanel);
+
+    connect(addAthleteButton, &QPushButton::clicked, this, [this]() { addAthleteFromDialog(); });
+    connect(addCoachButton, &QPushButton::clicked, this, [this]() { addCoachFromDialog(); });
+    connect(m_actionStandardComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
+        refreshTrainingContextDetails();
+    });
+    connect(m_athleteComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
+        refreshTrainingContextDetails();
+    });
+    connect(m_targetRepsSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, [this]() { refreshStats(); });
+    connect(m_targetScoreSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, [this]() { refreshStats(); });
+}
+
 // 从资源系统读取 QSS，统一应用暗色仪表盘主题样式。
 void MainWindow::applyStyleSheet()
 {
@@ -477,66 +878,530 @@ void MainWindow::applyStyleSheet()
 // 从 QSettings 读取 12 路摄像头配置；预览使用子码流，主视图使用主码流，兼容旧版 url/IP 配置。
 void MainWindow::loadCameraSettings()
 {
+    m_sharedCameraSettings = {};
+    m_sharedCameraSettings.port = QString::number(kDefaultRtspPort);
+    m_sharedCameraSettings.previewFps = kDefaultPreviewStreamFps;
+    m_sharedCameraSettings.mainFps = kDefaultMainStreamFps;
+    m_cameraSlotSettings = QVector<CameraSlotSettings>(m_cameraButtons.size());
+    m_capturePreferenceSettings = {};
+
     QSettings settings;
-    for (int i = 0; i < m_cameraButtons.size(); ++i) {
-        auto *cameraWidget = m_cameraButtons.at(i);
-        settings.beginGroup(cameraSettingsGroup(i));
-        const QString previewUrl = settings.value(QStringLiteral("previewUrl")).toString();
-        const QString mainUrl = settings.value(QStringLiteral("mainUrl")).toString();
-        const QString url = settings.value(QStringLiteral("url")).toString();
-        const QString ip = settings.value(QStringLiteral("ip"), cameraWidget->streamIp()).toString();
-        const QString port = settings.value(QStringLiteral("port"), cameraWidget->streamPort()).toString();
-        const QString path = settings.value(QStringLiteral("path"), cameraWidget->streamPath()).toString();
-        const QString channelName = settings.value(QStringLiteral("name"), cameraWidget->channelName()).toString();
+    settings.beginGroup(QStringLiteral("capture"));
+    const int legacyCaptureFps = settings.value(QStringLiteral("fps"), kDefaultFps).toInt();
+    m_capturePreferenceSettings.modelPrecision = settings.value(QStringLiteral("modelPrecision"),
+                                                                QStringLiteral("balanced")).toString().trimmed();
+    settings.endGroup();
+    if (m_capturePreferenceSettings.modelPrecision.isEmpty()) {
+        m_capturePreferenceSettings.modelPrecision = QStringLiteral("balanced");
+    }
+
+    if (hasStructuredCameraDefaults(settings)) {
+        settings.beginGroup(QStringLiteral("cameraDefaults"));
+        m_sharedCameraSettings.username = settings.value(QStringLiteral("username")).toString().trimmed();
+        m_sharedCameraSettings.password = settings.value(QStringLiteral("password")).toString();
+        m_sharedCameraSettings.port = settings.value(QStringLiteral("port"), QString::number(kDefaultRtspPort)).toString().trimmed();
+        if (m_sharedCameraSettings.port.isEmpty()) {
+            m_sharedCameraSettings.port = QString::number(kDefaultRtspPort);
+        }
+        m_sharedCameraSettings.previewPath = normalizedStoredPath(settings.value(QStringLiteral("previewPath")).toString());
+        m_sharedCameraSettings.previewFps = settings.value(QStringLiteral("previewFps"),
+                                                           kDefaultPreviewStreamFps).toInt();
+        m_sharedCameraSettings.mainPath = normalizedStoredPath(settings.value(QStringLiteral("mainPath")).toString());
+        m_sharedCameraSettings.mainFps = settings.value(QStringLiteral("mainFps"),
+                                                        legacyCaptureFps > kDefaultPreviewStreamFps
+                                                            ? legacyCaptureFps
+                                                            : kDefaultMainStreamFps).toInt();
         settings.endGroup();
 
-        if (!channelName.isEmpty()) {
-            cameraWidget->setChannelName(channelName);
-            cameraWidget->setPlaceholderText(channelName);
+        for (int i = 0; i < m_cameraButtons.size(); ++i) {
+            settings.beginGroup(cameraSettingsGroup(i));
+            m_cameraSlotSettings[i].ip = settings.value(QStringLiteral("ip")).toString().trimmed();
+            settings.endGroup();
         }
-        if (!previewUrl.trimmed().isEmpty() || !mainUrl.trimmed().isEmpty()) {
-            const QString preview = previewUrl.trimmed().isEmpty() ? mainUrl : previewUrl;
-            const QString main = mainUrl.trimmed().isEmpty() ? preview : mainUrl;
-            cameraWidget->setStreamUrls(preview, main);
-        } else if (!url.trimmed().isEmpty()) {
-            cameraWidget->setStreamUrls(url, url);
-        } else {
-            cameraWidget->setStreamConfig(ip, port, path);
+    } else {
+        bool sharedInitialized = false;
+        for (int i = 0; i < m_cameraButtons.size(); ++i) {
+            settings.beginGroup(cameraSettingsGroup(i));
+            const QString previewUrl = settings.value(QStringLiteral("previewUrl")).toString().trimmed();
+            const QString mainUrl = settings.value(QStringLiteral("mainUrl")).toString().trimmed();
+            const QString legacyUrl = settings.value(QStringLiteral("url")).toString().trimmed();
+            const QString legacyIp = settings.value(QStringLiteral("ip")).toString().trimmed();
+            const QString legacyPort = settings.value(QStringLiteral("port")).toString().trimmed();
+            const QString legacyPath = settings.value(QStringLiteral("path")).toString().trimmed();
+            settings.endGroup();
+
+            const QString previewSource = !previewUrl.isEmpty()
+                                              ? previewUrl
+                                              : (!legacyUrl.isEmpty() ? legacyUrl
+                                                                      : composeLegacyStreamUrl(legacyIp, legacyPort, legacyPath));
+            const QString mainSource = !mainUrl.isEmpty() ? mainUrl : previewSource;
+
+            if (!previewSource.isEmpty()) {
+                m_cameraSlotSettings[i].ip = extractHostFromLegacyValue(previewSource);
+            } else {
+                m_cameraSlotSettings[i].ip = extractHostFromLegacyValue(legacyIp);
+            }
+
+            if (!sharedInitialized) {
+                const ParsedRtspUrl previewParsed = parseRtspUrl(previewSource);
+                const ParsedRtspUrl mainParsed = parseRtspUrl(mainSource);
+                const ParsedRtspUrl baseParsed = previewParsed.valid ? previewParsed : mainParsed;
+                if (baseParsed.valid) {
+                    m_sharedCameraSettings.username = baseParsed.username;
+                    m_sharedCameraSettings.password = baseParsed.password;
+                    m_sharedCameraSettings.port = baseParsed.port.isEmpty()
+                                                      ? QString::number(kDefaultRtspPort)
+                                                      : baseParsed.port;
+                    m_sharedCameraSettings.previewPath = previewParsed.valid
+                                                             ? previewParsed.path
+                                                             : normalizedStoredPath(legacyPath);
+                    m_sharedCameraSettings.previewFps = kDefaultPreviewStreamFps;
+                    m_sharedCameraSettings.mainPath = mainParsed.valid ? mainParsed.path : QString();
+                    m_sharedCameraSettings.mainFps = legacyCaptureFps > kDefaultPreviewStreamFps
+                                                        ? legacyCaptureFps
+                                                        : kDefaultMainStreamFps;
+                    sharedInitialized = true;
+                } else if (!legacyIp.isEmpty() || !legacyPort.isEmpty() || !legacyPath.isEmpty()) {
+                    m_sharedCameraSettings.port = legacyPort.isEmpty()
+                                                      ? QString::number(kDefaultRtspPort)
+                                                      : legacyPort;
+                    m_sharedCameraSettings.previewPath = normalizedStoredPath(legacyPath);
+                    m_sharedCameraSettings.previewFps = kDefaultPreviewStreamFps;
+                    m_sharedCameraSettings.mainPath.clear();
+                    m_sharedCameraSettings.mainFps = legacyCaptureFps > kDefaultPreviewStreamFps
+                                                        ? legacyCaptureFps
+                                                        : kDefaultMainStreamFps;
+                    sharedInitialized = true;
+                }
+            }
         }
     }
+
+    if (m_sharedCameraSettings.previewFps <= 0) {
+        m_sharedCameraSettings.previewFps = kDefaultPreviewStreamFps;
+    }
+    if (m_sharedCameraSettings.mainFps <= 0) {
+        m_sharedCameraSettings.mainFps = legacyCaptureFps > kDefaultPreviewStreamFps
+                                             ? legacyCaptureFps
+                                             : kDefaultMainStreamFps;
+    }
+    m_capturePreferenceSettings.fps = m_sharedCameraSettings.mainFps;
+
+    applyCameraSettingsToWidgets(false);
 }
 
 // 程序退出时保存全部摄像头配置，确保未触发单路保存的变更也会落盘。
-void MainWindow::saveCameraSettings() const
+void MainWindow::saveCameraSettings()
 {
-    for (int i = 0; i < m_cameraButtons.size(); ++i) {
-        saveCameraSetting(i);
-    }
+    m_capturePreferenceSettings = capturePreferenceSettingsFromUi();
+    persistSystemSettings();
 }
 
 // 保存指定摄像头配置：名称、预览子码流、主画面码流；同时保留旧字段以兼容已有代码。
-void MainWindow::saveCameraSetting(int cameraIndex) const
+void MainWindow::saveCameraSetting(int cameraIndex)
 {
     if (cameraIndex < 0 || cameraIndex >= m_cameraButtons.size()) {
         return;
     }
 
-    auto *cameraWidget = m_cameraButtons.at(cameraIndex);
+    saveCameraSettings();
+}
+
+void MainWindow::persistSystemSettings() const
+{
     QSettings settings;
-    settings.beginGroup(cameraSettingsGroup(cameraIndex));
-    settings.setValue(QStringLiteral("name"), cameraWidget->channelName());
-    settings.setValue(QStringLiteral("previewUrl"), cameraWidget->previewUrl());
-    settings.setValue(QStringLiteral("mainUrl"), cameraWidget->mainUrl());
-    settings.setValue(QStringLiteral("url"), cameraWidget->previewUrl());
-    settings.setValue(QStringLiteral("ip"), cameraWidget->streamIp());
-    settings.setValue(QStringLiteral("port"), cameraWidget->streamPort());
-    settings.setValue(QStringLiteral("path"), cameraWidget->streamPath());
+    settings.beginGroup(QStringLiteral("cameraDefaults"));
+    settings.setValue(QStringLiteral("username"), m_sharedCameraSettings.username.trimmed());
+    settings.setValue(QStringLiteral("password"), m_sharedCameraSettings.password);
+    settings.setValue(QStringLiteral("port"),
+                      m_sharedCameraSettings.port.trimmed().isEmpty()
+                          ? QString::number(kDefaultRtspPort)
+                          : m_sharedCameraSettings.port.trimmed());
+    settings.setValue(QStringLiteral("previewPath"), normalizedStoredPath(m_sharedCameraSettings.previewPath));
+    settings.setValue(QStringLiteral("previewFps"), m_sharedCameraSettings.previewFps > 0
+                                                      ? m_sharedCameraSettings.previewFps
+                                                      : kDefaultPreviewStreamFps);
+    settings.setValue(QStringLiteral("mainPath"), normalizedStoredPath(m_sharedCameraSettings.mainPath));
+    settings.setValue(QStringLiteral("mainFps"), m_sharedCameraSettings.mainFps > 0
+                                                   ? m_sharedCameraSettings.mainFps
+                                                   : kDefaultMainStreamFps);
     settings.endGroup();
+
+    settings.beginGroup(QStringLiteral("capture"));
+    settings.setValue(QStringLiteral("modelPrecision"), m_capturePreferenceSettings.modelPrecision.trimmed().isEmpty()
+                                                            ? QStringLiteral("balanced")
+                                                            : m_capturePreferenceSettings.modelPrecision.trimmed());
+    settings.setValue(QStringLiteral("fps"), m_sharedCameraSettings.mainFps > 0
+                                                ? m_sharedCameraSettings.mainFps
+                                                : kDefaultMainStreamFps);
+    settings.endGroup();
+
+    const QString normalizedPort = m_sharedCameraSettings.port.trimmed().isEmpty()
+                                       ? QString::number(kDefaultRtspPort)
+                                       : m_sharedCameraSettings.port.trimmed();
+    const QString normalizedPreviewPath = normalizedStoredPath(m_sharedCameraSettings.previewPath);
+    for (int i = 0; i < m_cameraButtons.size(); ++i) {
+        const QString ip = i < m_cameraSlotSettings.size() ? m_cameraSlotSettings.at(i).ip.trimmed() : QString();
+        const QString previewUrl = composeCameraUrl(m_sharedCameraSettings, ip, false);
+        const QString mainUrl = composeCameraUrl(m_sharedCameraSettings, ip, true);
+        settings.beginGroup(cameraSettingsGroup(i));
+        settings.setValue(QStringLiteral("name"), configuredCameraChannelName(i, ip));
+        settings.setValue(QStringLiteral("previewUrl"), previewUrl);
+        settings.setValue(QStringLiteral("mainUrl"), mainUrl);
+        settings.setValue(QStringLiteral("url"), previewUrl);
+        settings.setValue(QStringLiteral("ip"), ip);
+        settings.setValue(QStringLiteral("port"), normalizedPort);
+        settings.setValue(QStringLiteral("path"), normalizedPreviewPath);
+        settings.endGroup();
+    }
     settings.sync();
 }
 
+CapturePreferenceSettings MainWindow::capturePreferenceSettingsFromUi() const
+{
+    CapturePreferenceSettings settings = m_capturePreferenceSettings;
+    if (ui->precisionComboBox) {
+        settings.modelPrecision = ui->precisionComboBox->currentData().toString().trimmed();
+    }
+    if (settings.modelPrecision.isEmpty()) {
+        settings.modelPrecision = QStringLiteral("balanced");
+    }
+
+    if (ui->fpsComboBox) {
+        settings.fps = m_sharedCameraSettings.mainFps > 0 ? m_sharedCameraSettings.mainFps : ui->fpsComboBox->currentData().toInt();
+    }
+    if (settings.fps <= 0) {
+        settings.fps = kDefaultMainStreamFps;
+    }
+    return settings;
+}
+
+void MainWindow::applyCapturePreferencesToUi()
+{
+    if (ui->precisionComboBox) {
+        const QString precisionValue = m_capturePreferenceSettings.modelPrecision.trimmed().isEmpty()
+                                           ? QStringLiteral("balanced")
+                                           : m_capturePreferenceSettings.modelPrecision.trimmed();
+        const int precisionIndex = ui->precisionComboBox->findData(precisionValue);
+        ui->precisionComboBox->setCurrentIndex(precisionIndex >= 0 ? precisionIndex : 1);
+    }
+
+    if (ui->fpsComboBox) {
+        const int fpsValue = m_sharedCameraSettings.mainFps > 0 ? m_sharedCameraSettings.mainFps : kDefaultMainStreamFps;
+        const int fpsIndex = ui->fpsComboBox->findData(fpsValue);
+        ui->fpsComboBox->setCurrentIndex(fpsIndex >= 0 ? fpsIndex : ui->fpsComboBox->findData(kDefaultMainStreamFps));
+    }
+}
+
+void MainWindow::applyCameraSettingsToWidgets(bool restorePlayback)
+{
+    if (m_cameraSlotSettings.size() < m_cameraButtons.size()) {
+        m_cameraSlotSettings.resize(m_cameraButtons.size());
+    }
+
+    QVector<bool> previewWasPlaying;
+    previewWasPlaying.reserve(m_cameraButtons.size());
+    for (auto *cameraWidget : m_cameraButtons) {
+        previewWasPlaying.append(restorePlayback && cameraWidget && cameraWidget->isPlaying());
+    }
+    const bool mainWasPlaying = restorePlayback && ui->mainImageLabel && ui->mainImageLabel->isPlaying();
+    const bool shouldResumeStreams = restorePlayback && m_isRecording && !m_isPaused;
+
+    for (int i = 0; i < m_cameraButtons.size(); ++i) {
+        auto *cameraWidget = m_cameraButtons.at(i);
+        const QString ip = m_cameraSlotSettings.at(i).ip.trimmed();
+        const QString channelName = configuredCameraChannelName(i, ip);
+        const QString previewUrl = composeCameraUrl(m_sharedCameraSettings, ip, false);
+        const QString mainUrl = composeCameraUrl(m_sharedCameraSettings, ip, true);
+        cameraWidget->setChannelName(channelName);
+        cameraWidget->setPlaceholderText(channelName);
+        cameraWidget->setStreamUrls(previewUrl, mainUrl);
+
+        if (!restorePlayback) {
+            continue;
+        }
+
+        if (previewUrl.trimmed().isEmpty()) {
+            cameraWidget->stopPlayback();
+        } else if (shouldResumeStreams || previewWasPlaying.value(i)) {
+            cameraWidget->playDefaultVideo();
+        }
+    }
+
+    if (!m_cameraButtons.isEmpty()) {
+        int selectedIndex = std::max(0, m_selectedCamera - 1);
+        if (selectedIndex >= m_cameraButtons.size()) {
+            selectedIndex = m_cameraButtons.size() - 1;
+        }
+        showCameraInMainView(selectedIndex, shouldResumeStreams || mainWasPlaying);
+    }
+}
+
+void MainWindow::openSystemSettings()
+{
+    SystemSettingsDialog dialog(m_cameraButtons.size(), this);
+    dialog.setSharedCameraSettings(m_sharedCameraSettings);
+    dialog.setCameraSlotSettings(m_cameraSlotSettings);
+    dialog.setCapturePreferenceSettings(m_capturePreferenceSettings);
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    m_sharedCameraSettings = dialog.sharedCameraSettings();
+    m_cameraSlotSettings = dialog.cameraSlotSettings();
+    m_capturePreferenceSettings = dialog.capturePreferenceSettings();
+    m_capturePreferenceSettings.fps = m_sharedCameraSettings.mainFps;
+    applyCapturePreferencesToUi();
+    applyCameraSettingsToWidgets(true);
+    saveCameraSettings();
+}
+
+void MainWindow::loadTrainingRecords()
+{
+    m_records.clear();
+    if (m_trainingRepository && m_trainingRepository->isOpen()) {
+        m_records = m_trainingRepository->recentSessions(200);
+    }
+    m_lastSavedAt = m_records.isEmpty() ? QString() : m_records.first().time;
+}
+
+void MainWindow::initializeTrainingRepository()
+{
+    if (!m_trainingRepository) {
+        return;
+    }
+
+    QString errorMessage;
+    if (!m_trainingRepository->open(&errorMessage)) {
+        ui->storageStatusLabel->setText(topbarModuleHtml(QStringLiteral("DB"),
+                                                         QStringLiteral("存储 Storage"),
+                                                         QStringLiteral("数据库不可用")));
+        ui->saveTipLabel->setText(QStringLiteral("训练数据库初始化失败：%1").arg(errorMessage));
+        ui->saveTipLabel->show();
+        qWarning() << "[MainWindow] training database open failed" << errorMessage;
+        return;
+    }
+
+    ui->storageStatusLabel->setText(topbarModuleHtml(QStringLiteral("DB"),
+                                                     QStringLiteral("存储 Storage"),
+                                                     QStringLiteral("SQLite 已就绪")));
+    reloadTrainingContext();
+}
+
+void MainWindow::reloadTrainingContext()
+{
+    if (!m_trainingRepository || !m_trainingRepository->isOpen()) {
+        return;
+    }
+
+    const QString previousAthleteId = selectedAthleteId();
+    const QString previousCoachId = selectedCoachId();
+    const QString previousActionId = selectedActionStandard().id;
+
+    m_athletes = m_trainingRepository->athletes();
+    m_coaches = m_trainingRepository->coaches();
+    m_actionStandards = m_trainingRepository->actionStandards();
+
+    if (m_athleteComboBox) {
+        QSignalBlocker blocker(m_athleteComboBox);
+        m_athleteComboBox->clear();
+        for (const AthleteProfile &athlete : std::as_const(m_athletes)) {
+            m_athleteComboBox->addItem(athlete.name, athlete.id);
+        }
+        const int index = m_athleteComboBox->findData(previousAthleteId);
+        if (index >= 0) {
+            m_athleteComboBox->setCurrentIndex(index);
+        }
+    }
+
+    if (m_coachComboBox) {
+        QSignalBlocker blocker(m_coachComboBox);
+        m_coachComboBox->clear();
+        for (const CoachProfile &coach : std::as_const(m_coaches)) {
+            m_coachComboBox->addItem(coach.name, coach.id);
+        }
+        const int index = m_coachComboBox->findData(previousCoachId);
+        if (index >= 0) {
+            m_coachComboBox->setCurrentIndex(index);
+        }
+    }
+
+    if (m_actionStandardComboBox) {
+        QSignalBlocker blocker(m_actionStandardComboBox);
+        m_actionStandardComboBox->clear();
+        for (const ActionStandard &standard : std::as_const(m_actionStandards)) {
+            m_actionStandardComboBox->addItem(QStringLiteral("%1 · %2").arg(standard.categoryName, standard.name),
+                                              standard.id);
+        }
+        const int index = m_actionStandardComboBox->findData(previousActionId);
+        if (index >= 0) {
+            m_actionStandardComboBox->setCurrentIndex(index);
+        }
+    }
+
+    refreshTrainingContextDetails();
+}
+
+void MainWindow::refreshTrainingContextDetails()
+{
+    const ActionStandard standard = selectedActionStandard();
+    if (!standard.id.isEmpty()) {
+        if (m_targetRepsSpinBox && m_targetRepsSpinBox->value() <= 1) {
+            m_targetRepsSpinBox->setValue(std::max(1, standard.targetReps));
+        } else if (m_targetRepsSpinBox && !m_isRecording && m_actionCount == 0) {
+            m_targetRepsSpinBox->setValue(std::max(1, standard.targetReps));
+        }
+        if (m_targetScoreSpinBox && !m_isRecording) {
+            m_targetScoreSpinBox->setValue(std::clamp(standard.targetScore, 1, 100));
+        }
+        if (m_setCountSpinBox && !m_isRecording) {
+            m_setCountSpinBox->setValue(std::max(1, standard.setCount));
+        }
+        if (m_restSecondsSpinBox && !m_isRecording) {
+            m_restSecondsSpinBox->setValue(std::max(0, standard.restSeconds));
+        }
+        if (m_standardDetailLabel) {
+            m_standardDetailLabel->setText(QStringLiteral("v%1 · %2 · %3 · %4")
+                                               .arg(standard.version)
+                                               .arg(standard.level)
+                                               .arg(standard.purpose)
+                                               .arg(standard.keyPoints));
+        }
+        if (m_actionRepetitionTracker) {
+            m_actionRepetitionTracker->reset(standard);
+        }
+    } else if (m_standardDetailLabel) {
+        m_standardDetailLabel->setText(QStringLiteral("暂无可用动作标准"));
+    }
+    refreshStats();
+}
+
+void MainWindow::addAthleteFromDialog()
+{
+    if (!m_trainingRepository || !m_trainingRepository->isOpen()) {
+        return;
+    }
+
+    bool ok = false;
+    const QString name = QInputDialog::getText(this,
+                                               QStringLiteral("新增运动员"),
+                                               QStringLiteral("运动员姓名"),
+                                               QLineEdit::Normal,
+                                               QString(),
+                                               &ok);
+    if (!ok || name.trimmed().isEmpty()) {
+        return;
+    }
+
+    QString athleteId;
+    QString errorMessage;
+    if (!m_trainingRepository->createAthlete(name, &athleteId, &errorMessage)) {
+        QMessageBox::warning(this, QStringLiteral("新增失败"), errorMessage);
+        return;
+    }
+    reloadTrainingContext();
+    if (m_athleteComboBox) {
+        const int index = m_athleteComboBox->findData(athleteId);
+        if (index >= 0) {
+            m_athleteComboBox->setCurrentIndex(index);
+        }
+    }
+}
+
+void MainWindow::addCoachFromDialog()
+{
+    if (!m_trainingRepository || !m_trainingRepository->isOpen()) {
+        return;
+    }
+
+    bool ok = false;
+    const QString name = QInputDialog::getText(this,
+                                               QStringLiteral("新增教练"),
+                                               QStringLiteral("教练姓名"),
+                                               QLineEdit::Normal,
+                                               QString(),
+                                               &ok);
+    if (!ok || name.trimmed().isEmpty()) {
+        return;
+    }
+
+    QString coachId;
+    QString errorMessage;
+    if (!m_trainingRepository->createCoach(name, &coachId, &errorMessage)) {
+        QMessageBox::warning(this, QStringLiteral("新增失败"), errorMessage);
+        return;
+    }
+    reloadTrainingContext();
+    if (m_coachComboBox) {
+        const int index = m_coachComboBox->findData(coachId);
+        if (index >= 0) {
+            m_coachComboBox->setCurrentIndex(index);
+        }
+    }
+}
+
+ActionStandard MainWindow::selectedActionStandard() const
+{
+    if (!m_actionStandardComboBox) {
+        return {};
+    }
+    const QString selectedId = m_actionStandardComboBox->currentData().toString();
+    for (const ActionStandard &standard : m_actionStandards) {
+        if (standard.id == selectedId) {
+            return standard;
+        }
+    }
+    return {};
+}
+
+QString MainWindow::selectedAthleteId() const
+{
+    return m_athleteComboBox ? m_athleteComboBox->currentData().toString() : QString();
+}
+
+QString MainWindow::selectedCoachId() const
+{
+    return m_coachComboBox ? m_coachComboBox->currentData().toString() : QString();
+}
+
+void MainWindow::resetCurrentTrainingSession()
+{
+    m_durationSec = 0;
+    m_actionCount = 0;
+    m_validActionCount = 0;
+    m_bestActionScore = 0;
+    m_actionScoreTotal = 0;
+    m_currentRepetitions.clear();
+    m_previousKneeBend = 0.0;
+    m_actionArmed = false;
+    m_lastActionMsec = 0;
+    m_recordingStartedAtMsec = QDateTime::currentMSecsSinceEpoch();
+    m_recordingStartedAt = QDateTime::currentDateTime();
+    if (m_actionRepetitionTracker) {
+        m_actionRepetitionTracker->reset(selectedActionStandard());
+    }
+}
+
+void MainWindow::recordCompletedRepetition(const ActionRepetition &repetition)
+{
+    m_currentRepetitions.append(repetition);
+    m_actionCount = m_currentRepetitions.size();
+    m_validActionCount = 0;
+    m_bestActionScore = 0;
+    m_actionScoreTotal = 0;
+    for (const ActionRepetition &item : std::as_const(m_currentRepetitions)) {
+        if (item.valid) {
+            ++m_validActionCount;
+        }
+        m_bestActionScore = std::max(m_bestActionScore, item.score);
+        m_actionScoreTotal += item.score;
+    }
+    refreshStats();
+}
+
 // 将指定摄像头主码流显示到主视图；小窗预览仍保持子码流。
-void MainWindow::showCameraInMainView(int cameraIndex)
+void MainWindow::showCameraInMainView(int cameraIndex, bool autoPlay)
 {
     if (cameraIndex < 0 || cameraIndex >= m_cameraButtons.size()) {
         return;
@@ -550,13 +1415,21 @@ void MainWindow::showCameraInMainView(int cameraIndex)
         ui->mainImageLabel->stopPlayback();
         ui->mainImageLabel->setPlaceholderText(QStringLiteral("主视频\n未配置"));
         if (m_handAnalysisManager) {
+            m_handAnalysisManager->setPaused(true);
+            m_handAnalysisManager->setActiveStream(0, {});
+        }
+    } else if (!autoPlay) {
+        ui->mainImageLabel->stopPlayback();
+        ui->mainImageLabel->setPlaceholderText(cameraWidget->channelName());
+        if (m_handAnalysisManager) {
+            m_handAnalysisManager->setPaused(true);
             m_handAnalysisManager->setActiveStream(0, {});
         }
     } else {
         ui->mainImageLabel->setPlaceholderText(cameraWidget->channelName());
         ui->mainImageLabel->playMainUrlWithFallback(source, cameraWidget->previewUrl());
         if (m_handAnalysisManager) {
-            m_handAnalysisManager->setPaused(false);
+            m_handAnalysisManager->setPaused(m_isPaused);
             m_handAnalysisManager->setActiveStream(m_selectedCamera, ui->mainImageLabel->activeStream());
         }
     }
@@ -567,7 +1440,20 @@ void MainWindow::showCameraInMainView(int cameraIndex)
 
 // 切换主页面堆栈；pageIndex 对应实时采集、历史分析和纠正建议等页面。
 void MainWindow::switchPage(int pageIndex)
-{ 
+{
+    if (!ui->pages || pageIndex < 0 || pageIndex >= ui->pages->count()) {
+        return;
+    }
+
+    ui->pages->setCurrentIndex(pageIndex);
+    m_activePage = pageIndex;
+    refreshNavButtons();
+
+    if (pageIndex == kHistoryPage) {
+        refreshHistory();
+    } else if (pageIndex == kSuggestionPage) {
+        refreshSuggestions();
+    }
 }
 
 // 显示或隐藏左侧侧栏：折叠布局中的控件和间距，避免隐藏后仍占用宽度。
@@ -675,6 +1561,9 @@ void MainWindow::setTrajectoryMode(int mode)
     }
 
     m_trajectoryMode = mode;
+    QWidget *trajectoryView = m_trajectoryWidget
+                                  ? static_cast<QWidget *>(m_trajectoryWidget)
+                                  : static_cast<QWidget *>(ui->trajectoryViewFrame);
 
     const bool expanded = (mode == TrajectoryExpanded);
     const bool minimized = (mode == TrajectoryMinimized);
@@ -687,7 +1576,7 @@ void MainWindow::setTrajectoryMode(int mode)
         cameraWidget->setVisible(!expanded);
         cameraWidget->updateGeometry();
     }
-    ui->trajectoryViewFrame->setVisible(!minimized);
+    trajectoryView->setVisible(!minimized);
     ui->legendFrame->setVisible(expanded && !minimized);
     ui->expandTrajectoryButton->setVisible(true);
     ui->collapseTrajectoryButton->setVisible(false);
@@ -696,29 +1585,29 @@ void MainWindow::setTrajectoryMode(int mode)
         ui->trajectoryCard->setMinimumSize(m_trajectoryCardNormalMinSize);
         ui->trajectoryCard->setMaximumSize(m_trajectoryCardNormalMaxSize);
         ui->trajectoryCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-        ui->trajectoryViewFrame->setMinimumSize(m_trajectoryViewNormalMinSize);
-        ui->trajectoryViewFrame->setMaximumSize(m_trajectoryViewNormalMaxSize);
-        ui->trajectoryViewFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        trajectoryView->setMinimumSize(m_trajectoryViewNormalMinSize);
+        trajectoryView->setMaximumSize(m_trajectoryViewNormalMaxSize);
+        trajectoryView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     } else if (minimized) {
         const int minimizedHeight = std::max(42, ui->trajectoryTitleLabel->sizeHint().height() + 30);
         ui->trajectoryCard->setMinimumSize(QSize(m_trajectoryCardNormalMinSize.width(), minimizedHeight));
         ui->trajectoryCard->setMaximumSize(QSize(QWIDGETSIZE_MAX, minimizedHeight));
         ui->trajectoryCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        ui->trajectoryViewFrame->setMinimumSize(QSize(0, 0));
-        ui->trajectoryViewFrame->setMaximumSize(QSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX));
-        ui->trajectoryViewFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        trajectoryView->setMinimumSize(QSize(0, 0));
+        trajectoryView->setMaximumSize(QSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX));
+        trajectoryView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     } else {
         ui->trajectoryCard->setMinimumSize(m_trajectoryCardNormalMinSize);
         ui->trajectoryCard->setMaximumSize(m_trajectoryCardNormalMaxSize);
         ui->trajectoryCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-        ui->trajectoryViewFrame->setMinimumSize(m_trajectoryViewNormalMinSize);
-        ui->trajectoryViewFrame->setMaximumSize(m_trajectoryViewNormalMaxSize);
-        ui->trajectoryViewFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        trajectoryView->setMinimumSize(m_trajectoryViewNormalMinSize);
+        trajectoryView->setMaximumSize(m_trajectoryViewNormalMaxSize);
+        trajectoryView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     }
 
     refreshTrajectoryModeButton();
     ui->trajectoryCard->updateGeometry();
-    ui->trajectoryViewFrame->updateGeometry();
+    trajectoryView->updateGeometry();
     ui->middleLayout->invalidate();
     if (ui->capturePage->layout()) {
         ui->capturePage->layout()->invalidate();
@@ -759,6 +1648,24 @@ void MainWindow::refreshTrajectoryModeButton()
 void MainWindow::startCapture()
 {
     qDebug() << "[MainWindow] startCapture clicked";
+    if (!m_trainingRepository || !m_trainingRepository->isOpen()) {
+        ui->saveTipLabel->setText(QStringLiteral("训练数据库未就绪，无法开始标准闭环采集。"));
+        ui->saveTipLabel->show();
+        return;
+    }
+    if (selectedAthleteId().isEmpty()) {
+        ui->saveTipLabel->setText(QStringLiteral("请先选择或新增运动员。"));
+        ui->saveTipLabel->show();
+        return;
+    }
+    if (selectedActionStandard().id.isEmpty()) {
+        ui->saveTipLabel->setText(QStringLiteral("请先选择训练动作标准。"));
+        ui->saveTipLabel->show();
+        return;
+    }
+    if (!m_isRecording) {
+        resetCurrentTrainingSession();
+    }
     m_isRecording = true;
     m_isPaused = false;
     if (!m_timer.isActive()) {
@@ -802,8 +1709,6 @@ void MainWindow::stopCapture()
     m_isRecording = false;
     m_isPaused = false;
     m_timer.stop();
-    m_durationSec = 0;
-    m_actionCount = 0;
     m_previousKneeBend = 0.0;
     m_actionArmed = false;
     m_lastActionMsec = 0;
@@ -821,7 +1726,115 @@ void MainWindow::stopCapture()
 // 保存当前训练记录；后续可在此持久化训练时长、动作数量和模型评分。
 void MainWindow::saveRecord()
 {
-    
+    if (m_durationSec <= 0) {
+        ui->saveTipLabel->setText(QStringLiteral("暂无可保存的训练记录，请先开始采集并累计训练时长。"));
+        ui->saveTipLabel->show();
+        return;
+    }
+
+    if (!m_trainingRepository || !m_trainingRepository->isOpen()) {
+        ui->saveTipLabel->setText(QStringLiteral("训练数据库未就绪，无法保存记录。"));
+        ui->saveTipLabel->show();
+        return;
+    }
+
+    const QString athleteId = selectedAthleteId();
+    const QString coachId = selectedCoachId();
+    const ActionStandard standard = selectedActionStandard();
+    if (athleteId.isEmpty() || standard.id.isEmpty()) {
+        ui->saveTipLabel->setText(QStringLiteral("保存前需要选择运动员和动作标准。"));
+        ui->saveTipLabel->show();
+        return;
+    }
+
+    QString planId;
+    QString taskId;
+    QString errorMessage;
+    const int targetReps = m_targetRepsSpinBox ? m_targetRepsSpinBox->value() : standard.targetReps;
+    const int targetScore = m_targetScoreSpinBox ? m_targetScoreSpinBox->value() : standard.targetScore;
+    const int setCount = m_setCountSpinBox ? m_setCountSpinBox->value() : standard.setCount;
+    const int restSeconds = m_restSecondsSpinBox ? m_restSecondsSpinBox->value() : standard.restSeconds;
+    const QString site = m_siteLineEdit ? m_siteLineEdit->text().trimmed() : QString();
+    const QString trainingPhase = m_trainingPhaseComboBox ? m_trainingPhaseComboBox->currentText() : QString();
+    const QString goal = m_goalLineEdit ? m_goalLineEdit->text().trimmed() : QString();
+
+    if (!m_trainingRepository->ensureDailyTask(athleteId,
+                                               coachId,
+                                               standard.id,
+                                               standard.version,
+                                               targetReps,
+                                               targetScore,
+                                               setCount,
+                                               restSeconds,
+                                               site,
+                                               trainingPhase,
+                                               goal,
+                                               &planId,
+                                               &taskId,
+                                               &errorMessage)) {
+        QMessageBox::warning(this, QStringLiteral("保存失败"), errorMessage);
+        return;
+    }
+
+    TrainingSession session;
+    session.athleteId = athleteId;
+    session.coachId = coachId;
+    session.planId = planId;
+    session.taskId = taskId;
+    session.actionStandardId = standard.id;
+    session.standardVersion = standard.version;
+    session.startedAt = m_recordingStartedAt.isValid() ? m_recordingStartedAt : QDateTime::currentDateTime().addSecs(-m_durationSec);
+    session.savedAt = QDateTime::currentDateTime();
+    session.durationSec = m_durationSec;
+    session.totalReps = m_actionCount;
+    session.validReps = m_validActionCount;
+    session.averageScore = m_actionCount > 0
+                               ? std::clamp((m_actionScoreTotal + m_actionCount / 2) / std::max(1, m_actionCount), 0, 100)
+                               : m_realtimeScore;
+    session.bestScore = m_bestActionScore > 0 ? m_bestActionScore : m_realtimeScore;
+    session.camera = m_selectedCamera;
+    session.modelPrecision = ui->precisionComboBox
+                                 ? ui->precisionComboBox->currentData().toString()
+                                 : QStringLiteral("balanced");
+    if (session.modelPrecision.isEmpty()) {
+        session.modelPrecision = QStringLiteral("balanced");
+    }
+    session.fps = m_sharedCameraSettings.mainFps > 0 ? m_sharedCameraSettings.mainFps : kDefaultMainStreamFps;
+    if (session.fps <= 0) {
+        session.fps = kDefaultMainStreamFps;
+    }
+    session.detectionScore = m_detectionScore;
+    session.symmetryScore = m_symmetryScore;
+    session.balanceScore = m_balanceScore;
+    session.stabilityScore = m_stabilityScore;
+    session.depthScore = m_depthScore;
+    session.site = site;
+    session.trainingPhase = trainingPhase;
+    session.goal = goal;
+    session.targetReps = targetReps;
+    session.targetScore = targetScore;
+    session.setCount = setCount;
+    session.restSeconds = restSeconds;
+    session.feedback = m_feedbackText.trimmed().isEmpty() ? QStringLiteral("等待姿态") : m_feedbackText.trimmed();
+
+    QVector<ActionRepetition> repetitions = m_currentRepetitions;
+    for (ActionRepetition &repetition : repetitions) {
+        repetition.sessionId = session.id;
+        repetition.actionStandardId = standard.id;
+        repetition.standardVersion = standard.version;
+    }
+    if (!m_trainingRepository->saveTrainingSession(&session, repetitions, &errorMessage)) {
+        QMessageBox::warning(this, QStringLiteral("保存失败"), errorMessage);
+        return;
+    }
+
+    loadTrainingRecords();
+    m_lastSavedAt = session.savedAt.toString(QStringLiteral("yyyy-MM-dd hh:mm:ss"));
+    ui->saveTipLabel->setText(QStringLiteral("最近保存：%1").arg(m_lastSavedAt));
+    ui->saveTipLabel->show();
+
+    refreshHistory();
+    refreshSuggestions();
 }
 
 // 训练计时器回调：用于累计训练时长、刷新统计数据和实时反馈。
@@ -889,7 +1902,12 @@ void MainWindow::updateActionCounter(const PoseFrameResult &poseFrame)
 // 根据当前页面刷新左侧导航按钮的选中/普通状态。
 void MainWindow::refreshNavButtons()
 {
-   
+    for (int i = 0; i < m_navButtons.size(); ++i) {
+        if (QPushButton *button = m_navButtons.at(i)) {
+            button->setProperty("active", i == m_activePage);
+            repolish(button);
+        }
+    }
 }
 
 // 根据当前选择的摄像头刷新 12 路预览控件的选中状态。
@@ -913,10 +1931,26 @@ void MainWindow::refreshStats()
         m_depthScore
     };
 
-    ui->actionValueLabel->setText(QString::number(m_actionCount));
+    const int targetReps = m_targetRepsSpinBox ? m_targetRepsSpinBox->value() : 0;
+    ui->actionValueLabel->setText(targetReps > 0
+                                      ? QStringLiteral("%1/%2").arg(m_validActionCount).arg(targetReps)
+                                      : QString::number(m_actionCount));
     ui->durationValueLabel->setText(formatTime(m_durationSec));
     ui->scoreValueLabel->setText(QStringLiteral("%1/100 · %2").arg(m_realtimeScore).arg(m_feedbackText));
     ui->scoreProgressBar->setValue(std::clamp(m_realtimeScore, 0, 100));
+    if (m_trainingTargetLabel) {
+        const int targetScore = m_targetScoreSpinBox ? m_targetScoreSpinBox->value() : 0;
+        const int averageActionScore = m_actionCount > 0
+                                           ? (m_actionScoreTotal + m_actionCount / 2) / std::max(1, m_actionCount)
+                                           : 0;
+        m_trainingTargetLabel->setText(QStringLiteral("目标完成度：有效 %1/%2 · 总动作 %3 · 均分 %4/%5 · 最好 %6")
+                                           .arg(m_validActionCount)
+                                           .arg(targetReps)
+                                           .arg(m_actionCount)
+                                           .arg(averageActionScore)
+                                           .arg(targetScore)
+                                           .arg(m_bestActionScore));
+    }
 
     const int metricCount = std::min({metricScores.size(), m_metricBars.size(), m_metricValueLabels.size()});
     for (int i = 0; i < metricCount; ++i) {
@@ -929,13 +1963,220 @@ void MainWindow::refreshStats()
 // 重新生成训练历史列表和概要统计卡片。
 void MainWindow::refreshHistory()
 {
-     
+    if (!ui->historyListLayout) {
+        return;
+    }
+
+    int totalActions = 0;
+    int totalScore = 0;
+    int bestScore = 0;
+    for (const SessionHistoryItem &record : std::as_const(m_records)) {
+        totalActions += record.validReps;
+        totalScore += record.score;
+        bestScore = std::max(bestScore, record.score);
+    }
+
+    const int sessionCount = m_records.size();
+    const int averageScore = sessionCount > 0 ? (totalScore + sessionCount / 2) / sessionCount : 0;
+    if (m_summaryValues.size() >= 4) {
+        m_summaryValues.at(0)->setText(QString::number(sessionCount));
+        m_summaryValues.at(1)->setText(QString::number(totalActions));
+        m_summaryValues.at(2)->setText(QString::number(averageScore));
+        m_summaryValues.at(3)->setText(QString::number(bestScore));
+    }
+
+    clearLayout(ui->historyListLayout);
+
+    if (m_records.isEmpty()) {
+        auto *emptyLabel = new QLabel(QStringLiteral("暂无训练历史记录。\n开始一次训练并点击“保存记录”后，这里会显示最近训练数据。"),
+                                      ui->historyPage);
+        emptyLabel->setProperty("role", "emptyBox");
+        emptyLabel->setAlignment(Qt::AlignCenter);
+        emptyLabel->setWordWrap(true);
+        ui->historyListLayout->addWidget(emptyLabel);
+        return;
+    }
+
+    const int visibleCount = std::min(kMaxVisibleHistoryItems, static_cast<int>(m_records.size()));
+    for (int i = 0; i < visibleCount; ++i) {
+        const SessionHistoryItem &record = m_records.at(i);
+
+        auto *card = new QFrame(ui->historyPage);
+        setRole(card, "historyItem");
+        auto *cardLayout = new QVBoxLayout(card);
+        cardLayout->setContentsMargins(14, 14, 14, 14);
+        cardLayout->setSpacing(10);
+
+        auto *headerLayout = new QHBoxLayout();
+        headerLayout->setContentsMargins(0, 0, 0, 0);
+        headerLayout->setSpacing(8);
+
+        auto *timeLabel = new QLabel(QStringLiteral("%1 · %2 · %3")
+                                         .arg(record.time, record.athleteName, record.actionName),
+                                     card);
+        timeLabel->setWordWrap(true);
+
+        auto *scoreTag = new QLabel(QStringLiteral("%1 分").arg(record.score), card);
+        scoreTag->setProperty("role", "scoreTag");
+        scoreTag->setAlignment(Qt::AlignCenter);
+
+        headerLayout->addWidget(timeLabel, 1);
+        headerLayout->addWidget(scoreTag, 0, Qt::AlignRight | Qt::AlignTop);
+        cardLayout->addLayout(headerLayout);
+
+        auto *metaLabel = new QLabel(
+            QStringLiteral("时长 %1   有效/总动作 %2/%3   目标 %4 次/%5 分   机位 CAM %6   精度 %7   主码流 %8 FPS")
+                .arg(formatTime(record.duration))
+                .arg(record.validReps)
+                .arg(record.totalReps)
+                .arg(record.targetReps)
+                .arg(record.targetScore)
+                .arg(pad(record.camera))
+                .arg(precisionLabel(record.modelPrecision))
+                .arg(record.fps),
+            card);
+        metaLabel->setProperty("role", "muted");
+        metaLabel->setWordWrap(true);
+        cardLayout->addWidget(metaLabel);
+
+        auto *feedbackLabel = new QLabel(QStringLiteral("标准 v%1 · %2 · %3\n场地：%4   阶段：%5   目标：%6\n反馈：%7")
+                                             .arg(record.standardVersion)
+                                             .arg(record.actionCategory)
+                                             .arg(record.coachName.isEmpty() ? QStringLiteral("未指定教练") : record.coachName)
+                                             .arg(record.site.isEmpty() ? QStringLiteral("未填写") : record.site)
+                                             .arg(record.trainingPhase.isEmpty() ? QStringLiteral("未填写") : record.trainingPhase)
+                                             .arg(record.goal.isEmpty() ? QStringLiteral("未填写") : record.goal)
+                                             .arg(record.feedback),
+                                         card);
+        feedbackLabel->setWordWrap(true);
+        cardLayout->addWidget(feedbackLabel);
+
+        ui->historyListLayout->addWidget(card);
+    }
 }
 
 // 刷新动作纠正建议列表。
 void MainWindow::refreshSuggestions()
 {
-    
+    if (!ui->suggestionListLayout) {
+        return;
+    }
+
+    clearLayout(ui->suggestionListLayout);
+
+    if (m_records.isEmpty()) {
+        auto *emptyLabel = new QLabel(QStringLiteral("暂无可生成建议的训练记录。\n保存至少一条训练记录后，这里会自动给出动作纠正与下次训练建议。"),
+                                      ui->suggestionPage);
+        emptyLabel->setProperty("role", "emptyBox");
+        emptyLabel->setAlignment(Qt::AlignCenter);
+        emptyLabel->setWordWrap(true);
+        ui->suggestionListLayout->addWidget(emptyLabel);
+        return;
+    }
+
+    const SessionHistoryItem &latest = m_records.first();
+    int totalScore = 0;
+    for (const SessionHistoryItem &record : std::as_const(m_records)) {
+        totalScore += record.score;
+    }
+    const int averageScore = (totalScore + m_records.size() / 2) / m_records.size();
+
+    auto addSuggestionCard = [this](const QString &title, const QString &tag, const QString &body) {
+        auto *card = new QFrame(ui->suggestionPage);
+        setRole(card, "suggestionCard");
+
+        auto *cardLayout = new QVBoxLayout(card);
+        cardLayout->setContentsMargins(14, 14, 14, 14);
+        cardLayout->setSpacing(10);
+
+        auto *headerLayout = new QHBoxLayout();
+        headerLayout->setContentsMargins(0, 0, 0, 0);
+        headerLayout->setSpacing(8);
+
+        auto *titleLabel = new QLabel(title, card);
+        titleLabel->setProperty("role", "sectionTitle");
+
+        headerLayout->addWidget(titleLabel, 1);
+        if (!tag.isEmpty()) {
+            auto *tagLabel = new QLabel(tag, card);
+            tagLabel->setProperty("role", "scoreTag");
+            tagLabel->setAlignment(Qt::AlignCenter);
+            headerLayout->addWidget(tagLabel, 0, Qt::AlignRight | Qt::AlignTop);
+        }
+        cardLayout->addLayout(headerLayout);
+
+        auto *bodyLabel = new QLabel(body, card);
+        bodyLabel->setWordWrap(true);
+        cardLayout->addWidget(bodyLabel);
+
+        ui->suggestionListLayout->addWidget(card);
+    };
+
+    QString summaryText;
+    if (latest.score >= 90) {
+        summaryText = QStringLiteral("最新训练中“%1”整体表现优秀，可以在保持稳定的前提下继续打磨动作细节。").arg(latest.actionName);
+    } else if (latest.score >= 75) {
+        summaryText = QStringLiteral("最新训练中“%1”整体较稳定，已经具备继续提分的基础，适合做针对性微调。").arg(latest.actionName);
+    } else if (latest.score >= 60) {
+        summaryText = QStringLiteral("最新训练中“%1”基础动作已建立，但还需要更有针对性的纠正训练来提升完成度。").arg(latest.actionName);
+    } else {
+        summaryText = QStringLiteral("最新训练中“%1”得分偏低，建议先放慢节奏，优先保证动作质量和姿态完整性。").arg(latest.actionName);
+    }
+    addSuggestionCard(QStringLiteral("综合结论"),
+                      QStringLiteral("%1 分").arg(latest.score),
+                      QStringLiteral("%1 运动员：%2。当前反馈：%3")
+                          .arg(summaryText, latest.athleteName, latest.feedback));
+
+    struct MetricAdvice {
+        QString name;
+        int value = 0;
+        QString advice;
+    };
+
+    QVector<MetricAdvice> metrics = {
+        {QStringLiteral("关键点"), latest.detectionScore,
+         QStringLiteral("优先检查站位是否完整入镜，并保持机位稳定，确保关键点持续可见。")},
+        {QStringLiteral("对称"), latest.symmetryScore,
+         QStringLiteral("加强左右发力和肢体展开的一致性，减少单侧代偿和发力不均。")},
+        {QStringLiteral("重心"), latest.balanceScore,
+         QStringLiteral("训练时注意核心收紧与落刃重心控制，减少重心前后漂移。")},
+        {QStringLiteral("稳定"), latest.stabilityScore,
+         QStringLiteral("先放慢节奏，减少多余摆动，稳定住主干后再逐步提速。")},
+        {QStringLiteral("3D"), latest.depthScore,
+         QStringLiteral("调整相机角度并保持身体朝向清晰，提升立体姿态的可辨识度。")}
+    };
+
+    MetricAdvice weakestMetric = metrics.first();
+    for (const MetricAdvice &metric : std::as_const(metrics)) {
+        if (metric.value < weakestMetric.value) {
+            weakestMetric = metric;
+        }
+    }
+    addSuggestionCard(QStringLiteral("重点纠正"),
+                      QStringLiteral("%1 %2 分").arg(weakestMetric.name).arg(weakestMetric.value),
+                      QStringLiteral("问题部位：%1。触发原因：%2 分低于动作标准预期。建议动作：%3 优先级：P1。")
+                          .arg(weakestMetric.name)
+                          .arg(weakestMetric.name)
+                          .arg(weakestMetric.advice));
+
+    QString nextTrainingText;
+    if (latest.duration < 300) {
+        nextTrainingText = QStringLiteral("本次有效训练时长为 %1，建议下次先把单次有效训练稳定提升到 5 分钟以上，再观察动作质量变化。")
+                               .arg(formatTime(latest.duration));
+    } else if (latest.targetReps > 0 && latest.validReps < latest.targetReps) {
+        nextTrainingText = QStringLiteral("本次有效动作 %1/%2，建议下次先把同一动作做到足量达标，再增加节奏或难度。")
+                               .arg(latest.validReps)
+                               .arg(latest.targetReps);
+    } else if (averageScore - latest.score >= 8) {
+        nextTrainingText = QStringLiteral("最新得分比历史均分低 %1 分，建议下次放慢节奏，优先做纠正训练，再逐步恢复速度。")
+                               .arg(averageScore - latest.score);
+    } else {
+        nextTrainingText = QStringLiteral("当前训练节奏较稳，建议保持现有强度，继续围绕“%1”细化动作，冲击更高分。")
+                               .arg(weakestMetric.name);
+    }
+    addSuggestionCard(QStringLiteral("下次训练建议"),
+                      QStringLiteral("均分 %1").arg(averageScore),
+                      nextTrainingText);
 }
 
 // 根据侧栏显示状态刷新顶部侧栏按钮：默认仅显示灰色图标，悬停时显示文字并变为蓝色。
@@ -1000,6 +2241,9 @@ void MainWindow::clearRealtimePose()
     if (m_skeletonView) {
         m_skeletonView->clearPoseFrame();
     }
+    if (m_trajectoryWidget) {
+        m_trajectoryWidget->clearPoseFrame();
+    }
     m_realtimeScore = 0;
     m_detectionScore = 0;
     m_symmetryScore = 0;
@@ -1012,7 +2256,14 @@ void MainWindow::clearRealtimePose()
 
 // 重新应用指定控件的 QSS，用于动态属性变化后立即刷新外观。
 void MainWindow::repolish(QWidget *widget) const
-{ 
+{
+    if (!widget || !widget->style()) {
+        return;
+    }
+
+    widget->style()->unpolish(widget);
+    widget->style()->polish(widget);
+    widget->update();
 }
 
 // 将整数补齐为两位文本，常用于摄像头编号或时间格式。

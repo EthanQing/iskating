@@ -216,7 +216,8 @@ QFrame[videoPanel="true"] {
 }
 
 #trajectoryViewFrame,
-QFrame[trajectoryView="true"] {
+QFrame[trajectoryView="true"],
+QWidget[trajectoryView="true"] {
     border: none;
     border-radius: 0;
     background: #14171d;
@@ -351,6 +352,12 @@ QPushButton[role="tri"]:hover {
     border-radius: 0;
 }
 
+#trainingContextPanel {
+    border: 1px solid #1f3048;
+    background: #0f141d;
+    border-radius: 8px;
+}
+
 QComboBox {
     background: #0f1520;
     color: #e7edf7;
@@ -358,6 +365,35 @@ QComboBox {
     border-radius: 6px;
     padding: 6px 28px 6px 8px;
     selection-background-color: #15335c;
+}
+
+QLineEdit,
+QSpinBox {
+    background: #0f1520;
+    color: #e7edf7;
+    border: 1px solid #2b3447;
+    border-radius: 6px;
+    padding: 6px 8px;
+    selection-background-color: #15335c;
+}
+
+QLineEdit:hover,
+QSpinBox:hover {
+    border-color: #456b9e;
+}
+
+QPushButton[role="secondaryButton"] {
+    min-height: 30px;
+    border: 1px solid #2b466c;
+    background: #121d2d;
+    color: #d8e8ff;
+    border-radius: 6px;
+    padding: 5px 10px;
+}
+
+QPushButton[role="secondaryButton"]:hover {
+    background: #183052;
+    border-color: #3b8dff;
 }
 
 QComboBox:hover {

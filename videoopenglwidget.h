@@ -40,6 +40,7 @@ public:
     void setPlaceholderIconVisible(bool visible);
     void setOverlayControlsVisible(bool visible);
     bool overlayControlsVisible() const;
+    void setConfigButtonVisible(bool visible);
     void setChannelName(const QString &name);
     QString channelName() const;
     QString streamIp() const;
@@ -77,6 +78,7 @@ private:
     bool m_playing = false;
     bool m_placeholderIconVisible = true;
     bool m_overlayControlsVisible = false;
+    bool m_configButtonVisible = true;
     QString m_placeholderText;
     QString m_channelName;
     QString m_streamIp;

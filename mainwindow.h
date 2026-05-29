@@ -1,6 +1,9 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
+#include "systemsettingsdialog.h"
+#include "trainingdomain.h"
+
 #include <QMainWindow>
 #include <QMargins>
 #include <QSize>
@@ -10,6 +13,9 @@
 #include <memory>
 
 class QLabel;
+class QComboBox;
+class QLineEdit;
+class QSpinBox;
 class PoseStandardnessScorer;
 struct PoseFrameResult;
 class QEvent;
@@ -20,22 +26,13 @@ class QVBoxLayout;
 class TrajectoryWidget;
 class VideoOpenGLWidget;
 class HandAnalysisManager;
+class ActionStandardScorer;
+class ActionRepetitionTracker;
+class TrainingRepository;
 
 namespace Ui {
 class MainWindow;
 }
-
-struct TrainingRecord
-{
-    qint64 id = 0;
-    QString time;
-    int duration = 0;
-    int actions = 0;
-    int score = 0;
-    int camera = 1;
-    QString modelPrecision;
-    int fps = 30;
-};
 
 class MainWindow : public QMainWindow
 {
@@ -53,14 +50,31 @@ private:
     void setupUiState();
     void setupConnections();
     void installMetricBars();
+    void installTrainingContextPanel();
     void installTrajectoryWidget();
     void installSkeletonView();
     void installStaticImages();
     void applyStyleSheet();
     void loadCameraSettings();
-    void saveCameraSettings() const;
-    void saveCameraSetting(int cameraIndex) const;
-    void showCameraInMainView(int cameraIndex);
+    void saveCameraSettings();
+    void saveCameraSetting(int cameraIndex);
+    void loadTrainingRecords();
+    void initializeTrainingRepository();
+    void reloadTrainingContext();
+    void refreshTrainingContextDetails();
+    void addAthleteFromDialog();
+    void addCoachFromDialog();
+    ActionStandard selectedActionStandard() const;
+    QString selectedAthleteId() const;
+    QString selectedCoachId() const;
+    void resetCurrentTrainingSession();
+    void recordCompletedRepetition(const ActionRepetition &repetition);
+    void showCameraInMainView(int cameraIndex, bool autoPlay = true);
+    void applyCameraSettingsToWidgets(bool restorePlayback);
+    void applyCapturePreferencesToUi();
+    void openSystemSettings();
+    void persistSystemSettings() const;
+    CapturePreferenceSettings capturePreferenceSettingsFromUi() const;
 
     void switchPage(int pageIndex);
     void toggleSidebar();
@@ -104,11 +118,31 @@ private:
     QPushButton *m_fullScreenButton = nullptr;
     std::unique_ptr<HandAnalysisManager> m_handAnalysisManager;
     std::unique_ptr<PoseStandardnessScorer> m_poseStandardnessScorer;
+    std::unique_ptr<ActionStandardScorer> m_actionStandardScorer;
+    std::unique_ptr<ActionRepetitionTracker> m_actionRepetitionTracker;
+    std::unique_ptr<TrainingRepository> m_trainingRepository;
     SkeletonViewWidget *m_skeletonView = nullptr;
+    QWidget *m_trainingContextPanel = nullptr;
+    QComboBox *m_athleteComboBox = nullptr;
+    QComboBox *m_coachComboBox = nullptr;
+    QComboBox *m_actionStandardComboBox = nullptr;
+    QLineEdit *m_siteLineEdit = nullptr;
+    QComboBox *m_trainingPhaseComboBox = nullptr;
+    QLineEdit *m_goalLineEdit = nullptr;
+    QSpinBox *m_targetRepsSpinBox = nullptr;
+    QSpinBox *m_targetScoreSpinBox = nullptr;
+    QSpinBox *m_setCountSpinBox = nullptr;
+    QSpinBox *m_restSecondsSpinBox = nullptr;
+    QLabel *m_standardDetailLabel = nullptr;
+    QLabel *m_trainingTargetLabel = nullptr;
 
     TrajectoryWidget *m_trajectoryWidget = nullptr;
     QTimer m_timer;
-    QVector<TrainingRecord> m_records;
+    QVector<SessionHistoryItem> m_records;
+    QVector<AthleteProfile> m_athletes;
+    QVector<CoachProfile> m_coaches;
+    QVector<ActionStandard> m_actionStandards;
+    QVector<ActionRepetition> m_currentRepetitions;
     QString m_lastSavedAt;
 
     int m_activePage = 0;
@@ -129,7 +163,12 @@ private:
     bool m_isRecording = false;
     bool m_isPaused = false;
     int m_durationSec = 0;
+    qint64 m_recordingStartedAtMsec = 0;
+    QDateTime m_recordingStartedAt;
     int m_actionCount = 0;
+    int m_validActionCount = 0;
+    int m_bestActionScore = 0;
+    int m_actionScoreTotal = 0;
     int m_realtimeScore = 90;
     int m_detectionScore = 0;
     int m_symmetryScore = 0;
@@ -140,6 +179,9 @@ private:
     bool m_actionArmed = false;
     qint64 m_lastActionMsec = 0;
     QString m_feedbackText = QStringLiteral("动作标准");
+    SharedCameraSettings m_sharedCameraSettings;
+    QVector<CameraSlotSettings> m_cameraSlotSettings;
+    CapturePreferenceSettings m_capturePreferenceSettings;
 };
 
 #endif // MAINWINDOW_H

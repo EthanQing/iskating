@@ -244,11 +244,15 @@ void VideoOpenGLWidget::setPlaceholderIconVisible(bool visible)
 void VideoOpenGLWidget::setOverlayControlsVisible(bool visible)
 {
     m_overlayControlsVisible = visible;
-    for (auto *button : {m_playButton, m_pauseButton, m_stopButton, m_configButton}) {
+    for (auto *button : {m_playButton, m_pauseButton, m_stopButton}) {
         if (button) {
             button->setVisible(visible);
             button->raise();
         }
+    }
+    if (m_configButton) {
+        m_configButton->setVisible(visible && m_configButtonVisible);
+        m_configButton->raise();
     }
     layoutOverlayControls();
 }
@@ -256,6 +260,20 @@ void VideoOpenGLWidget::setOverlayControlsVisible(bool visible)
 bool VideoOpenGLWidget::overlayControlsVisible() const
 {
     return m_overlayControlsVisible;
+}
+
+void VideoOpenGLWidget::setConfigButtonVisible(bool visible)
+{
+    if (m_configButtonVisible == visible) {
+        return;
+    }
+
+    m_configButtonVisible = visible;
+    if (m_configButton) {
+        m_configButton->setVisible(m_overlayControlsVisible && m_configButtonVisible);
+    }
+    layoutOverlayControls();
+    update();
 }
 
 void VideoOpenGLWidget::setChannelName(const QString &name)
@@ -531,7 +549,8 @@ void VideoOpenGLWidget::paintEvent(QPaintEvent *)
         const int labelWidth = labelMetrics.horizontalAdvance(m_placeholderText) + 8;
         constexpr int buttonWidth = 22;
         constexpr int buttonGap = 3;
-        const int totalWidth = labelWidth + buttonWidth * 4 + buttonGap * 4;
+        const int buttonCount = m_configButtonVisible ? 4 : 3;
+        const int totalWidth = labelWidth + buttonWidth * buttonCount + buttonGap * buttonCount;
         const int labelX = std::max(8, (width() - totalWidth) / 2);
         const int labelY = std::max(8, height() - 22 - 8);
         const QRect labelRect(labelX, labelY, labelWidth, 22);
@@ -644,7 +663,10 @@ void VideoOpenGLWidget::layoutOverlayControls()
     labelFont.setPointSize(width() > 240 ? 11 : 9);
     labelFont.setBold(true);
     const int labelWidth = m_placeholderText.isEmpty() ? 0 : QFontMetrics(labelFont).horizontalAdvance(m_placeholderText) + 8;
-    const int totalWidth = labelWidth + m_playButton->width() + m_pauseButton->width() + m_stopButton->width() + m_configButton->width() + gap * 4;
+    const int buttonWidths = m_playButton->width() + m_pauseButton->width() + m_stopButton->width()
+                             + (m_configButtonVisible ? m_configButton->width() : 0);
+    const int buttonCount = m_configButtonVisible ? 4 : 3;
+    const int totalWidth = labelWidth + buttonWidths + gap * buttonCount;
     int x = std::max(margin, (width() - totalWidth) / 2);
     const int y = std::max(margin, height() - m_playButton->height() - margin);
 
@@ -654,8 +676,12 @@ void VideoOpenGLWidget::layoutOverlayControls()
     m_pauseButton->move(x, y);
     x += m_pauseButton->width() + gap;
     m_stopButton->move(x, y);
-    x += m_stopButton->width() + gap;
-    m_configButton->move(x, y);
+    if (m_configButtonVisible) {
+        x += m_stopButton->width() + gap;
+        m_configButton->move(x, y);
+    } else if (m_configButton) {
+        m_configButton->hide();
+    }
 
     for (auto *button : {m_playButton, m_pauseButton, m_stopButton, m_configButton}) {
         if (button) {

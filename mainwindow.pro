@@ -33,7 +33,7 @@ message("Current qmake Qt prefix=$$[QT_INSTALL_PREFIX]")
 
 include(common.pri)
 
-QT += core gui widgets svg
+QT += core gui widgets svg sql
 
 FFMPEG_ROOT = $$(FFMPEG_ROOT)
 isEmpty(FFMPEG_ROOT) {
@@ -112,6 +112,7 @@ win32:msvc {
 }
 
 SOURCES += \
+    actionstandardscorer.cpp \
     d3d11videodevice.cpp \
     d3dframeextractor.cpp \
     d3dvideosurface.cpp \
@@ -125,12 +126,16 @@ SOURCES += \
     rtspstream.cpp \
     skeletonviewwidget.cpp \
     streamregistry.cpp \
+    systemsettingsdialog.cpp \
     tensorrtbodyposebackend.cpp \
     tensorrtrtmw3dbackend.cpp \
     tensorrtrunner.cpp \
+    trajectorywidget.cpp \
+    trainingrepository.cpp \
     videoopenglwidget.cpp
 
 HEADERS += \
+    actionstandardscorer.h \
     d3d11videodevice.h \
     d3dframe.h \
     d3dframeextractor.h \
@@ -144,9 +149,13 @@ HEADERS += \
     rtspstream.h \
     skeletonviewwidget.h \
     streamregistry.h \
+    systemsettingsdialog.h \
     tensorrtbodyposebackend.h \
     tensorrtrtmw3dbackend.h \
     tensorrtrunner.h \
+    trajectorywidget.h \
+    trainingdomain.h \
+    trainingrepository.h \
     videoopenglwidget.h
 
 FORMS += \
@@ -232,6 +241,28 @@ ai_models.commands = \
     $(COPY_DIR) $$shell_quote($$shell_path($$PWD/models)) $$shell_quote($$shell_path($$DESTDIR/models))
 QMAKE_EXTRA_TARGETS += ai_models
 POST_TARGETDEPS += ai_models
+
+CONFIG(debug, debug|release) {
+    SQLITE_DRIVER_DLL = $$QT_ROOT/plugins/sqldrivers/qsqlited.dll
+    WINDOWS_PLATFORM_DLL = $$QT_ROOT/plugins/platforms/qwindowsd.dll
+} else {
+    SQLITE_DRIVER_DLL = $$QT_ROOT/plugins/sqldrivers/qsqlite.dll
+    WINDOWS_PLATFORM_DLL = $$QT_ROOT/plugins/platforms/qwindows.dll
+}
+SQLITE_DRIVER_DIR = $$DESTDIR/plugins/sqldrivers
+WINDOWS_PLATFORM_DIR = $$DESTDIR/plugins/platforms
+
+sqlite_driver.commands = \
+    if not exist $$shell_quote($$shell_path($$SQLITE_DRIVER_DIR)) $(MKDIR) $$shell_quote($$shell_path($$SQLITE_DRIVER_DIR)) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_quote($$shell_path($$SQLITE_DRIVER_DLL)) $$shell_quote($$shell_path($$SQLITE_DRIVER_DIR))
+QMAKE_EXTRA_TARGETS += sqlite_driver
+POST_TARGETDEPS += sqlite_driver
+
+windows_platform_plugin.commands = \
+    if not exist $$shell_quote($$shell_path($$WINDOWS_PLATFORM_DIR)) $(MKDIR) $$shell_quote($$shell_path($$WINDOWS_PLATFORM_DIR)) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_quote($$shell_path($$WINDOWS_PLATFORM_DLL)) $$shell_quote($$shell_path($$WINDOWS_PLATFORM_DIR))
+QMAKE_EXTRA_TARGETS += windows_platform_plugin
+POST_TARGETDEPS += windows_platform_plugin
 
 CONFIG(release, debug|release) {
     QMAKE_POST_LINK += $$escape_expand(\\n\\t) $$shell_quote($$shell_path($$QT_BIN_DIR/windeployqt.exe)) --release --no-translations $$shell_quote($$shell_path($$DESTDIR/$${TARGET}.exe))
