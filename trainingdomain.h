@@ -208,4 +208,20 @@ struct TrainingBaseline
     int averageValidReps = 0;
 };
 
+struct TrainingTrendWindow
+{
+    int days = 0;
+    int sessionCount = 0;
+    int averageScore = 0;
+    int bestScore = 0;
+    int completedReps = 0;
+    int detectionScore = 0;
+    int symmetryScore = 0;
+    int balanceScore = 0;
+    int stabilityScore = 0;
+    int depthScore = 0;
+    QString weakestMetricName;
+    int weakestMetricScore = 0;
+};
+
 #endif // TRAININGDOMAIN_H

@@ -307,6 +307,82 @@ QString qualityLabel(int score, bool valid)
     return QStringLiteral("待纠正");
 }
 
+int trendMetricValue(const TrainingTrendWindow &trend, const QString &metricName)
+{
+    if (metricName == QStringLiteral("关键点")) {
+        return trend.detectionScore;
+    }
+    if (metricName == QStringLiteral("对称")) {
+        return trend.symmetryScore;
+    }
+    if (metricName == QStringLiteral("重心")) {
+        return trend.balanceScore;
+    }
+    if (metricName == QStringLiteral("稳定")) {
+        return trend.stabilityScore;
+    }
+    if (metricName == QStringLiteral("3D")) {
+        return trend.depthScore;
+    }
+    return 0;
+}
+
+QString trendWindowLine(const TrainingTrendWindow &trend)
+{
+    return QStringLiteral("近 %1 天：训练 %2 次 · 均分 %3 · 最佳 %4 · 完成动作 %5 个")
+        .arg(trend.days)
+        .arg(trend.sessionCount)
+        .arg(trend.averageScore)
+        .arg(trend.bestScore)
+        .arg(trend.completedReps);
+}
+
+bool trendHasMetricData(const TrainingTrendWindow &trend)
+{
+    return trend.detectionScore > 0
+           || trend.symmetryScore > 0
+           || trend.balanceScore > 0
+           || trend.stabilityScore > 0
+           || trend.depthScore > 0;
+}
+
+QString weakTrendSummary(const TrainingTrendWindow &recentTrend,
+                         const TrainingTrendWindow &baselineTrend)
+{
+    if (recentTrend.sessionCount <= 0) {
+        return QStringLiteral("近 7 天暂无训练记录，先保存一次训练后即可生成弱项变化。");
+    }
+    if (!trendHasMetricData(recentTrend)) {
+        return QStringLiteral("近 7 天暂无可用分项分，继续采集有效动作后会补齐弱项变化。");
+    }
+    if (recentTrend.weakestMetricName.trimmed().isEmpty()) {
+        return QStringLiteral("弱项数据不足，继续采集有效动作后会补齐分项趋势。");
+    }
+
+    const int recentScore = recentTrend.weakestMetricScore;
+    const int baselineScore = trendMetricValue(baselineTrend, recentTrend.weakestMetricName);
+    if (baselineTrend.sessionCount <= 0 || baselineScore <= 0) {
+        return QStringLiteral("当前弱项为%1（%2 分），暂无近 30 天对照基线。")
+            .arg(recentTrend.weakestMetricName)
+            .arg(recentScore);
+    }
+
+    const int delta = recentScore - baselineScore;
+    if (std::abs(delta) <= 2) {
+        return QStringLiteral("当前弱项为%1（%2 分），相对近 30 天基本持平。")
+            .arg(recentTrend.weakestMetricName)
+            .arg(recentScore);
+    }
+    if (delta > 0) {
+        return QStringLiteral("当前弱项仍是%1，但近 7 天比近 30 天提升 %2 分。")
+            .arg(recentTrend.weakestMetricName)
+            .arg(delta);
+    }
+    return QStringLiteral("当前弱项为%1，近 7 天比近 30 天下滑 %2 分，需要优先回看最近动作。")
+        .arg(recentTrend.weakestMetricName)
+        .arg(-delta);
+}
+
 QString repetitionReportLine(const ActionRepetition &repetition, int index, const std::function<QString(int)> &formatMs)
 {
     return QStringLiteral("%1. %2-%3  %4分  %5  错误：%6  反馈：%7")
@@ -2543,6 +2619,17 @@ void MainWindow::refreshSuggestions()
                       QStringLiteral("%1 分").arg(latest.score),
                       QStringLiteral("%1 运动员：%2。当前反馈：%3")
                           .arg(summaryText, latest.athleteName, latest.feedback));
+
+    if (m_trainingRepository && m_trainingRepository->isOpen()) {
+        const TrainingTrendWindow sevenDayTrend = m_trainingRepository->trendForRecentDays(7);
+        const TrainingTrendWindow thirtyDayTrend = m_trainingRepository->trendForRecentDays(30);
+        addSuggestionCard(QStringLiteral("训练趋势"),
+                          QStringLiteral("7/30 天"),
+                          QStringLiteral("%1\n%2\n弱项变化：%3")
+                              .arg(trendWindowLine(sevenDayTrend),
+                                   trendWindowLine(thirtyDayTrend),
+                                   weakTrendSummary(sevenDayTrend, thirtyDayTrend)));
+    }
 
     struct MetricAdvice {
         QString name;

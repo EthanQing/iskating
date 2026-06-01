@@ -11,6 +11,7 @@
 #include <QUuid>
 
 #include <algorithm>
+#include <utility>
 
 namespace {
 
@@ -33,6 +34,30 @@ QString safeText(const QString &value, const QString &fallback)
 {
     const QString trimmed = value.trimmed();
     return trimmed.isEmpty() ? fallback : trimmed;
+}
+
+void updateWeakestMetric(TrainingTrendWindow *trend)
+{
+    if (!trend) {
+        return;
+    }
+
+    const QVector<std::pair<QString, int>> metrics = {
+        {QStringLiteral("关键点"), trend->detectionScore},
+        {QStringLiteral("对称"), trend->symmetryScore},
+        {QStringLiteral("重心"), trend->balanceScore},
+        {QStringLiteral("稳定"), trend->stabilityScore},
+        {QStringLiteral("3D"), trend->depthScore}
+    };
+
+    auto weakest = metrics.cbegin();
+    for (auto it = metrics.cbegin(); it != metrics.cend(); ++it) {
+        if (it->second < weakest->second) {
+            weakest = it;
+        }
+    }
+    trend->weakestMetricName = weakest->first;
+    trend->weakestMetricScore = weakest->second;
 }
 
 bool bindAndExec(QSqlQuery &query, const QVariantList &args)
@@ -774,6 +799,87 @@ QVector<ActionRepetition> TrainingRepository::repetitionsForSession(const QStrin
         result.append(repetition);
     }
     return result;
+}
+
+TrainingTrendWindow TrainingRepository::trendForRecentDays(int days) const
+{
+    TrainingTrendWindow trend;
+    trend.days = std::max(1, days);
+    if (!m_db.isOpen()) {
+        return trend;
+    }
+
+    const QString since = QDateTime::currentDateTime()
+                              .addDays(-trend.days)
+                              .toString(Qt::ISODate);
+
+    QSqlQuery sessionQuery(m_db);
+    sessionQuery.prepare(QStringLiteral(
+        "SELECT COUNT(*), COALESCE(ROUND(AVG(average_score)), 0), COALESCE(MAX(best_score), 0), "
+        "COALESCE(SUM(total_reps), 0) "
+        "FROM training_sessions "
+        "WHERE saved_at >= ?"));
+    sessionQuery.addBindValue(since);
+    int sessionTotalReps = 0;
+    if (sessionQuery.exec() && sessionQuery.next()) {
+        trend.sessionCount = sessionQuery.value(0).toInt();
+        trend.averageScore = sessionQuery.value(1).toInt();
+        trend.bestScore = sessionQuery.value(2).toInt();
+        sessionTotalReps = sessionQuery.value(3).toInt();
+    }
+
+    QSqlQuery repetitionQuery(m_db);
+    repetitionQuery.prepare(QStringLiteral(
+        "SELECT COUNT(ar.id), "
+        "COALESCE(ROUND(AVG(ar.detection_score)), 0), "
+        "COALESCE(ROUND(AVG(ar.symmetry_score)), 0), "
+        "COALESCE(ROUND(AVG(ar.balance_score)), 0), "
+        "COALESCE(ROUND(AVG(ar.stability_score)), 0), "
+        "COALESCE(ROUND(AVG(ar.depth_score)), 0) "
+        "FROM action_repetitions ar "
+        "JOIN training_sessions ts ON ts.id = ar.session_id "
+        "WHERE ts.saved_at >= ?"));
+    repetitionQuery.addBindValue(since);
+    if (repetitionQuery.exec() && repetitionQuery.next()) {
+        trend.completedReps = repetitionQuery.value(0).toInt();
+        trend.detectionScore = repetitionQuery.value(1).toInt();
+        trend.symmetryScore = repetitionQuery.value(2).toInt();
+        trend.balanceScore = repetitionQuery.value(3).toInt();
+        trend.stabilityScore = repetitionQuery.value(4).toInt();
+        trend.depthScore = repetitionQuery.value(5).toInt();
+    }
+
+    if (trend.completedReps <= 0) {
+        trend.completedReps = sessionTotalReps;
+    }
+
+    if (trend.completedReps <= 0 || (trend.detectionScore == 0
+                                     && trend.symmetryScore == 0
+                                     && trend.balanceScore == 0
+                                     && trend.stabilityScore == 0
+                                     && trend.depthScore == 0)) {
+        QSqlQuery fallbackMetricQuery(m_db);
+        fallbackMetricQuery.prepare(QStringLiteral(
+            "SELECT "
+            "COALESCE(ROUND(AVG(detection_score)), 0), "
+            "COALESCE(ROUND(AVG(symmetry_score)), 0), "
+            "COALESCE(ROUND(AVG(balance_score)), 0), "
+            "COALESCE(ROUND(AVG(stability_score)), 0), "
+            "COALESCE(ROUND(AVG(depth_score)), 0) "
+            "FROM training_sessions "
+            "WHERE saved_at >= ?"));
+        fallbackMetricQuery.addBindValue(since);
+        if (fallbackMetricQuery.exec() && fallbackMetricQuery.next()) {
+            trend.detectionScore = fallbackMetricQuery.value(0).toInt();
+            trend.symmetryScore = fallbackMetricQuery.value(1).toInt();
+            trend.balanceScore = fallbackMetricQuery.value(2).toInt();
+            trend.stabilityScore = fallbackMetricQuery.value(3).toInt();
+            trend.depthScore = fallbackMetricQuery.value(4).toInt();
+        }
+    }
+
+    updateWeakestMetric(&trend);
+    return trend;
 }
 
 TrainingBaseline TrainingRepository::baselineFor(const QString &athleteId, const QString &actionStandardId) const

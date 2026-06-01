@@ -24,6 +24,7 @@ public:
     QVector<ActionStandard> actionStandards() const;
     QVector<SessionHistoryItem> recentSessions(int limit) const;
     QVector<ActionRepetition> repetitionsForSession(const QString &sessionId) const;
+    TrainingTrendWindow trendForRecentDays(int days) const;
     TrainingBaseline baselineFor(const QString &athleteId, const QString &actionStandardId) const;
     bool saveCoachComment(const QString &sessionId,
                           const QString &comment,
