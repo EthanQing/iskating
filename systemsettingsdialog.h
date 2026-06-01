@@ -20,6 +20,16 @@ struct SharedCameraSettings
 struct CameraSlotSettings
 {
     QString ip;
+    bool trajectoryEnabled = true;
+    QString role = QStringLiteral("轨迹分段");
+    double fieldStartM = 0.0;
+    double fieldEndM = 5.0;
+    double lateralOffsetM = 0.0;
+    double mountHeightM = 2.8;
+    double yawDeg = 0.0;
+    double pitchDeg = -8.0;
+    QString qualityNote;
+    QString compatibilityNote;
 };
 
 struct CapturePreferenceSettings
@@ -30,6 +40,7 @@ struct CapturePreferenceSettings
 
 class QComboBox;
 class QLineEdit;
+class QTableWidget;
 
 class SystemSettingsDialog : public FramelessDialog
 {
@@ -59,6 +70,7 @@ private:
     QComboBox *m_precisionComboBox = nullptr;
     QComboBox *m_fpsComboBox = nullptr;
     QVector<QLineEdit *> m_ipEdits;
+    QTableWidget *m_cameraFieldTable = nullptr;
 };
 
 #endif // SYSTEMSETTINGSDIALOG_H

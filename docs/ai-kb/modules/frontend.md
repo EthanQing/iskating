@@ -16,11 +16,11 @@
 - `iskating.qrc`: 把 QSS、图片、SVG 图标加入 Qt 资源。
 - `iconutils.cpp`: SVG 图标着色和尺寸归一化。
 - `framelessdialog.cpp`: 自定义无边框对话框。
-- `systemsettingsdialog.cpp`: 系统设置对话框。
+- `systemsettingsdialog.cpp`: 系统设置对话框，包含公共 RTSP、12 路 IP、场地段标定、机位用途和采集偏好。
 - `videoopenglwidget.cpp`: 视频控件占位状态和浮层按钮。
 - `trainingreviewdialog.cpp`: 历史复盘校准对话框，包含主视频回放、动作列表、人工修正表单和标准参考视频。
 - `skeletonviewwidget.cpp`: 2D/3D 骨架绘制。
-- `trajectorywidget.cpp`: 三维轨迹绘制。
+- `trajectorywidget.cpp`: 三维轨迹绘制；配置了相机场地段后会切换到全场轨迹视图，并显示各相机覆盖段。
 
 ## 当前设计
 
@@ -33,6 +33,8 @@
 - 历史卡片保留摘要、教练批注和导出入口；动作级复盘进入独立 `TrainingReviewDialog`，避免继续膨胀历史卡片。
 - 训练趋势在建议页复用 `suggestionCard` 动态卡片样式，展示最近 7/30 天训练次数、人工优先均分、最佳分、动作完成数和弱项变化摘要。
 - 训练上下文区提供“编辑标准”入口，可维护阈值、权重、目标次数/分数、提示文案和本地参考视频路径。
+- 训练上下文区提供训练备注输入，可记录主观感受、疲劳程度、冰面情况和训练重点；保存后历史卡片和报告会展示。
+- 系统设置中的“场地与机位标定”表按 12 路相机维护是否参与轨迹、用途、覆盖起止距离、横向偏移、安装高度、朝向、俯仰和质量/兼容备注。
 - 复盘校准对话框左侧是主视频与标准参考视频，右侧是动作表格、播放控制和人工复核表单。点击动作行会定位到片段；本地视频支持 seek、慢放、逐帧和关键帧定位，RTSP 只打开源并显示片段时间提示。
 - 报告导出从历史卡片触发，支持 Markdown、CSV 明细和 PDF 复盘报告，内容使用人工复核后的有效数据并保留 AI 原始分。
 - 主视频标题栏运行时插入“导入视频”按钮，入口连接到 `MainWindow::importOfflineVideo()`，不直接改 `mainwindow.ui`。
@@ -73,6 +75,7 @@
 1. 更新 `systemsettingsdialog.h` 的 settings struct。
 2. 更新 `systemsettingsdialog.cpp` 的 UI、getter、setter 和校验。
 3. 更新 `mainwindow.cpp` 的加载/保存逻辑。
+4. 如果新增 QSettings key，同步更新 `references/database-schema.md`。
 
 ### 修改复盘校准界面
 

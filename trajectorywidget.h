@@ -4,6 +4,7 @@
 #include "poseresult.h"
 
 #include <QPointF>
+#include <QString>
 #include <QVector>
 #include <QVector3D>
 #include <QWidget>
@@ -17,6 +18,17 @@ class TrajectoryWidget : public QWidget
 public:
     explicit TrajectoryWidget(QWidget *parent = nullptr);
 
+    struct CameraSegment
+    {
+        int cameraId = 0;
+        bool enabled = true;
+        QString role;
+        double fieldStartM = 0.0;
+        double fieldEndM = 0.0;
+        double lateralOffsetM = 0.0;
+    };
+
+    void setCameraSegments(const QVector<CameraSegment> &segments);
     void setPoseFrame(const PoseFrameResult &frame);
     void clearPoseFrame();
 
@@ -31,7 +43,10 @@ public:
     struct TrajectorySample
     {
         qint64 timestampMs = 0;
+        int cameraId = 0;
         QPointF anchorImagePoint;
+        QPointF fieldPoint;
+        bool hasFieldPoint = false;
         QVector<KeypointTrace> keypoints;
     };
 
@@ -43,6 +58,7 @@ private:
     void trimHistory(qint64 latestTimestampMs);
 
     QVector<TrajectorySample> m_samples;
+    QVector<CameraSegment> m_cameraSegments;
 };
 
 #endif // TRAJECTORYWIDGET_H

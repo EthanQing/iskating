@@ -63,6 +63,19 @@
 - `models/body/body_model.json`
 - `models/hand/hand_model.json`
 
+## ⚠️ 高风险区域：多相机轨迹 P1 边界
+
+当前 12 路相机轨迹还原是 P1 版本：系统设置保存每路相机覆盖的场地起止距离和横向偏移，`TrajectoryWidget` 把人体图像锚点线性映射到对应场地段，再拼成全场轨迹。它不是基于内参/外参、单应矩阵、AprilTag/棋盘格或多视角三角化的真实几何标定。
+
+多路 AI 分析由一个 `HandAnalysisWorker` 在多路流之间 round-robin 处理，不是每路一个 TensorRT worker。12 路同时分析时，每路有效 FPS 会受 GPU、解码、码流分辨率和 `capture/modelPrecision` 档位影响。
+
+相关文件：
+
+- `systemsettingsdialog.cpp`
+- `mainwindow.cpp`
+- `handanalysismanager.cpp`
+- `trajectorywidget.cpp`
+
 ## 不要重复实现的工具函数
 
 - RTSP URL 组装和兼容旧配置：`mainwindow.cpp`

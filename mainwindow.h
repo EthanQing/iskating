@@ -74,6 +74,9 @@ private:
     void showOfflineVideoInMainView(bool autoPlay = true);
     void showCameraInMainView(int cameraIndex, bool autoPlay = true);
     void applyCameraSettingsToWidgets(bool restorePlayback);
+    void updateTrajectoryCameraSegments();
+    void syncAnalysisStreams();
+    QString cameraReadinessSummary() const;
     void applyCapturePreferencesToUi();
     void openSystemSettings();
     void persistSystemSettings() const;
@@ -143,6 +146,7 @@ private:
     QSpinBox *m_targetScoreSpinBox = nullptr;
     QSpinBox *m_setCountSpinBox = nullptr;
     QSpinBox *m_restSecondsSpinBox = nullptr;
+    QPlainTextEdit *m_trainingNotesEdit = nullptr;
     QLabel *m_standardDetailLabel = nullptr;
     QLabel *m_trainingTargetLabel = nullptr;
 

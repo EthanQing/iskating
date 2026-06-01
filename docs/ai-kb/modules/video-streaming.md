@@ -30,7 +30,8 @@
 - 离线视频导入复用同一条链路：`MainWindow::importOfflineVideo()` 选择本地文件后，主视图通过 `VideoOpenGLWidget::playFile()` 打开文件并把 active stream 交给 AI 分析。
 - 解码必须输出 `AV_PIX_FMT_D3D11`，否则视为 fatal error。
 - `D3DVideoSurface` 负责把最新 `D3DFrame` 显示到 Qt 控件。
-- `HandAnalysisManager` 用 `D3DFrameExtractor` 从活动主视图帧转 RGB。
+- `HandAnalysisManager` 用 `D3DFrameExtractor` 从当前分析流转 RGB；采集中会由 `MainWindow::syncAnalysisStreams()` 把参与轨迹的 12 路相机活动流同步给 AI。
+- RTSP 训练时，选中机位优先使用主视图主码流，其他参与轨迹机位使用小窗预览流；离线视频仍只分析主视图单路本地文件。
 - 本地文件回放使用独立 `RtspStream`，不经过 `StreamRegistry` 共享；RTSP/网络源继续走共享低延迟流。
 - `D3DFrame::mediaTimeMs` 保存媒体时间戳，供 UI 查询当前位置、片段定位和逐帧回放使用。
 
@@ -78,7 +79,8 @@
 
 1. 入口在主视频标题栏的“导入视频”按钮，逻辑集中在 `MainWindow::importOfflineVideo()` 和 `showOfflineVideoInMainView()`。
 2. 选中离线视频后 `m_selectedCamera` 为 0，开始采集不会切回 CAM 01，也不会启动 12 路 RTSP 预览。
-3. 保存训练记录时 `video_source` 写入本地文件绝对路径，`video_camera_name` 写入“离线视频 · 文件名”。
+3. AI 分析只订阅主视图本地文件流，不会走 12 路相机轨迹拼接。
+4. 保存训练记录时 `video_source` 写入本地文件绝对路径，`video_camera_name` 写入“离线视频 · 文件名”。
 
 ### 调整本地复盘回放
 

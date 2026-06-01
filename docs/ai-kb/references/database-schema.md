@@ -44,6 +44,8 @@ SQLite schema 在 `TrainingRepository::migrate()` 中创建，当前版本为 v3
 - `modelPrecision`
 - `fps`
 
+`modelPrecision` 当前同时用于 UI 选项和 AI 轮询间隔：`fast` 约 100ms，`balanced` 约 66ms，`high` 约 33ms。
+
 ### `cameras/cameraXX`
 
 `XX` 为 `01` 到 `12`。
@@ -55,6 +57,18 @@ SQLite schema 在 `TrainingRepository::migrate()` 中创建，当前版本为 v3
 - `ip`
 - `port`
 - `path`
+- `trajectoryEnabled`
+- `role`
+- `fieldStartM`
+- `fieldEndM`
+- `lateralOffsetM`
+- `mountHeightM`
+- `yawDeg`
+- `pitchDeg`
+- `qualityNote`
+- `compatibilityNote`
+
+P1 轨迹拼接默认把 12 路相机按 5m 一段初始化为 CAM 01: 0-5m 至 CAM 12: 55-60m。`fieldStartM/fieldEndM/lateralOffsetM` 会传给 `TrajectoryWidget` 做全场轨迹线性映射；`mountHeightM/yawDeg/pitchDeg` 先作为机位标定信息保存。
 
 ### SQLite 路径
 
@@ -104,6 +118,7 @@ SQLite schema 在 `TrainingRepository::migrate()` 中创建，当前版本为 v3
 - `video_fallback_source`: 保存时所选机位的预览/回退码流引用。
 - `video_camera_name`: 保存时的机位显示名；离线模式为“离线视频 · 文件名”。
 - `coach_comment`: 单次训练教练批注。
+- `notes`: 训练备注；当前 UI 的训练情境面板、历史卡片和 Markdown/CSV/PDF 报告都会展示。
 
 #### `action_repetitions`
 

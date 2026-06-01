@@ -18,7 +18,10 @@
 namespace {
 
 constexpr qint64 kHistoryWindowMs = 6000;
+constexpr qint64 kFieldHistoryWindowMs = 600000;
 constexpr qint64 kMinSampleIntervalMs = 100;
+constexpr int kMaxFieldSamples = 5000;
+constexpr qreal kDefaultFieldWidthM = 12.0;
 constexpr std::array<int, 7> kTrackedKeypointIndices = {0, 5, 6, 11, 12, 15, 16};
 
 struct ProjectedOffset
@@ -116,6 +119,86 @@ QRectF anchorBounds(const QVector<TrajectoryWidget::TrajectorySample> &samples)
         bounds.adjust(0.0, -0.5, 0.0, 0.5);
     }
     return bounds;
+}
+
+const TrajectoryWidget::CameraSegment *segmentForCamera(const QVector<TrajectoryWidget::CameraSegment> &segments,
+                                                        int cameraId)
+{
+    for (const TrajectoryWidget::CameraSegment &segment : segments) {
+        if (segment.enabled && segment.cameraId == cameraId && segment.fieldEndM > segment.fieldStartM) {
+            return &segment;
+        }
+    }
+    return nullptr;
+}
+
+bool hasFieldSamples(const QVector<TrajectoryWidget::TrajectorySample> &samples)
+{
+    return std::any_of(samples.cbegin(), samples.cend(), [](const TrajectoryWidget::TrajectorySample &sample) {
+        return sample.hasFieldPoint;
+    });
+}
+
+QRectF fieldBounds(const QVector<TrajectoryWidget::CameraSegment> &segments,
+                   const QVector<TrajectoryWidget::TrajectorySample> &samples)
+{
+    bool hasValue = false;
+    qreal minX = 0.0;
+    qreal maxX = 0.0;
+    qreal minY = -kDefaultFieldWidthM * 0.5;
+    qreal maxY = kDefaultFieldWidthM * 0.5;
+
+    auto includePoint = [&](qreal x, qreal y) {
+        if (!hasValue) {
+            minX = maxX = x;
+            minY = std::min(minY, y);
+            maxY = std::max(maxY, y);
+            hasValue = true;
+            return;
+        }
+        minX = std::min(minX, x);
+        maxX = std::max(maxX, x);
+        minY = std::min(minY, y);
+        maxY = std::max(maxY, y);
+    };
+
+    for (const TrajectoryWidget::CameraSegment &segment : segments) {
+        if (!segment.enabled || segment.fieldEndM <= segment.fieldStartM) {
+            continue;
+        }
+        includePoint(segment.fieldStartM, segment.lateralOffsetM);
+        includePoint(segment.fieldEndM, segment.lateralOffsetM);
+    }
+
+    for (const TrajectoryWidget::TrajectorySample &sample : samples) {
+        if (sample.hasFieldPoint) {
+            includePoint(sample.fieldPoint.x(), sample.fieldPoint.y());
+        }
+    }
+
+    if (!hasValue) {
+        return {};
+    }
+
+    QRectF bounds(QPointF(minX, minY), QPointF(maxX, maxY));
+    const qreal padX = std::max<qreal>(5.0, bounds.width() * 0.04);
+    const qreal padY = std::max<qreal>(2.0, bounds.height() * 0.20);
+    bounds.adjust(-padX, -padY, padX, padY);
+    if (bounds.width() < 1.0) {
+        bounds.adjust(-0.5, 0.0, 0.5, 0.0);
+    }
+    if (bounds.height() < 1.0) {
+        bounds.adjust(0.0, -0.5, 0.0, 0.5);
+    }
+    return bounds;
+}
+
+QPointF mapFieldToTrack(const QPointF &fieldPoint, const QRectF &bounds, const QRectF &trackRect)
+{
+    const qreal nx = (fieldPoint.x() - bounds.left()) / std::max<qreal>(1.0, bounds.width());
+    const qreal ny = (fieldPoint.y() - bounds.top()) / std::max<qreal>(1.0, bounds.height());
+    return QPointF(trackRect.left() + std::clamp(nx, 0.0, 1.0) * trackRect.width(),
+                   trackRect.bottom() - std::clamp(ny, 0.0, 1.0) * trackRect.height());
 }
 
 QRectF makeTrackRect(const QRectF &rect)
@@ -236,6 +319,70 @@ void drawTrack(QPainter *painter, const QRectF &trackRect)
     painter->restore();
 }
 
+void drawFieldTrack(QPainter *painter,
+                    const QRectF &trackRect,
+                    const QRectF &bounds,
+                    const QVector<TrajectoryWidget::CameraSegment> &segments)
+{
+    painter->save();
+    painter->setRenderHint(QPainter::Antialiasing, true);
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(QColor(12, 23, 38, 225));
+    painter->drawRoundedRect(trackRect, 8.0, 8.0);
+
+    painter->setBrush(QColor(21, 34, 52, 180));
+    painter->drawRoundedRect(trackRect.adjusted(0.0, trackRect.height() * 0.18, 0.0, -trackRect.height() * 0.18),
+                             5.0,
+                             5.0);
+
+    painter->setPen(QPen(QColor(80, 102, 138, 120), 1.0));
+    for (int i = 0; i <= 6; ++i) {
+        const qreal t = i / 6.0;
+        const qreal x = trackRect.left() + t * trackRect.width();
+        painter->drawLine(QPointF(x, trackRect.top()), QPointF(x, trackRect.bottom()));
+    }
+    for (int i = 1; i < 4; ++i) {
+        const qreal t = i / 4.0;
+        const qreal y = trackRect.top() + t * trackRect.height();
+        painter->drawLine(QPointF(trackRect.left(), y), QPointF(trackRect.right(), y));
+    }
+
+    const QVector<QColor> palette = {
+        QColor(64, 153, 255, 42),
+        QColor(95, 209, 170, 42),
+        QColor(245, 192, 90, 42)
+    };
+    QFont segmentFont = painter->font();
+    segmentFont.setPixelSize(9);
+    painter->setFont(segmentFont);
+    for (int i = 0; i < segments.size(); ++i) {
+        const TrajectoryWidget::CameraSegment &segment = segments.at(i);
+        if (!segment.enabled || segment.fieldEndM <= segment.fieldStartM) {
+            continue;
+        }
+        const QPointF start = mapFieldToTrack(QPointF(segment.fieldStartM, bounds.center().y()), bounds, trackRect);
+        const QPointF end = mapFieldToTrack(QPointF(segment.fieldEndM, bounds.center().y()), bounds, trackRect);
+        QRectF band(QPointF(std::min(start.x(), end.x()), trackRect.top()),
+                    QPointF(std::max(start.x(), end.x()), trackRect.bottom()));
+        if (band.width() < 2.0) {
+            continue;
+        }
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(palette.at(i % palette.size()));
+        painter->drawRect(band.adjusted(1.0, 1.0, -1.0, -1.0));
+
+        painter->setPen(QColor(164, 184, 213, 155));
+        painter->drawText(band.adjusted(2.0, 2.0, -2.0, -2.0),
+                          Qt::AlignLeft | Qt::AlignTop,
+                          QStringLiteral("C%1").arg(segment.cameraId, 2, 10, QLatin1Char('0')));
+    }
+
+    painter->setPen(QPen(QColor(97, 120, 155, 180), 1.2));
+    painter->setBrush(Qt::NoBrush);
+    painter->drawRoundedRect(trackRect, 8.0, 8.0);
+    painter->restore();
+}
+
 void drawArrow(QPainter *painter, const QRectF &trackRect)
 {
     const QPointF start(trackRect.left() + trackRect.width() * 0.08, trackRect.bottom() - trackRect.height() * 0.10);
@@ -293,6 +440,12 @@ TrajectoryWidget::TrajectoryWidget(QWidget *parent)
     setAttribute(Qt::WA_OpaquePaintEvent, true);
 }
 
+void TrajectoryWidget::setCameraSegments(const QVector<CameraSegment> &segments)
+{
+    m_cameraSegments = segments;
+    update();
+}
+
 void TrajectoryWidget::setPoseFrame(const PoseFrameResult &frame)
 {
     if (frame.instances.isEmpty()) {
@@ -326,7 +479,13 @@ void TrajectoryWidget::paintEvent(QPaintEvent *event)
 
     const QRectF contentRect = viewRect.adjusted(10.0, 10.0, -10.0, -10.0);
     const QRectF trackRect = makeTrackRect(contentRect);
-    drawTrack(&painter, trackRect);
+    const bool fieldMode = hasFieldSamples(m_samples);
+    const QRectF calibratedBounds = fieldMode ? fieldBounds(m_cameraSegments, m_samples) : QRectF();
+    if (fieldMode && calibratedBounds.isValid()) {
+        drawFieldTrack(&painter, trackRect, calibratedBounds, m_cameraSegments);
+    } else {
+        drawTrack(&painter, trackRect);
+    }
     drawArrow(&painter, trackRect);
 
     if (m_samples.isEmpty()) {
@@ -334,7 +493,7 @@ void TrajectoryWidget::paintEvent(QPaintEvent *event)
         return;
     }
 
-    const QRectF bounds = anchorBounds(m_samples);
+    const QRectF bounds = fieldMode && calibratedBounds.isValid() ? calibratedBounds : anchorBounds(m_samples);
     if (!bounds.isValid()) {
         drawEmptyState(&painter, contentRect);
         return;
@@ -343,7 +502,11 @@ void TrajectoryWidget::paintEvent(QPaintEvent *event)
     QVector<QPointF> anchorPoints;
     anchorPoints.reserve(m_samples.size());
     for (const TrajectorySample &sample : m_samples) {
-        anchorPoints.push_back(mapAnchorToTrack(sample.anchorImagePoint, bounds, trackRect));
+        if (fieldMode && sample.hasFieldPoint) {
+            anchorPoints.push_back(mapFieldToTrack(sample.fieldPoint, bounds, trackRect));
+        } else {
+            anchorPoints.push_back(mapAnchorToTrack(sample.anchorImagePoint, bounds, trackRect));
+        }
     }
 
     for (int keypointIndex = 0; keypointIndex < kTrackedKeypointIndices.size(); ++keypointIndex) {
@@ -421,7 +584,8 @@ void TrajectoryWidget::paintEvent(QPaintEvent *event)
     painter.setPen(QColor(194, 211, 233, 190));
     painter.drawText(contentRect.adjusted(2.0, 2.0, -2.0, -2.0),
                      Qt::AlignLeft | Qt::AlignTop,
-                     QStringLiteral("最近6秒"));
+                     fieldMode ? QStringLiteral("全场轨迹")
+                               : QStringLiteral("最近6秒"));
 }
 
 void TrajectoryWidget::appendSample(const PoseFrameResult &frame)
@@ -439,7 +603,18 @@ void TrajectoryWidget::appendSample(const PoseFrameResult &frame)
 
     TrajectorySample sample;
     sample.timestampMs = timestampMs;
+    sample.cameraId = frame.cameraId;
     sample.anchorImagePoint = anchorPointFor(*person);
+    const CameraSegment *segment = segmentForCamera(m_cameraSegments, frame.cameraId);
+    if (segment && frame.frameSize.width() > 1.0 && frame.frameSize.height() > 1.0) {
+        const qreal nx = std::clamp(sample.anchorImagePoint.x() / frame.frameSize.width(), 0.0, 1.0);
+        const qreal ny = std::clamp(sample.anchorImagePoint.y() / frame.frameSize.height(), 0.0, 1.0);
+        const qreal fieldDistance = segment->fieldStartM
+                                    + (1.0 - ny) * (segment->fieldEndM - segment->fieldStartM);
+        const qreal lateral = segment->lateralOffsetM + (nx - 0.5) * kDefaultFieldWidthM;
+        sample.fieldPoint = QPointF(fieldDistance, lateral);
+        sample.hasFieldPoint = true;
+    }
     sample.keypoints.reserve(static_cast<qsizetype>(kTrackedKeypointIndices.size()));
 
     QVector3D rootPoint3d;
@@ -468,15 +643,20 @@ void TrajectoryWidget::trimHistory(qint64 latestTimestampMs)
         return;
     }
 
+    const bool fieldMode = hasFieldSamples(m_samples);
     if (latestTimestampMs <= 0) {
-        while (m_samples.size() > 60) {
+        const int maxSamples = fieldMode ? kMaxFieldSamples : 60;
+        while (m_samples.size() > maxSamples) {
             m_samples.removeFirst();
         }
         return;
     }
 
-    const qint64 cutoff = latestTimestampMs - kHistoryWindowMs;
+    const qint64 cutoff = latestTimestampMs - (fieldMode ? kFieldHistoryWindowMs : kHistoryWindowMs);
     while (!m_samples.isEmpty() && m_samples.first().timestampMs < cutoff) {
+        m_samples.removeFirst();
+    }
+    while (fieldMode && m_samples.size() > kMaxFieldSamples) {
         m_samples.removeFirst();
     }
 }

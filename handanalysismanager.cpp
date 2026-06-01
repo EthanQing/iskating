@@ -21,7 +21,7 @@
 
 namespace {
 
-constexpr int kAnalysisIntervalMs = 66;
+constexpr int kDefaultAnalysisIntervalMs = 66;
 constexpr qint64 kResultTtlMs = 350;
 
 QString modelDirPath()
@@ -32,6 +32,30 @@ QString modelDirPath()
         return deployed;
     }
     return QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("../../models/body"));
+}
+
+int intervalForProfile(const QString &profile)
+{
+    const QString normalized = profile.trimmed().toLower();
+    if (normalized == QStringLiteral("fast")) {
+        return 100;
+    }
+    if (normalized == QStringLiteral("high")) {
+        return 33;
+    }
+    return kDefaultAnalysisIntervalMs;
+}
+
+QString profileLabel(const QString &profile)
+{
+    const QString normalized = profile.trimmed().toLower();
+    if (normalized == QStringLiteral("fast")) {
+        return QStringLiteral("快速");
+    }
+    if (normalized == QStringLiteral("high")) {
+        return QStringLiteral("高精度");
+    }
+    return QStringLiteral("平衡");
 }
 
 } // namespace
@@ -95,11 +119,50 @@ public:
 
     void setActiveStream(int cameraId, std::shared_ptr<RtspStream> stream)
     {
+        HandAnalysisManager::AnalysisStream analysisStream;
+        analysisStream.cameraId = cameraId;
+        analysisStream.sourceName = cameraId > 0
+                                        ? QStringLiteral("CAM %1").arg(cameraId, 2, 10, QLatin1Char('0'))
+                                        : QStringLiteral("离线视频");
+        analysisStream.stream = std::move(stream);
+        QVector<HandAnalysisManager::AnalysisStream> streams;
+        streams.append(analysisStream);
+        setActiveStreams(streams);
+    }
+
+    void setActiveStreams(const QVector<HandAnalysisManager::AnalysisStream> &streams)
+    {
+        QVector<StreamState> states;
+        states.reserve(streams.size());
+        for (const HandAnalysisManager::AnalysisStream &stream : streams) {
+            if (!stream.stream) {
+                continue;
+            }
+            StreamState state;
+            state.cameraId = stream.cameraId;
+            state.sourceName = stream.sourceName.trimmed().isEmpty()
+                                   ? (stream.cameraId > 0
+                                          ? QStringLiteral("CAM %1").arg(stream.cameraId, 2, 10, QLatin1Char('0'))
+                                          : QStringLiteral("离线视频"))
+                                   : stream.sourceName.trimmed();
+            state.stream = stream.stream;
+            states.append(state);
+        }
+
         QMutexLocker locker(&m_mutex);
-        m_cameraId = cameraId;
-        m_stream = std::move(stream);
-        m_lastFrameMsec = 0;
+        m_streams = std::move(states);
+        m_nextStreamIndex = 0;
         m_lastResultMsec = 0;
+    }
+
+    void setAnalysisProfile(const QString &profile)
+    {
+        const int intervalMs = intervalForProfile(profile);
+        m_analysisIntervalMs.store(intervalMs);
+        publishStatus(QStringLiteral("人体姿态 AI 分析档位：%1（约 %2 ms/轮询）")
+                          .arg(profileLabel(profile))
+                          .arg(intervalMs),
+                      true);
     }
 
     void setPaused(bool paused)
@@ -138,30 +201,45 @@ private:
             const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                                      std::chrono::steady_clock::now() - started)
                                      .count();
-            const int sleepMs = std::max<int>(1, kAnalysisIntervalMs - static_cast<int>(elapsed));
+            const int sleepMs = std::max<int>(1, m_analysisIntervalMs.load() - static_cast<int>(elapsed));
             std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
         }
     }
 
     void analyzeLatestFrame()
     {
-        std::shared_ptr<RtspStream> stream;
-        int cameraId = 0;
-        qint64 lastFrameMsec = 0;
+        std::shared_ptr<D3DFrame> frame;
+        StreamState selectedStream;
+        int selectedIndex = -1;
+        bool hasStreams = true;
         {
             QMutexLocker locker(&m_mutex);
-            stream = m_stream;
-            cameraId = m_cameraId;
-            lastFrameMsec = m_lastFrameMsec;
+            const int streamCount = m_streams.size();
+            if (streamCount <= 0) {
+                hasStreams = false;
+            } else {
+                for (int attempt = 0; attempt < streamCount; ++attempt) {
+                    const int index = (m_nextStreamIndex + attempt) % streamCount;
+                    const StreamState &candidate = m_streams.at(index);
+                    if (!candidate.stream) {
+                        continue;
+                    }
+
+                    const auto latestFrame = candidate.stream->latestFrame();
+                    if (!latestFrame || latestFrame->receivedMsec <= 0 || latestFrame->receivedMsec == candidate.lastFrameMsec) {
+                        continue;
+                    }
+
+                    selectedIndex = index;
+                    selectedStream = candidate;
+                    frame = latestFrame;
+                    m_nextStreamIndex = (index + 1) % streamCount;
+                    break;
+                }
+            }
         }
 
-        if (!stream) {
-            expireResultsIfNeeded();
-            return;
-        }
-
-        const auto frame = stream->latestFrame();
-        if (!frame || frame->receivedMsec <= 0 || frame->receivedMsec == lastFrameMsec) {
+        if (!hasStreams || !frame || selectedIndex < 0) {
             expireResultsIfNeeded();
             return;
         }
@@ -173,10 +251,16 @@ private:
             return;
         }
 
-        PoseFrameResult results = m_backend.infer(rgb, cameraId, frame->receivedMsec);
+        PoseFrameResult results = m_backend.infer(rgb, selectedStream.cameraId, frame->receivedMsec);
+        results.sourceName = selectedStream.sourceName;
         {
             QMutexLocker locker(&m_mutex);
-            m_lastFrameMsec = frame->receivedMsec;
+            if (selectedIndex >= 0
+                && selectedIndex < m_streams.size()
+                && m_streams.at(selectedIndex).stream == selectedStream.stream
+                && m_streams.at(selectedIndex).cameraId == selectedStream.cameraId) {
+                m_streams[selectedIndex].lastFrameMsec = frame->receivedMsec;
+            }
             m_lastResultMsec = results.instances.isEmpty() ? m_lastResultMsec : QDateTime::currentMSecsSinceEpoch();
         }
         publishResults(results);
@@ -236,15 +320,22 @@ private:
     QObject *m_receiver = nullptr;
     QThread *m_thread = nullptr;
     QMutex m_mutex;
-    std::shared_ptr<RtspStream> m_stream;
-    int m_cameraId = 0;
-    qint64 m_lastFrameMsec = 0;
+    struct StreamState
+    {
+        int cameraId = 0;
+        QString sourceName;
+        std::shared_ptr<RtspStream> stream;
+        qint64 lastFrameMsec = 0;
+    };
+    QVector<StreamState> m_streams;
+    int m_nextStreamIndex = 0;
     qint64 m_lastResultMsec = 0;
     QString m_lastPublishedStatus;
     ResultCallback m_resultCallback;
     StatusCallback m_statusCallback;
     std::atomic_bool m_stopRequested = false;
     std::atomic_bool m_paused = false;
+    std::atomic_int m_analysisIntervalMs{kDefaultAnalysisIntervalMs};
     TensorRtBodyPoseBackend m_backend;
     D3DFrameExtractor m_extractor;
 };
@@ -283,6 +374,20 @@ void HandAnalysisManager::setActiveStream(int cameraId, std::shared_ptr<RtspStre
 {
     if (m_worker) {
         m_worker->setActiveStream(cameraId, std::move(stream));
+    }
+}
+
+void HandAnalysisManager::setActiveStreams(const QVector<AnalysisStream> &streams)
+{
+    if (m_worker) {
+        m_worker->setActiveStreams(streams);
+    }
+}
+
+void HandAnalysisManager::setAnalysisProfile(const QString &profile)
+{
+    if (m_worker) {
+        m_worker->setAnalysisProfile(profile);
     }
 }
 

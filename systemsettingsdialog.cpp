@@ -1,14 +1,18 @@
 #include "systemsettingsdialog.h"
 
 #include <QComboBox>
+#include <QAbstractItemView>
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QGridLayout>
+#include <QHeaderView>
 #include <QIntValidator>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QTableWidget>
+#include <QTableWidgetItem>
 #include <QVBoxLayout>
 
 namespace {
@@ -33,6 +37,17 @@ QString precisionLabel(const QString &value)
     return QStringLiteral("平衡 Balanced");
 }
 
+CameraSlotSettings defaultCameraSlotSettings(int cameraIndex)
+{
+    CameraSlotSettings settings;
+    const double segmentLengthM = 5.0;
+    settings.fieldStartM = cameraIndex * segmentLengthM;
+    settings.fieldEndM = (cameraIndex + 1) * segmentLengthM;
+    settings.role = QStringLiteral("轨迹分段");
+    settings.trajectoryEnabled = true;
+    return settings;
+}
+
 void populateFpsOptions(QComboBox *comboBox)
 {
     if (!comboBox) {
@@ -42,6 +57,44 @@ void populateFpsOptions(QComboBox *comboBox)
     for (int fps : {15, 25, 30, 50, 60, 90, 120}) {
         comboBox->addItem(QStringLiteral("%1 FPS").arg(fps), fps);
     }
+}
+
+QTableWidgetItem *makeTableItem(const QString &text)
+{
+    auto *item = new QTableWidgetItem(text);
+    item->setTextAlignment(Qt::AlignCenter);
+    return item;
+}
+
+QTableWidgetItem *makeEnabledItem(bool enabled)
+{
+    auto *item = makeTableItem(QString());
+    item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+    item->setCheckState(enabled ? Qt::Checked : Qt::Unchecked);
+    return item;
+}
+
+double tableDoubleValue(const QTableWidget *table, int row, int column, double fallback)
+{
+    if (!table) {
+        return fallback;
+    }
+    const QTableWidgetItem *item = table->item(row, column);
+    if (!item) {
+        return fallback;
+    }
+    bool ok = false;
+    const double value = item->text().trimmed().toDouble(&ok);
+    return ok ? value : fallback;
+}
+
+QString tableTextValue(const QTableWidget *table, int row, int column)
+{
+    if (!table) {
+        return {};
+    }
+    const QTableWidgetItem *item = table->item(row, column);
+    return item ? item->text().trimmed() : QString();
 }
 
 } // namespace
@@ -123,6 +176,36 @@ SystemSettingsDialog::SystemSettingsDialog(int cameraCount, QWidget *parent)
         m_ipEdits.append(edit);
     }
     layout->addLayout(cameraGrid);
+
+    auto *fieldTitle = new QLabel(QStringLiteral("场地与机位标定"), this);
+    layout->addWidget(fieldTitle);
+
+    auto *fieldTipLabel = new QLabel(QStringLiteral("每路相机覆盖滑冰场的一段距离；轨迹重建会按起止距离把 12 路画面拼接到同一条场地坐标上。"), this);
+    fieldTipLabel->setWordWrap(true);
+    layout->addWidget(fieldTipLabel);
+
+    m_cameraFieldTable = new QTableWidget(m_cameraCount, 9, this);
+    m_cameraFieldTable->setHorizontalHeaderLabels({
+        QStringLiteral("参与轨迹"),
+        QStringLiteral("用途"),
+        QStringLiteral("起点m"),
+        QStringLiteral("终点m"),
+        QStringLiteral("横向m"),
+        QStringLiteral("高度m"),
+        QStringLiteral("朝向°"),
+        QStringLiteral("俯仰°"),
+        QStringLiteral("质量/兼容备注")
+    });
+    m_cameraFieldTable->verticalHeader()->setVisible(true);
+    for (int i = 0; i < m_cameraCount; ++i) {
+        m_cameraFieldTable->setVerticalHeaderItem(i, new QTableWidgetItem(QStringLiteral("CAM %1").arg(i + 1, 2, 10, QLatin1Char('0'))));
+    }
+    m_cameraFieldTable->horizontalHeader()->setStretchLastSection(true);
+    m_cameraFieldTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    m_cameraFieldTable->setMinimumHeight(250);
+    m_cameraFieldTable->setAlternatingRowColors(true);
+    m_cameraFieldTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    layout->addWidget(m_cameraFieldTable);
 
     auto *captureTitle = new QLabel(QStringLiteral("分析设置"), this);
     layout->addWidget(captureTitle);
@@ -245,7 +328,29 @@ SharedCameraSettings SystemSettingsDialog::sharedCameraSettings() const
 void SystemSettingsDialog::setCameraSlotSettings(const QVector<CameraSlotSettings> &settings)
 {
     for (int i = 0; i < m_ipEdits.size(); ++i) {
-        m_ipEdits.at(i)->setText(i < settings.size() ? settings.at(i).ip.trimmed() : QString());
+        const CameraSlotSettings slot = i < settings.size() ? settings.at(i) : defaultCameraSlotSettings(i);
+        m_ipEdits.at(i)->setText(slot.ip.trimmed());
+        if (!m_cameraFieldTable) {
+            continue;
+        }
+
+        m_cameraFieldTable->setItem(i, 0, makeEnabledItem(slot.trajectoryEnabled));
+        m_cameraFieldTable->setItem(i, 1, makeTableItem(slot.role.trimmed().isEmpty() ? QStringLiteral("轨迹分段") : slot.role.trimmed()));
+        m_cameraFieldTable->setItem(i, 2, makeTableItem(QString::number(slot.fieldStartM, 'f', 1)));
+        m_cameraFieldTable->setItem(i, 3, makeTableItem(QString::number(slot.fieldEndM, 'f', 1)));
+        m_cameraFieldTable->setItem(i, 4, makeTableItem(QString::number(slot.lateralOffsetM, 'f', 1)));
+        m_cameraFieldTable->setItem(i, 5, makeTableItem(QString::number(slot.mountHeightM, 'f', 1)));
+        m_cameraFieldTable->setItem(i, 6, makeTableItem(QString::number(slot.yawDeg, 'f', 1)));
+        m_cameraFieldTable->setItem(i, 7, makeTableItem(QString::number(slot.pitchDeg, 'f', 1)));
+        QStringList notes;
+        if (!slot.qualityNote.trimmed().isEmpty()) {
+            notes.append(slot.qualityNote.trimmed());
+        }
+        if (!slot.compatibilityNote.trimmed().isEmpty() && slot.compatibilityNote.trimmed() != slot.qualityNote.trimmed()) {
+            notes.append(slot.compatibilityNote.trimmed());
+        }
+        const QString note = notes.join(QStringLiteral("；"));
+        m_cameraFieldTable->setItem(i, 8, makeTableItem(note));
     }
 }
 
@@ -253,10 +358,26 @@ QVector<CameraSlotSettings> SystemSettingsDialog::cameraSlotSettings() const
 {
     QVector<CameraSlotSettings> settings;
     settings.reserve(m_ipEdits.size());
-    for (auto *edit : m_ipEdits) {
-        CameraSlotSettings slot;
-        if (edit) {
+    for (int i = 0; i < m_ipEdits.size(); ++i) {
+        CameraSlotSettings slot = defaultCameraSlotSettings(i);
+        if (QLineEdit *edit = m_ipEdits.at(i)) {
             slot.ip = edit->text().trimmed();
+        }
+        if (m_cameraFieldTable) {
+            const QTableWidgetItem *enabledItem = m_cameraFieldTable->item(i, 0);
+            slot.trajectoryEnabled = !enabledItem || enabledItem->checkState() == Qt::Checked;
+            slot.role = tableTextValue(m_cameraFieldTable, i, 1);
+            if (slot.role.trimmed().isEmpty()) {
+                slot.role = QStringLiteral("轨迹分段");
+            }
+            slot.fieldStartM = tableDoubleValue(m_cameraFieldTable, i, 2, slot.fieldStartM);
+            slot.fieldEndM = tableDoubleValue(m_cameraFieldTable, i, 3, slot.fieldEndM);
+            slot.lateralOffsetM = tableDoubleValue(m_cameraFieldTable, i, 4, slot.lateralOffsetM);
+            slot.mountHeightM = tableDoubleValue(m_cameraFieldTable, i, 5, slot.mountHeightM);
+            slot.yawDeg = tableDoubleValue(m_cameraFieldTable, i, 6, slot.yawDeg);
+            slot.pitchDeg = tableDoubleValue(m_cameraFieldTable, i, 7, slot.pitchDeg);
+            slot.qualityNote = tableTextValue(m_cameraFieldTable, i, 8);
+            slot.compatibilityNote = slot.qualityNote;
         }
         settings.append(slot);
     }
@@ -331,6 +452,27 @@ bool SystemSettingsDialog::validateAndAccept()
                              QStringLiteral("至少配置一路相机时，预览路径必须填写。"));
         m_previewPathEdit->setFocus();
         return false;
+    }
+
+    if (m_cameraFieldTable) {
+        for (int i = 0; i < m_cameraFieldTable->rowCount(); ++i) {
+            const QTableWidgetItem *enabledItem = m_cameraFieldTable->item(i, 0);
+            const bool enabled = !enabledItem || enabledItem->checkState() == Qt::Checked;
+            if (!enabled) {
+                continue;
+            }
+
+            const double startM = tableDoubleValue(m_cameraFieldTable, i, 2, 0.0);
+            const double endM = tableDoubleValue(m_cameraFieldTable, i, 3, 0.0);
+            if (endM <= startM) {
+                QMessageBox::warning(this,
+                                     QStringLiteral("场地段无效"),
+                                     QStringLiteral("CAM %1 的终点距离必须大于起点距离。")
+                                         .arg(i + 1, 2, 10, QLatin1Char('0')));
+                m_cameraFieldTable->setCurrentCell(i, 3);
+                return false;
+            }
+        }
     }
 
     if (m_previewPathEdit) {

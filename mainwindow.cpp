@@ -106,6 +106,28 @@ QString configuredCameraChannelName(int cameraIndex, const QString &ip)
     return trimmedIp.isEmpty() ? base : QStringLiteral("%1 - %2").arg(base, trimmedIp);
 }
 
+CameraSlotSettings defaultCameraSlotSettings(int cameraIndex)
+{
+    CameraSlotSettings settings;
+    const double segmentLengthM = 5.0;
+    settings.fieldStartM = cameraIndex * segmentLengthM;
+    settings.fieldEndM = (cameraIndex + 1) * segmentLengthM;
+    settings.role = QStringLiteral("轨迹分段");
+    settings.trajectoryEnabled = true;
+    return settings;
+}
+
+QString cameraSegmentLabel(const CameraSlotSettings &slot)
+{
+    if (!slot.trajectoryEnabled || slot.fieldEndM <= slot.fieldStartM) {
+        return QStringLiteral("未参与轨迹");
+    }
+    return QStringLiteral("%1 · %2-%3 m")
+        .arg(slot.role.trimmed().isEmpty() ? QStringLiteral("轨迹分段") : slot.role.trimmed())
+        .arg(slot.fieldStartM, 0, 'f', 1)
+        .arg(slot.fieldEndM, 0, 'f', 1);
+}
+
 QString normalizedStoredPath(const QString &path)
 {
     QString normalized = path.trimmed();
@@ -601,9 +623,20 @@ MainWindow::MainWindow(QWidget *parent)
     m_trainingRepository = std::make_unique<TrainingRepository>();
     m_handAnalysisManager = std::make_unique<HandAnalysisManager>(this);
     m_handAnalysisManager->setResultCallback([this](const PoseFrameResult &poseFrame) {
-        ui->mainImageLabel->setPoseFrame(poseFrame);
-        if (m_skeletonView) {
-            m_skeletonView->setPoseFrame(poseFrame);
+        const bool selectedFrame = poseFrame.cameraId == m_selectedCamera
+                                   || (m_selectedCamera == 0 && poseFrame.cameraId == 0);
+        if (poseFrame.instances.isEmpty()) {
+            if (selectedFrame || poseFrame.cameraId == 0) {
+                clearRealtimePose();
+            }
+            return;
+        }
+
+        if (selectedFrame) {
+            ui->mainImageLabel->setPoseFrame(poseFrame);
+            if (m_skeletonView) {
+                m_skeletonView->setPoseFrame(poseFrame);
+            }
         }
         if (m_trajectoryWidget) {
             m_trajectoryWidget->setPoseFrame(poseFrame);
@@ -696,9 +729,7 @@ MainWindow::MainWindow(QWidget *parent)
     ui->mainImageLabel->setPlaceholderText(QStringLiteral("主视频\n未播放"));
     ui->mainImageLabel->setOverlayControlsVisible(false);
     ui->mainImageLabel->setStreamChangedHandler([this](VideoOpenGLWidget *) {
-        if (m_handAnalysisManager) {
-            m_handAnalysisManager->setActiveStream(m_selectedCamera, ui->mainImageLabel->activeStream());
-        }
+        syncAnalysisStreams();
     });
     for (int i = 0; i < m_cameraButtons.size(); ++i) {
         auto *cameraWidget = m_cameraButtons.at(i);
@@ -712,6 +743,9 @@ MainWindow::MainWindow(QWidget *parent)
                      << m_cameraButtons.at(i)->channelName()
                      << safeUrlForLog(m_cameraButtons.at(i)->mainUrl());
             showCameraInMainView(i);
+        });
+        cameraWidget->setStreamChangedHandler([this](VideoOpenGLWidget *) {
+            syncAnalysisStreams();
         });
     }
     loadCameraSettings();
@@ -972,6 +1006,7 @@ void MainWindow::installTrajectoryWidget()
     m_trajectoryWidget = new TrajectoryWidget(ui->trajectoryCard);
     m_trajectoryWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     ui->trajectoryCardLayout->insertWidget(1, m_trajectoryWidget, 1);
+    updateTrajectoryCameraSegments();
 }
 
 // 在训练统计卡片里装配分项评分条，替代原来的单行文字指标。
@@ -1084,9 +1119,13 @@ void MainWindow::installTrainingContextPanel()
     m_targetScoreSpinBox = new QSpinBox(m_trainingContextPanel);
     m_setCountSpinBox = new QSpinBox(m_trainingContextPanel);
     m_restSecondsSpinBox = new QSpinBox(m_trainingContextPanel);
+    m_trainingNotesEdit = new QPlainTextEdit(m_trainingContextPanel);
 
     m_siteLineEdit->setPlaceholderText(QStringLiteral("训练场地"));
     m_goalLineEdit->setPlaceholderText(QStringLiteral("本次训练目标"));
+    m_trainingNotesEdit->setPlaceholderText(QStringLiteral("训练备注：主观感受、疲劳程度、冰面情况、训练重点"));
+    m_trainingNotesEdit->setMinimumHeight(58);
+    m_trainingNotesEdit->setMaximumHeight(82);
     m_trainingPhaseComboBox->addItems({QStringLiteral("热身"), QStringLiteral("基础训练"), QStringLiteral("专项训练"), QStringLiteral("复盘测试")});
     m_targetRepsSpinBox->setRange(1, 999);
     m_targetScoreSpinBox->setRange(1, 100);
@@ -1132,6 +1171,7 @@ void MainWindow::installTrainingContextPanel()
     grid->addWidget(m_trainingTargetLabel, 4, 2, 1, 4);
 
     panelLayout->addLayout(grid);
+    panelLayout->addWidget(m_trainingNotesEdit);
     captureLayout->insertWidget(0, m_trainingContextPanel);
 
     connect(addAthleteButton, &QPushButton::clicked, this, [this]() { addAthleteFromDialog(); });
@@ -1164,6 +1204,9 @@ void MainWindow::loadCameraSettings()
     m_sharedCameraSettings.previewFps = kDefaultPreviewStreamFps;
     m_sharedCameraSettings.mainFps = kDefaultMainStreamFps;
     m_cameraSlotSettings = QVector<CameraSlotSettings>(m_cameraButtons.size());
+    for (int i = 0; i < m_cameraSlotSettings.size(); ++i) {
+        m_cameraSlotSettings[i] = defaultCameraSlotSettings(i);
+    }
     m_capturePreferenceSettings = {};
 
     QSettings settings;
@@ -1197,6 +1240,24 @@ void MainWindow::loadCameraSettings()
         for (int i = 0; i < m_cameraButtons.size(); ++i) {
             settings.beginGroup(cameraSettingsGroup(i));
             m_cameraSlotSettings[i].ip = settings.value(QStringLiteral("ip")).toString().trimmed();
+            m_cameraSlotSettings[i].trajectoryEnabled = settings.value(QStringLiteral("trajectoryEnabled"),
+                                                                       m_cameraSlotSettings[i].trajectoryEnabled).toBool();
+            m_cameraSlotSettings[i].role = settings.value(QStringLiteral("role"),
+                                                          m_cameraSlotSettings[i].role).toString().trimmed();
+            m_cameraSlotSettings[i].fieldStartM = settings.value(QStringLiteral("fieldStartM"),
+                                                                 m_cameraSlotSettings[i].fieldStartM).toDouble();
+            m_cameraSlotSettings[i].fieldEndM = settings.value(QStringLiteral("fieldEndM"),
+                                                               m_cameraSlotSettings[i].fieldEndM).toDouble();
+            m_cameraSlotSettings[i].lateralOffsetM = settings.value(QStringLiteral("lateralOffsetM"),
+                                                                    m_cameraSlotSettings[i].lateralOffsetM).toDouble();
+            m_cameraSlotSettings[i].mountHeightM = settings.value(QStringLiteral("mountHeightM"),
+                                                                  m_cameraSlotSettings[i].mountHeightM).toDouble();
+            m_cameraSlotSettings[i].yawDeg = settings.value(QStringLiteral("yawDeg"),
+                                                            m_cameraSlotSettings[i].yawDeg).toDouble();
+            m_cameraSlotSettings[i].pitchDeg = settings.value(QStringLiteral("pitchDeg"),
+                                                              m_cameraSlotSettings[i].pitchDeg).toDouble();
+            m_cameraSlotSettings[i].qualityNote = settings.value(QStringLiteral("qualityNote")).toString().trimmed();
+            m_cameraSlotSettings[i].compatibilityNote = settings.value(QStringLiteral("compatibilityNote")).toString().trimmed();
             settings.endGroup();
         }
     } else {
@@ -1333,6 +1394,16 @@ void MainWindow::persistSystemSettings() const
         settings.setValue(QStringLiteral("ip"), ip);
         settings.setValue(QStringLiteral("port"), normalizedPort);
         settings.setValue(QStringLiteral("path"), normalizedPreviewPath);
+        settings.setValue(QStringLiteral("trajectoryEnabled"), m_cameraSlotSettings.at(i).trajectoryEnabled);
+        settings.setValue(QStringLiteral("role"), m_cameraSlotSettings.at(i).role.trimmed());
+        settings.setValue(QStringLiteral("fieldStartM"), m_cameraSlotSettings.at(i).fieldStartM);
+        settings.setValue(QStringLiteral("fieldEndM"), m_cameraSlotSettings.at(i).fieldEndM);
+        settings.setValue(QStringLiteral("lateralOffsetM"), m_cameraSlotSettings.at(i).lateralOffsetM);
+        settings.setValue(QStringLiteral("mountHeightM"), m_cameraSlotSettings.at(i).mountHeightM);
+        settings.setValue(QStringLiteral("yawDeg"), m_cameraSlotSettings.at(i).yawDeg);
+        settings.setValue(QStringLiteral("pitchDeg"), m_cameraSlotSettings.at(i).pitchDeg);
+        settings.setValue(QStringLiteral("qualityNote"), m_cameraSlotSettings.at(i).qualityNote.trimmed());
+        settings.setValue(QStringLiteral("compatibilityNote"), m_cameraSlotSettings.at(i).compatibilityNote.trimmed());
         settings.endGroup();
     }
     settings.sync();
@@ -1372,13 +1443,21 @@ void MainWindow::applyCapturePreferencesToUi()
         const int fpsIndex = ui->fpsComboBox->findData(fpsValue);
         ui->fpsComboBox->setCurrentIndex(fpsIndex >= 0 ? fpsIndex : ui->fpsComboBox->findData(kDefaultMainStreamFps));
     }
+    if (m_handAnalysisManager) {
+        m_handAnalysisManager->setAnalysisProfile(m_capturePreferenceSettings.modelPrecision);
+    }
 }
 
 void MainWindow::applyCameraSettingsToWidgets(bool restorePlayback)
 {
     if (m_cameraSlotSettings.size() < m_cameraButtons.size()) {
+        const int oldSize = m_cameraSlotSettings.size();
         m_cameraSlotSettings.resize(m_cameraButtons.size());
+        for (int i = oldSize; i < m_cameraSlotSettings.size(); ++i) {
+            m_cameraSlotSettings[i] = defaultCameraSlotSettings(i);
+        }
     }
+    updateTrajectoryCameraSegments();
 
     const bool offlineMode = !m_offlineVideoPath.trimmed().isEmpty();
     QVector<bool> previewWasPlaying;
@@ -1396,7 +1475,8 @@ void MainWindow::applyCameraSettingsToWidgets(bool restorePlayback)
         const QString previewUrl = composeCameraUrl(m_sharedCameraSettings, ip, false);
         const QString mainUrl = composeCameraUrl(m_sharedCameraSettings, ip, true);
         cameraWidget->setChannelName(channelName);
-        cameraWidget->setPlaceholderText(channelName);
+        cameraWidget->setPlaceholderText(QStringLiteral("%1\n%2")
+                                             .arg(channelName, cameraSegmentLabel(m_cameraSlotSettings.at(i))));
         cameraWidget->setStreamUrls(previewUrl, mainUrl);
 
         if (offlineMode) {
@@ -1424,6 +1504,121 @@ void MainWindow::applyCameraSettingsToWidgets(bool restorePlayback)
         }
         showCameraInMainView(selectedIndex, shouldResumeStreams || mainWasPlaying);
     }
+}
+
+void MainWindow::updateTrajectoryCameraSegments()
+{
+    if (!m_trajectoryWidget) {
+        return;
+    }
+
+    QVector<TrajectoryWidget::CameraSegment> segments;
+    segments.reserve(m_cameraSlotSettings.size());
+    for (int i = 0; i < m_cameraSlotSettings.size(); ++i) {
+        const CameraSlotSettings &slot = m_cameraSlotSettings.at(i);
+        TrajectoryWidget::CameraSegment segment;
+        segment.cameraId = i + 1;
+        segment.enabled = slot.trajectoryEnabled && slot.fieldEndM > slot.fieldStartM;
+        segment.role = slot.role;
+        segment.fieldStartM = slot.fieldStartM;
+        segment.fieldEndM = slot.fieldEndM;
+        segment.lateralOffsetM = slot.lateralOffsetM;
+        segments.append(segment);
+    }
+    m_trajectoryWidget->setCameraSegments(segments);
+}
+
+void MainWindow::syncAnalysisStreams()
+{
+    if (!m_handAnalysisManager) {
+        return;
+    }
+
+    m_capturePreferenceSettings = capturePreferenceSettingsFromUi();
+    m_handAnalysisManager->setAnalysisProfile(m_capturePreferenceSettings.modelPrecision);
+    if (!m_isRecording || m_isPaused) {
+        m_handAnalysisManager->setPaused(true);
+        m_handAnalysisManager->setActiveStreams(QVector<HandAnalysisManager::AnalysisStream>());
+        return;
+    }
+
+    QVector<HandAnalysisManager::AnalysisStream> streams;
+    if (!m_offlineVideoPath.trimmed().isEmpty()) {
+        HandAnalysisManager::AnalysisStream stream;
+        stream.cameraId = 0;
+        stream.sourceName = m_offlineVideoName.trimmed().isEmpty()
+                                ? offlineVideoDisplayName(m_offlineVideoPath)
+                                : m_offlineVideoName.trimmed();
+        stream.stream = ui->mainImageLabel->activeStream();
+        if (stream.stream) {
+            streams.append(stream);
+        }
+    } else {
+        for (int i = 0; i < m_cameraButtons.size(); ++i) {
+            if (i >= m_cameraSlotSettings.size()) {
+                continue;
+            }
+            const CameraSlotSettings &slot = m_cameraSlotSettings.at(i);
+            if (!slot.trajectoryEnabled) {
+                continue;
+            }
+            VideoOpenGLWidget *cameraWidget = m_cameraButtons.at(i);
+            HandAnalysisManager::AnalysisStream stream;
+            stream.cameraId = i + 1;
+            stream.sourceName = cameraWidget->channelName();
+            stream.stream = (stream.cameraId == m_selectedCamera && ui->mainImageLabel->activeStream())
+                                ? ui->mainImageLabel->activeStream()
+                                : cameraWidget->activeStream();
+            if (stream.stream) {
+                streams.append(stream);
+            }
+        }
+    }
+
+    if (streams.isEmpty() && ui->mainImageLabel->activeStream()) {
+        HandAnalysisManager::AnalysisStream fallback;
+        fallback.cameraId = m_selectedCamera;
+        fallback.sourceName = m_selectedCamera > 0
+                                  ? QStringLiteral("CAM %1").arg(m_selectedCamera, 2, 10, QLatin1Char('0'))
+                                  : m_offlineVideoName;
+        fallback.stream = ui->mainImageLabel->activeStream();
+        streams.append(fallback);
+    }
+
+    m_handAnalysisManager->setActiveStreams(streams);
+    m_handAnalysisManager->setPaused(streams.isEmpty());
+}
+
+QString MainWindow::cameraReadinessSummary() const
+{
+    int configured = 0;
+    int trajectoryEnabled = 0;
+    int calibrated = 0;
+    QStringList missing;
+    for (int i = 0; i < m_cameraSlotSettings.size(); ++i) {
+        const CameraSlotSettings &slot = m_cameraSlotSettings.at(i);
+        if (!slot.ip.trimmed().isEmpty()) {
+            ++configured;
+        }
+        if (!slot.trajectoryEnabled) {
+            continue;
+        }
+        ++trajectoryEnabled;
+        if (slot.fieldEndM > slot.fieldStartM && !slot.ip.trimmed().isEmpty()) {
+            ++calibrated;
+        } else {
+            missing.append(QStringLiteral("CAM %1").arg(i + 1, 2, 10, QLatin1Char('0')));
+        }
+    }
+
+    QString summary = QStringLiteral("相机就绪：已配置 %1/12，参与轨迹 %2 路，已标定 %3 路。")
+                          .arg(configured)
+                          .arg(trajectoryEnabled)
+                          .arg(calibrated);
+    if (!missing.isEmpty()) {
+        summary += QStringLiteral(" 需补齐：%1。").arg(missing.join(QStringLiteral("、")));
+    }
+    return summary;
 }
 
 void MainWindow::openSystemSettings()
@@ -1749,22 +1944,19 @@ void MainWindow::showOfflineVideoInMainView(bool autoPlay)
         ui->saveTipLabel->show();
         if (m_handAnalysisManager) {
             m_handAnalysisManager->setPaused(true);
-            m_handAnalysisManager->setActiveStream(0, {});
+            m_handAnalysisManager->setActiveStreams(QVector<HandAnalysisManager::AnalysisStream>());
         }
     } else if (!autoPlay) {
         ui->mainImageLabel->stopPlayback();
         ui->mainImageLabel->setPlaceholderText(m_offlineVideoName);
         if (m_handAnalysisManager) {
             m_handAnalysisManager->setPaused(true);
-            m_handAnalysisManager->setActiveStream(0, {});
+            m_handAnalysisManager->setActiveStreams(QVector<HandAnalysisManager::AnalysisStream>());
         }
     } else {
         ui->mainImageLabel->setPlaceholderText(m_offlineVideoName);
         ui->mainImageLabel->playFile(m_offlineVideoPath);
-        if (m_handAnalysisManager) {
-            m_handAnalysisManager->setPaused(m_isPaused);
-            m_handAnalysisManager->setActiveStream(0, ui->mainImageLabel->activeStream());
-        }
+        syncAnalysisStreams();
     }
 
     ui->focusTitleLabel->setText(QStringLiteral("当前来源：%1").arg(m_offlineVideoName));
@@ -1789,22 +1981,19 @@ void MainWindow::showCameraInMainView(int cameraIndex, bool autoPlay)
         ui->mainImageLabel->setPlaceholderText(QStringLiteral("主视频\n未配置"));
         if (m_handAnalysisManager) {
             m_handAnalysisManager->setPaused(true);
-            m_handAnalysisManager->setActiveStream(0, {});
+            m_handAnalysisManager->setActiveStreams(QVector<HandAnalysisManager::AnalysisStream>());
         }
     } else if (!autoPlay) {
         ui->mainImageLabel->stopPlayback();
         ui->mainImageLabel->setPlaceholderText(cameraWidget->channelName());
         if (m_handAnalysisManager) {
             m_handAnalysisManager->setPaused(true);
-            m_handAnalysisManager->setActiveStream(0, {});
+            m_handAnalysisManager->setActiveStreams(QVector<HandAnalysisManager::AnalysisStream>());
         }
     } else {
         ui->mainImageLabel->setPlaceholderText(cameraWidget->channelName());
         ui->mainImageLabel->playMainUrlWithFallback(source, cameraWidget->previewUrl());
-        if (m_handAnalysisManager) {
-            m_handAnalysisManager->setPaused(m_isPaused);
-            m_handAnalysisManager->setActiveStream(m_selectedCamera, ui->mainImageLabel->activeStream());
-        }
+        syncAnalysisStreams();
     }
 
     ui->focusTitleLabel->setText(QStringLiteral("当前来源：%1").arg(cameraWidget->channelName()));
@@ -2033,6 +2222,17 @@ void MainWindow::startCapture()
             ui->saveTipLabel->show();
             return;
         }
+    } else {
+        const bool hasTrajectoryCamera = std::any_of(m_cameraSlotSettings.cbegin(),
+                                                     m_cameraSlotSettings.cend(),
+                                                     [](const CameraSlotSettings &slot) {
+                                                         return slot.trajectoryEnabled && !slot.ip.trimmed().isEmpty();
+                                                     });
+        if (!hasTrajectoryCamera) {
+            ui->saveTipLabel->setText(QStringLiteral("请先在系统设置中至少配置一路参与轨迹的相机 IP。"));
+            ui->saveTipLabel->show();
+            return;
+        }
     }
     if (!m_isRecording) {
         resetCurrentTrainingSession();
@@ -2051,6 +2251,7 @@ void MainWindow::startCapture()
             videoWidget->stopPlayback();
         }
         showOfflineVideoInMainView(true);
+        syncAnalysisStreams();
         ui->saveTipLabel->setText(QStringLiteral("离线视频分析中：%1").arg(QFileInfo(m_offlineVideoPath).fileName()));
         ui->saveTipLabel->show();
         return;
@@ -2065,6 +2266,9 @@ void MainWindow::startCapture()
                  << safeUrlForLog(videoWidget->previewUrl());
         videoWidget->playDefaultVideo();
     }
+    syncAnalysisStreams();
+    ui->saveTipLabel->setText(cameraReadinessSummary());
+    ui->saveTipLabel->show();
 }
 
 // 暂停采集：暂停主视图和全部摄像头预览的播放器状态。
@@ -2075,6 +2279,7 @@ void MainWindow::pauseCapture()
     m_timer.stop();
     if (m_handAnalysisManager) {
         m_handAnalysisManager->setPaused(true);
+        m_handAnalysisManager->setActiveStreams(QVector<HandAnalysisManager::AnalysisStream>());
     }
     clearRealtimePose();
     ui->mainImageLabel->pausePlayback();
@@ -2095,7 +2300,7 @@ void MainWindow::stopCapture()
     m_lastActionMsec = 0;
     if (m_handAnalysisManager) {
         m_handAnalysisManager->setPaused(true);
-        m_handAnalysisManager->setActiveStream(0, {});
+        m_handAnalysisManager->setActiveStreams(QVector<HandAnalysisManager::AnalysisStream>());
     }
     clearRealtimePose();
     ui->mainImageLabel->stopPlayback();
@@ -2139,6 +2344,7 @@ void MainWindow::saveRecord()
     const QString site = m_siteLineEdit ? m_siteLineEdit->text().trimmed() : QString();
     const QString trainingPhase = m_trainingPhaseComboBox ? m_trainingPhaseComboBox->currentText() : QString();
     const QString goal = m_goalLineEdit ? m_goalLineEdit->text().trimmed() : QString();
+    const QString trainingNotes = m_trainingNotesEdit ? m_trainingNotesEdit->toPlainText().trimmed() : QString();
 
     if (!m_trainingRepository->ensureDailyTask(athleteId,
                                                coachId,
@@ -2211,6 +2417,7 @@ void MainWindow::saveRecord()
         session.videoCameraName = cameraWidget->channelName();
     }
     session.feedback = m_feedbackText.trimmed().isEmpty() ? QStringLiteral("等待姿态") : m_feedbackText.trimmed();
+    session.notes = trainingNotes;
 
     QVector<ActionRepetition> repetitions = m_currentRepetitions;
     for (ActionRepetition &repetition : repetitions) {
@@ -2498,13 +2705,14 @@ void MainWindow::refreshHistory()
         metaLabel->setWordWrap(true);
         cardLayout->addWidget(metaLabel);
 
-        auto *feedbackLabel = new QLabel(QStringLiteral("标准 v%1 · %2 · %3\n场地：%4   阶段：%5   目标：%6\n视频：%7\n反馈：%8")
+        auto *feedbackLabel = new QLabel(QStringLiteral("标准 v%1 · %2 · %3\n场地：%4   阶段：%5   目标：%6\n备注：%7\n视频：%8\n反馈：%9")
                                              .arg(record.standardVersion)
                                              .arg(record.actionCategory)
                                              .arg(record.coachName.isEmpty() ? QStringLiteral("未指定教练") : record.coachName)
                                              .arg(record.site.isEmpty() ? QStringLiteral("未填写") : record.site)
                                              .arg(record.trainingPhase.isEmpty() ? QStringLiteral("未填写") : record.trainingPhase)
                                              .arg(record.goal.isEmpty() ? QStringLiteral("未填写") : record.goal)
+                                             .arg(record.notes.isEmpty() ? QStringLiteral("未填写") : record.notes)
                                              .arg(displayMediaSource(record.videoSource))
                                              .arg(record.feedback),
                                          card);
@@ -2790,7 +2998,7 @@ void MainWindow::openSessionVideo(const SessionHistoryItem &record, int offsetMs
             }
             if (m_handAnalysisManager) {
                 m_handAnalysisManager->setPaused(true);
-                m_handAnalysisManager->setActiveStream(0, {});
+                m_handAnalysisManager->setActiveStreams(QVector<HandAnalysisManager::AnalysisStream>());
             }
             switchPage(kCapturePage);
 
@@ -2809,7 +3017,7 @@ void MainWindow::openSessionVideo(const SessionHistoryItem &record, int offsetMs
 
     if (m_handAnalysisManager) {
         m_handAnalysisManager->setPaused(true);
-        m_handAnalysisManager->setActiveStream(0, {});
+        m_handAnalysisManager->setActiveStreams(QVector<HandAnalysisManager::AnalysisStream>());
     }
     if (ui->focusTitleLabel) {
         ui->focusTitleLabel->setText(QStringLiteral("当前来源：%1").arg(sourceTitle));
@@ -3214,6 +3422,7 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
         out << "- 场地/阶段/目标：" << (record.site.isEmpty() ? QStringLiteral("未填写") : record.site)
             << " / " << (record.trainingPhase.isEmpty() ? QStringLiteral("未填写") : record.trainingPhase)
             << " / " << (record.goal.isEmpty() ? QStringLiteral("未填写") : record.goal) << "\n";
+        out << "- 训练备注：" << (record.notes.trimmed().isEmpty() ? QStringLiteral("未填写") : record.notes.trimmed()) << "\n";
         out << "- 时长：" << formatTime(record.duration) << "\n";
         out << "- 完成度：" << record.validReps << "/" << record.totalReps << "，目标 "
             << record.targetReps << " 次/" << record.targetScore << " 分\n";
@@ -3269,6 +3478,7 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
             QStringLiteral("valid_reps"),
             QStringLiteral("session_average_score"),
             QStringLiteral("session_best_score"),
+            QStringLiteral("training_notes"),
             QStringLiteral("video_source"),
             QStringLiteral("rep_index"),
             QStringLiteral("source"),
@@ -3315,6 +3525,7 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
                 << csvField(QString::number(record.validReps))
                 << csvField(QString::number(record.score))
                 << csvField(QString::number(record.bestScore))
+                << csvField(record.notes)
                 << csvField(displayMediaSource(record.videoSource));
             if (!rep) {
                 for (int i = 0; i < 29; ++i) {
@@ -3390,6 +3601,7 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
                                               .arg(record.site.isEmpty() ? QStringLiteral("未填写") : record.site,
                                                    record.trainingPhase.isEmpty() ? QStringLiteral("未填写") : record.trainingPhase,
                                                    record.goal.isEmpty() ? QStringLiteral("未填写") : record.goal)},
+            {QStringLiteral("训练备注"), record.notes.trimmed().isEmpty() ? QStringLiteral("未填写") : record.notes.trimmed()},
             {QStringLiteral("时长"), formatTime(record.duration)},
             {QStringLiteral("完成度"), QStringLiteral("%1/%2，目标 %3 次/%4 分")
                                        .arg(record.validReps)

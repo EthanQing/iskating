@@ -17,7 +17,7 @@
 - `posestandardnessscorer.cpp`: 关键点、对称、重心、稳定、3D 分项评分。
 - `actionstandardscorer.h/.cpp`: 根据所选动作标准重算动作分、生成错误项，并追踪单次动作实例。
 - `skeletonviewwidget.cpp`: 骨架视图绘制。
-- `trajectorywidget.cpp`: 关键点轨迹历史和 3D 偏移绘制。
+- `trajectorywidget.cpp`: 关键点轨迹历史、3D 偏移绘制和 12 路相机场地段轨迹重建。
 - `d3dvideosurface.cpp`: 主视频上的姿态覆盖层。
 - `mainwindow.cpp`: 动作计数、评分刷新、历史与建议文案。
 
@@ -27,6 +27,8 @@
 - 主流程使用 `PoseSkeletonType::Body17`。
 - RTMW3D 成功后，关键点会带 `point3d` 和 `hasPoint3d`。
 - `PoseStandardnessScorer` 维护上一帧，用于计算稳定性。
+- 训练采集时 `HandAnalysisManager` 可轮询多路 `RtspStream`，每个 `PoseFrameResult.cameraId` 会标识来源相机。
+- `TrajectoryWidget` 支持接收每路相机的场地段配置，将画面中的主运动员锚点按相机覆盖起止距离映射为场地坐标，并把 12 路片段拼成全场轨迹。
 - `ActionStandardScorer` 复用通用分项分，再按动作标准中的权重、最低分和纠错提示生成 `ActionAssessment`。
 - `ActionRepetitionTracker` 通过动作标准中的髋/膝屈伸阈值和防抖时间识别一次动作，并输出动作明细。
 - 每次自动识别动作会保留最低分/关键错误帧对应的 `PoseFrameResult`，保存训练记录时序列化为 `ActionRepetition::keyFramePoseJson`，供复盘校准姿态叠加使用。
@@ -41,6 +43,7 @@
 - `poseSkeletonBones(skeletonType)`
 - `poseSkeletonTypeName(skeletonType)`
 - `poseInstanceKindName(kind)`
+- `TrajectoryWidget::setCameraSegments(segments)`
 
 ## 常见修改任务
 
@@ -76,6 +79,7 @@
 - `PoseStandardnessScorer` 内部保存上一帧，复用同一 scorer 实例时注意状态延续。
 - 当前仍未做动作类型自动分类；必须先在训练上下文中手动选择动作标准。动作实例可由阈值规则自动计数，也可在复盘校准中人工新增或修正。
 - 关键帧姿态 JSON 是复盘辅助数据，不是视频帧缓存；它不能替代原视频，也不会复制或裁剪媒体文件。
+- 当前多机位轨迹重建使用线性场地段映射：画面纵向位置映射到相机覆盖距离，画面横向位置映射到横向偏移。它能覆盖 12 路分段拼接的 P1 需求，但还不是基于相机内外参、畸变参数或 homography 的精标定。
 
 ## 相关流程
 

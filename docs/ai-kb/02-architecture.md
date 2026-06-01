@@ -23,7 +23,7 @@
 没有独立服务端。后端能力以内嵌 C++ 模块和后台线程形式存在：
 
 - `RtspStream` 线程负责打开视频源、FFmpeg 解码和重连。
-- `HandAnalysisWorker` 线程负责从活动主视图视频流抽帧、转 RGB、调用 TensorRT 后端。
+- `HandAnalysisWorker` 线程负责从活动分析流抽帧、转 RGB、调用 TensorRT 后端；采集中可在参与轨迹的多路相机流之间轮询。
 - `TensorRtRunner` 封装 TensorRT engine 构建、加载和推理。
 
 相关文件：
@@ -75,9 +75,9 @@
 3. 点击开始采集后，12 路小窗接入预览码流，主视图接入第一路主码流。
 4. `VideoOpenGLWidget` 通过 `StreamRegistry` 复用或创建 `RtspStream`。
 5. `RtspStream` 输出 `D3DFrame`；`D3DVideoSurface` 负责显示。
-6. `HandAnalysisManager` 订阅主视图活动流，将最新帧转成 RGB。
+6. `HandAnalysisManager` 订阅参与轨迹的相机活动流，将最新帧转成 RGB。
 7. `TensorRtBodyPoseBackend` 做 YOLOv8n-pose 2D 推理，并尽量追加 RTMW3D 3D 输出。
-8. `MainWindow` 将结果叠加到主视频、更新骨架/轨迹、计算评分和动作次数。
+8. `MainWindow` 将选中机位结果叠加到主视频并更新骨架；所有机位结果按相机覆盖段进入全场轨迹，评分和动作次数沿用现有实时链路。
 9. 保存训练后，SQLite 记录 AI 原始动作实例和关键帧姿态 JSON；历史页可打开独立复盘校准对话框做本地回放、人工复核、手动新增动作、标准参考视频对比和 Markdown/CSV/PDF 报告导出。
 
 相关文件：
