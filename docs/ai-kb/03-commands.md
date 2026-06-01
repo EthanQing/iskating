@@ -19,11 +19,11 @@ TODO: 未找到正式依赖安装文档或自动化安装脚本。
 
 ## 本地开发
 
-建议在 Visual Studio 2022 x64 Native Tools 环境中执行：
+建议在 Visual Studio 2022 x64 Native Tools 环境中执行。默认构建 Release 版本：
 
 ```powershell
-& "C:/Qt/6.7.3/msvc2022_64/bin/qmake.exe" mainwindow.pro
-nmake
+& "C:/Qt/6.7.3/msvc2022_64/bin/qmake.exe" mainwindow.pro "CONFIG+=release"
+nmake release
 ```
 
 相关文件：
@@ -33,28 +33,34 @@ nmake
 
 ## 构建
 
-Debug/Release 输出目录由 `mainwindow.pro` 固定到 `x64/Debug` 和 `x64/Release`。默认构建 `Release` 版本
-
-```powershell
-& "C:/Qt/6.7.3/msvc2022_64/bin/qmake.exe" mainwindow.pro "CONFIG+=debug"
-nmake debug
-```
+Debug/Release 输出目录由 `mainwindow.pro` 固定到 `x64/Debug` 和 `x64/Release`。除非明确需要调试符号和 Debug DLL，否则默认构建 `Release` 版本：
 
 ```powershell
 & "C:/Qt/6.7.3/msvc2022_64/bin/qmake.exe" mainwindow.pro "CONFIG+=release"
 nmake release
 ```
 
+需要 Debug 构建时再显式执行：
+
+```powershell
+& "C:/Qt/6.7.3/msvc2022_64/bin/qmake.exe" mainwindow.pro "CONFIG+=debug"
+nmake debug
+```
+
 注意：当前仓库里存在 `Makefile*`，但它们是 qmake 生成文件，已在 `.gitignore` 中标记为忽略。
 
 ## 运行
 
-```powershell
-.\x64\Debug\iskating.exe
-```
+默认运行 Release：
 
 ```powershell
 .\x64\Release\iskating.exe
+```
+
+Debug 构建产物：
+
+```powershell
+.\x64\Debug\iskating.exe
 ```
 
 运行时依赖 DLL、`models/`、`plugins/platforms/qwindows(d).dll` 和 `plugins/sqldrivers/qsqlite(d).dll` 会由 `mainwindow.pro` 的 post-link 规则复制到输出目录。

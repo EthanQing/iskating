@@ -40,6 +40,7 @@
 - `playDefaultVideo()`
 - `playMainUrlWithFallback(mainUrl, fallbackUrl)`
 - `playFile(filePath)`
+- `playFile(filePath, startPositionMs)`
 - `pausePlayback()`
 - `stopPlayback()`
 - `activeStream()`
@@ -76,6 +77,7 @@
 - ⚠️ 高风险区域：当前没有通用软件解码 fallback。
 - 离线视频仍要求解码器支持 D3D11VA；不兼容编码会像 RTSP 一样进入视频错误状态。
 - 离线训练记录只保存本地文件引用，不复制视频文件；后续回看依赖原文件仍在本机可访问。
+- 历史复盘“定位片段”仅对本地离线视频做 FFmpeg 初始 seek；RTSP/网络视频按实时源打开并提示无法自动定位。
 - ⚠️ 高风险区域：D3D11 设备是全局共享的，修改线程/生命周期要谨慎。
 - 不要在日志中直接打印未脱敏 RTSP URL。
 - `RtspStream::stop()` 等待 8 秒后会 terminate 线程，这是最后手段，修改时要考虑 FFmpeg 阻塞。

@@ -106,7 +106,7 @@ SQLite schema 在 `TrainingRepository::migrate()` 中创建，seed 数据在 `Tr
 复盘相关字段：
 
 - `key_frame_ms`: 当前动作中最低分或关键错误帧的相对训练时间。
-- `video_clip_start_ms`: 回看片段起点，当前保存为动作开始前约 1.5 秒。
+- `video_clip_start_ms`: 回看片段起点，当前保存为动作开始前约 1.5 秒；离线视频复盘会用该值请求播放器初始 seek。
 - `video_clip_end_ms`: 回看片段终点，当前保存为动作结束后约 1.5 秒。
 
 #### `athlete_action_baselines`
@@ -148,7 +148,9 @@ SQLite schema 在 `TrainingRepository::migrate()` 中创建，seed 数据在 `Tr
 
 ## 查询入口
 
-训练历史通过 `TrainingRepository::recentSessions()` 查询；动作明细通过 `repetitionsForSession()` 查询；教练批注通过 `saveCoachComment()` 更新；个体基线通过 `baselineFor()` 查询。
+训练历史通过 `TrainingRepository::recentSessions()` 查询；动作明细通过 `repetitionsForSession()` 查询；最近 7/30 天趋势通过 `trendForRecentDays()` 聚合 `training_sessions` 和 `action_repetitions` 查询；教练批注通过 `saveCoachComment()` 更新；个体基线通过 `baselineFor()` 查询。
+
+`trendForRecentDays()` 不新增表或列。统计窗口使用 `training_sessions.saved_at`；训练次数、平均分和最佳分来自 `training_sessions`；动作完成数和弱项分项均值优先来自 `action_repetitions`，旧数据没有动作明细时退回 session 汇总字段。
 
 相关文件：
 

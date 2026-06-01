@@ -14,6 +14,7 @@
 - 用户点击开始采集。
 - 用户在主视频标题栏点击“导入视频”并选择本地文件。
 - 用户双击某个摄像头小窗切换主视图。
+- 用户在训练历史复盘卡点击“回看视频”或“定位片段”。
 - `applyCameraSettingsToWidgets(true)` 恢复播放。
 
 ## 流程步骤
@@ -32,6 +33,13 @@
 2. `showOfflineVideoInMainView()` 将主视图来源切到“离线视频 · 文件名”，调用 `VideoOpenGLWidget::playFile()`。
 3. `m_selectedCamera` 设为 0，摄像头小窗取消选中；开始采集时保持离线视频为主分析源。
 4. 离线模式下不会启动 12 路 RTSP 预览，避免离线复盘时额外占用解码资源。
+
+历史复盘路径：
+
+1. `MainWindow::openSessionVideo()` 读取 `training_sessions.video_source`，为空时回退 `video_fallback_source`。
+2. 本地离线视频会先检查文件是否仍存在；存在时调用 `VideoOpenGLWidget::playFile(filePath, videoClipStartMs)`。
+3. `RtspStream` 在打开本地文件、读取视频轨道后用 `av_seek_frame()` 尝试跳到 `video_clip_start_ms`，再进入 D3D11VA 解码。
+4. RTSP/网络视频不会执行自动 seek，只打开保存的视频源并在主界面提示片段起点可人工参考。
 
 ## 涉及文件
 
@@ -56,11 +64,14 @@
 - 解码器不支持 D3D11VA 时设置 fatal error。
 - 主码流遇到 D3D11/硬解相关错误时，主视图尝试回退预览码流。
 - 本地文件不存在时视频控件显示“文件不存在”。
+- 历史复盘引用的离线文件不存在时，回看会停止主播放器、切回采集页并提示恢复原文件或重新导入。
+- RTSP/网络视频定位片段时提示不支持自动定位，不把该情况视为播放错误。
 - 离线视频文件被移动或删除后，开始采集会提示重新导入。
 
 ## 边界情况
 
 - 同一 URL 被多个控件使用时，`StreamRegistry` 会复用同一个 `RtspStream`。
+- 带 `videoClipStartMs` 的本地文件回看会创建独立 `RtspStream`，避免 seek 影响共享播放流。
 - 暂停播放会释放控件持有的流引用，不是向 `RtspStream` 发送 pause。
 - 没有控件引用后，共享流会随 `shared_ptr` 生命周期结束。
-- 离线视频暂停后再次开始会重新打开文件，当前 v1 不保存播放进度或自动 seek。
+- 离线视频暂停后再次开始会重新打开文件；普通播放不保存进度，历史复盘“定位片段”只在打开时按保存的片段起点做一次初始 seek。

@@ -10,14 +10,22 @@
 1. 打开 Visual Studio 2022 x64 Native Tools 环境。
 2. 确认 Qt 路径为 `C:/Qt/6.7.3/msvc2022_64`。
 3. 在项目根目录运行 qmake。
-4. 使用 `nmake` 构建。
-5. 运行 `x64/Debug/iskating.exe` 或 `x64/Release/iskating.exe`。
+4. 默认使用 `nmake release` 构建 Release 版本。
+5. 默认运行 `x64/Release/iskating.exe`；只有需要调试符号和 Debug DLL 时才构建/运行 Debug。
 
 示例：
 
 ```powershell
-& "C:/Qt/6.7.3/msvc2022_64/bin/qmake.exe" mainwindow.pro
-nmake
+& "C:/Qt/6.7.3/msvc2022_64/bin/qmake.exe" mainwindow.pro "CONFIG+=release"
+nmake release
+.\x64\Release\iskating.exe
+```
+
+Debug 示例：
+
+```powershell
+& "C:/Qt/6.7.3/msvc2022_64/bin/qmake.exe" mainwindow.pro "CONFIG+=debug"
+nmake debug
 .\x64\Debug\iskating.exe
 ```
 

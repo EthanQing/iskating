@@ -29,6 +29,7 @@
 - `installTrajectoryWidget()` 用 `TrajectoryWidget` 替换原轨迹占位控件。
 - `installMetricBars()` 动态插入分项评分进度条。
 - 历史记录和建议卡片在 `refreshHistory()` / `refreshSuggestions()` 中动态生成。
+- 训练趋势 v1 在建议页复用 `suggestionCard` 动态卡片样式，展示最近 7/30 天训练次数、平均分、最佳分、动作完成数和弱项变化摘要。
 - 主视频标题栏运行时插入“导入视频”按钮，入口连接到 `MainWindow::importOfflineVideo()`，不直接改 `mainwindow.ui`。
 - 左侧导航栏必须由 `mainwindow.ui` 中的 `QFrame#sidebar` 承载，折叠/展开只操作这个真实容器。
 - 顶部图标按钮和右侧操作栏使用固定宽度，悬浮时只改变固定区域内的视觉状态，不通过 `setText()` 改变布局宽度。

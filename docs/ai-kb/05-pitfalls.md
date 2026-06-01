@@ -42,9 +42,13 @@
 
 离线视频导入也复用这条硬解链路，不是软件解码 fallback；本地文件如果编码不支持 D3D11VA，仍会播放/分析失败。
 
+历史复盘“定位片段”只对本地离线视频做打开时的初始 seek；RTSP/网络视频没有通用 DVR seek 能力，只能打开保存的视频源并提示片段起点供人工参考。离线文件若被移动或删除，复盘摘要仍保留，但回看无法播放，需要恢复原文件或重新导入。
+
 相关文件：
 
 - `rtspstream.cpp`
+- `videoopenglwidget.cpp`
+- `mainwindow.cpp`
 - `d3d11videodevice.cpp`
 - `d3dvideosurface.cpp`
 
