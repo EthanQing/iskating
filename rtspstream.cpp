@@ -64,6 +64,37 @@ QString formatMilliseconds(qint64 milliseconds)
         .arg((clamped % 1000) / 100, 1, 10, QLatin1Char('0'));
 }
 
+bool isRealtimeRtspSource(const QString &source)
+{
+    return source.startsWith(QStringLiteral("rtsp://"), Qt::CaseInsensitive);
+}
+
+qint64 mediaDurationMs(const AVFormatContext *format)
+{
+    if (!format || format->duration == AV_NOPTS_VALUE || format->duration <= 0) {
+        return -1;
+    }
+    return av_rescale_q(format->duration, AVRational{1, AV_TIME_BASE}, AVRational{1, 1000});
+}
+
+qint64 frameMediaTimeMs(const AVFrame *frame, const AVStream *stream)
+{
+    if (!frame || !stream) {
+        return -1;
+    }
+    int64_t timestamp = frame->best_effort_timestamp;
+    if (timestamp == AV_NOPTS_VALUE) {
+        timestamp = frame->pts;
+    }
+    if (timestamp == AV_NOPTS_VALUE) {
+        return -1;
+    }
+    if (stream->start_time != AV_NOPTS_VALUE) {
+        timestamp -= stream->start_time;
+    }
+    return std::max<qint64>(0, av_rescale_q(timestamp, stream->time_base, AVRational{1, 1000}));
+}
+
 enum AVPixelFormat d3d11GetFormat(AVCodecContext *, const enum AVPixelFormat *formats)
 {
     for (const enum AVPixelFormat *fmt = formats; *fmt != AV_PIX_FMT_NONE; ++fmt) {
@@ -205,6 +236,10 @@ void RtspStream::stop()
         m_thread = nullptr;
     }
     setLatestFrame({});
+    {
+        QMutexLocker locker(&m_mutex);
+        m_positionMs = -1;
+    }
     setState(State::Stopped, QStringLiteral("已停止"));
 }
 
@@ -212,6 +247,29 @@ void RtspStream::pause(bool paused)
 {
     m_paused = paused;
     setState(paused ? State::Idle : State::Playing, paused ? QStringLiteral("已暂停") : QStringLiteral("播放中"));
+}
+
+void RtspStream::seekTo(qint64 positionMs)
+{
+    if (!isSeekable()) {
+        return;
+    }
+    m_pendingSeekMs = std::max<qint64>(0, positionMs);
+    m_paused = false;
+}
+
+void RtspStream::setPlaybackRate(double rate)
+{
+    m_playbackRate = std::clamp(rate, 0.1, 4.0);
+}
+
+void RtspStream::stepForward()
+{
+    if (!isSeekable()) {
+        return;
+    }
+    m_pendingStepFrames.fetch_add(1);
+    m_paused = false;
 }
 
 QString RtspStream::url() const
@@ -235,6 +293,24 @@ QString RtspStream::lastError() const
 {
     QMutexLocker locker(&m_mutex);
     return m_lastError;
+}
+
+qint64 RtspStream::positionMs() const
+{
+    QMutexLocker locker(&m_mutex);
+    return m_positionMs;
+}
+
+qint64 RtspStream::durationMs() const
+{
+    QMutexLocker locker(&m_mutex);
+    return m_durationMs;
+}
+
+bool RtspStream::isSeekable() const
+{
+    QMutexLocker locker(&m_mutex);
+    return m_seekable;
 }
 
 std::shared_ptr<D3DFrame> RtspStream::latestFrame() const
@@ -296,6 +372,9 @@ void RtspStream::setFatalError(const QString &message)
 void RtspStream::setLatestFrame(std::shared_ptr<D3DFrame> frame)
 {
     QMutexLocker locker(&m_mutex);
+    if (frame && frame->mediaTimeMs >= 0) {
+        m_positionMs = frame->mediaTimeMs;
+    }
     m_latestFrame = std::move(frame);
 }
 
@@ -362,6 +441,13 @@ bool RtspStream::openAndDecodeOnce()
     }
 
     AVStream *stream = format->streams[streamIndex];
+    const bool seekableSource = !isRealtimeRtspSource(ffmpegSource);
+    {
+        QMutexLocker locker(&m_mutex);
+        m_seekable = seekableSource;
+        m_durationMs = seekableSource ? mediaDurationMs(format.get()) : -1;
+        m_positionMs = -1;
+    }
     QString initialSeekStatus;
     if (m_initialSeekMs > 0) {
         if (ffmpegSource.startsWith(QStringLiteral("rtsp://"), Qt::CaseInsensitive)) {
@@ -446,9 +532,51 @@ bool RtspStream::openAndDecodeOnce()
              << "codec=" << codec->name
              << "size=" << codecContext->width << "x" << codecContext->height;
 
+    qint64 lastMediaTimeMs = -1;
+    auto lastWallClock = std::chrono::steady_clock::now();
+    auto performSeek = [&](qint64 targetMs) {
+        if (!seekableSource || targetMs < 0) {
+            return;
+        }
+        const AVRational millisecondTimeBase = {1, 1000};
+        qint64 targetTimestamp = av_rescale_q(targetMs, millisecondTimeBase, stream->time_base);
+        if (stream->start_time != AV_NOPTS_VALUE) {
+            targetTimestamp += stream->start_time;
+        }
+        const int seekRc = av_seek_frame(format.get(), streamIndex, targetTimestamp, AVSEEK_FLAG_BACKWARD);
+        if (seekRc < 0) {
+            setState(State::Error, QStringLiteral("定位失败：%1").arg(avError(seekRc)));
+            return;
+        }
+        avcodec_flush_buffers(codecContext.get());
+        lastMediaTimeMs = -1;
+        lastWallClock = std::chrono::steady_clock::now();
+        {
+            QMutexLocker locker(&m_mutex);
+            m_positionMs = std::max<qint64>(0, targetMs);
+            m_latestFrame.reset();
+        }
+        setState(State::Playing, QStringLiteral("已定位到 %1").arg(formatMilliseconds(targetMs)));
+    };
+
     while (!m_stopRequested) {
         if (m_paused) {
+            const qint64 pendingSeek = m_pendingSeekMs.exchange(-1);
+            if (pendingSeek >= 0) {
+                performSeek(pendingSeek);
+                continue;
+            }
+            if (m_pendingStepFrames.load() > 0) {
+                m_paused = false;
+                continue;
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            continue;
+        }
+
+        const qint64 pendingSeek = m_pendingSeekMs.exchange(-1);
+        if (pendingSeek >= 0) {
+            performSeek(pendingSeek);
             continue;
         }
 
@@ -486,10 +614,29 @@ bool RtspStream::openAndDecodeOnce()
                 return false;
             }
 
-            auto d3dFrame = D3DFrame::fromAvFrame(frame.get());
+            const qint64 mediaTimeMs = frameMediaTimeMs(frame.get(), stream);
+            if (seekableSource && mediaTimeMs >= 0 && lastMediaTimeMs >= 0 && mediaTimeMs > lastMediaTimeMs) {
+                const double rate = std::max(0.1, m_playbackRate.load());
+                const auto targetDelay = std::chrono::milliseconds(
+                    static_cast<qint64>((mediaTimeMs - lastMediaTimeMs) / rate));
+                const auto elapsed = std::chrono::steady_clock::now() - lastWallClock;
+                if (elapsed < targetDelay) {
+                    std::this_thread::sleep_for(targetDelay - elapsed);
+                }
+            }
+            lastMediaTimeMs = mediaTimeMs >= 0 ? mediaTimeMs : lastMediaTimeMs;
+            lastWallClock = std::chrono::steady_clock::now();
+
+            auto d3dFrame = D3DFrame::fromAvFrame(frame.get(), mediaTimeMs);
             av_frame_unref(frame.get());
             if (d3dFrame) {
                 setLatestFrame(std::move(d3dFrame));
+            }
+            if (seekableSource && m_pendingStepFrames.load() > 0) {
+                m_pendingStepFrames.fetch_sub(1);
+                m_paused = true;
+                setState(State::Idle, QStringLiteral("已暂停"));
+                break;
             }
         }
     }

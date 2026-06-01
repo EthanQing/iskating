@@ -11,12 +11,12 @@
 
 ## 关键文件
 
-- `videoopenglwidget.h`: 视频控件对外接口。
-- `videoopenglwidget.cpp`: 视频源配置、播放/暂停/停止、主码流 fallback、占位绘制。
+- `videoopenglwidget.h`: 视频控件对外接口，包括本地回放 seek、倍率、逐帧和位置查询。
+- `videoopenglwidget.cpp`: 视频源配置、播放/暂停/停止、主码流 fallback、本地回放控制、占位绘制。
 - `streamregistry.h`: 按 URL 复用视频流。
 - `streamregistry.cpp`: 创建并缓存 `RtspStream`。
-- `rtspstream.h`: 视频流状态和帧读取接口。
-- `rtspstream.cpp`: FFmpeg 打开输入、D3D11VA 解码、UDP/TCP RTSP 重试和重连。
+- `rtspstream.h`: 视频流状态、帧读取和本地回放控制接口。
+- `rtspstream.cpp`: FFmpeg 打开输入、D3D11VA 解码、UDP/TCP RTSP 重试和重连；本地文件按 PTS 控速并支持 seek、倍率和单帧步进。
 - `d3d11videodevice.cpp`: 全局 D3D11 设备和 FFmpeg hw device。
 - `d3dframe.h`: D3D11 硬件帧封装。
 - `d3dvideosurface.cpp`: D3D11 swap chain、shader、视频渲染和骨架叠加。
@@ -31,6 +31,8 @@
 - 解码必须输出 `AV_PIX_FMT_D3D11`，否则视为 fatal error。
 - `D3DVideoSurface` 负责把最新 `D3DFrame` 显示到 Qt 控件。
 - `HandAnalysisManager` 用 `D3DFrameExtractor` 从活动主视图帧转 RGB。
+- 本地文件回放使用独立 `RtspStream`，不经过 `StreamRegistry` 共享；RTSP/网络源继续走共享低延迟流。
+- `D3DFrame::mediaTimeMs` 保存媒体时间戳，供 UI 查询当前位置、片段定位和逐帧回放使用。
 
 ## 对外接口
 
@@ -41,6 +43,12 @@
 - `playMainUrlWithFallback(mainUrl, fallbackUrl)`
 - `playFile(filePath)`
 - `playFile(filePath, startPositionMs)`
+- `seekTo(positionMs)`
+- `setPlaybackRate(rate)`
+- `stepForward()`
+- `positionMs()`
+- `durationMs()`
+- `isSeekable()`
 - `pausePlayback()`
 - `stopPlayback()`
 - `activeStream()`
@@ -72,12 +80,18 @@
 2. 选中离线视频后 `m_selectedCamera` 为 0，开始采集不会切回 CAM 01，也不会启动 12 路 RTSP 预览。
 3. 保存训练记录时 `video_source` 写入本地文件绝对路径，`video_camera_name` 写入“离线视频 · 文件名”。
 
+### 调整本地复盘回放
+
+1. 本地文件的 seek、慢放和逐帧能力在 `RtspStream` 内实现，UI 只通过 `VideoOpenGLWidget` 调用。
+2. 新增控制前先判断 `isSeekable()`，避免把 RTSP 当作可随机访问媒体。
+3. 片段定位应使用动作的有效起止时间或 `video_clip_start_ms/end_ms`，旧记录缺失时回退到动作开始时间。
+
 ## 注意事项
 
 - ⚠️ 高风险区域：当前没有通用软件解码 fallback。
 - 离线视频仍要求解码器支持 D3D11VA；不兼容编码会像 RTSP 一样进入视频错误状态。
 - 离线训练记录只保存本地文件引用，不复制视频文件；后续回看依赖原文件仍在本机可访问。
-- 历史复盘“定位片段”仅对本地离线视频做 FFmpeg 初始 seek；RTSP/网络视频按实时源打开并提示无法自动定位。
+- 历史复盘的精确 seek、慢放和逐帧仅对本地离线视频可用；RTSP/网络视频按实时源打开并提示片段时间，保持低延迟播放路径不变。
 - ⚠️ 高风险区域：D3D11 设备是全局共享的，修改线程/生命周期要谨慎。
 - 不要在日志中直接打印未脱敏 RTSP URL。
 - `RtspStream::stop()` 等待 8 秒后会 terminate 线程，这是最后手段，修改时要考虑 FFmpeg 阻塞。

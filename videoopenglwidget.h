@@ -34,6 +34,12 @@ public:
     void playFile(const QString &filePath, qint64 startPositionMs);
     void pausePlayback();
     void stopPlayback();
+    void seekTo(qint64 positionMs);
+    void setPlaybackRate(double rate);
+    void stepForward();
+    qint64 positionMs() const;
+    qint64 durationMs() const;
+    bool isSeekable() const;
     QString currentVideoPath() const;
 
     QString placeholderText() const;

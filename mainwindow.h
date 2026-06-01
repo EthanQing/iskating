@@ -101,6 +101,8 @@ private:
     void refreshHistory();
     void refreshSuggestions();
     void openSessionVideo(const SessionHistoryItem &record, int offsetMs = 0);
+    void openTrainingReview(const SessionHistoryItem &record);
+    void editActionStandard();
     void editCoachComment(const QString &sessionId);
     void exportTrainingReport(const QString &sessionId);
     void refreshSidebarButton();

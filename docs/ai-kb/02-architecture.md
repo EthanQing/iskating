@@ -2,7 +2,7 @@
 
 上级入口：[[00-index|AI 知识库索引]]
 相关文档：[[01-project-overview|项目概览]]、[[04-conventions|代码约定]]、[[05-pitfalls|坑点]]
-相关模块：[[modules/core|应用核心]]、[[modules/video-streaming|视频流]]、[[modules/ai-inference|AI 推理]]、[[modules/pose-analysis|姿态分析]]、[[modules/background-workers|后台线程]]
+相关模块：[[modules/core|应用核心]]、[[modules/video-streaming|视频流]]、[[modules/ai-inference|AI 推理]]、[[modules/pose-analysis|姿态分析]]、[[modules/persistence|本地持久化]]、[[modules/background-workers|后台线程]]
 相关流程：[[flows/video-streaming-flow|视频播放流程]]、[[flows/pose-analysis-flow|姿态分析流程]]、[[flows/training-record-flow|训练记录流程]]
 
 ## 前端架构
@@ -34,15 +34,17 @@
 
 ## 数据层架构
 
-项目没有 SQL 数据库、Prisma、Drizzle 或 ORM。当前持久化使用 `QSettings`：
+项目没有独立服务端或 ORM。当前本地持久化分两层：
 
-- 摄像头公共配置：`cameraDefaults/*`
-- 采集偏好：`capture/modelPrecision`, `capture/fps`
-- 每路摄像头：`cameras/camera01` 到 `cameras/camera12`
-- 训练历史数组：`trainingHistory`
+- Qt `QSettings`: 摄像头公共配置、每路摄像头 URL、采集偏好，继续兼容旧 key。
+- SQLite `QSQLITE`: 训练业务数据，当前 schema v3，保存运动员/教练、动作标准、训练计划任务、训练 session、动作实例、人工复核、标准参考视频和个体基线。
+
+`TrainingRepository::open()` 在启动时完成建表、增量补列、默认种子数据和旧 `QSettings/trainingHistory` 迁移。动作标准 seed 只初始化缺失项，不覆盖本地编辑后的阈值、权重、提示或参考视频。
 
 相关文件：
 
+- `trainingdomain.h`
+- `trainingrepository.cpp`
 - `mainwindow.cpp`
 - `systemsettingsdialog.cpp`
 - `main.cpp`
@@ -76,6 +78,7 @@
 6. `HandAnalysisManager` 订阅主视图活动流，将最新帧转成 RGB。
 7. `TensorRtBodyPoseBackend` 做 YOLOv8n-pose 2D 推理，并尽量追加 RTMW3D 3D 输出。
 8. `MainWindow` 将结果叠加到主视频、更新骨架/轨迹、计算评分和动作次数。
+9. 保存训练后，SQLite 记录 AI 原始动作实例和关键帧姿态 JSON；历史页可打开独立复盘校准对话框做本地回放、人工复核、手动新增动作、标准参考视频对比和 Markdown/CSV/PDF 报告导出。
 
 相关文件：
 
@@ -95,6 +98,7 @@
 - `StreamRegistry` 通过 URL 复用 `RtspStream`，避免同一 URL 被重复解码。
 - `TensorRtBodyPoseBackend` 依赖 `TensorRtRunner`，并组合 `TensorRtRtmw3dBackend`。
 - `PoseStandardnessScorer` 只依赖 `PoseFrameResult`，负责分项评分与反馈文案。
+- `TrainingRepository` 是训练数据边界，所有人工复核、动作标准编辑、session 汇总重算和基线刷新都应通过它完成。
 
 ## 架构关键点
 

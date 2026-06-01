@@ -1,11 +1,11 @@
 #ifndef ACTIONSTANDARDSCORER_H
 #define ACTIONSTANDARDSCORER_H
 
+#include "poseresult.h"
 #include "trainingdomain.h"
 
 #include <QStringList>
 
-struct PoseFrameResult;
 struct PoseStandardnessResult;
 
 class ActionStandardScorer
@@ -27,8 +27,8 @@ public:
                 ActionRepetition *completedRepetition);
 
 private:
-    void beginRepetition(int relativeMs, const ActionAssessment &assessment);
-    void accumulate(int relativeMs, const ActionAssessment &assessment);
+    void beginRepetition(int relativeMs, const PoseFrameResult &poseFrame, const ActionAssessment &assessment);
+    void accumulate(int relativeMs, const PoseFrameResult &poseFrame, const ActionAssessment &assessment);
     ActionRepetition complete(int relativeMs, const ActionAssessment &assessment);
 
     ActionStandard m_standard;
@@ -44,6 +44,7 @@ private:
     int m_depthSum = 0;
     int m_lowestScore = 101;
     int m_keyFrameMs = 0;
+    PoseFrameResult m_keyFramePoseFrame;
     QString m_feedback;
     QStringList m_issueTitles;
     qint64 m_lastCompletedMsec = 0;

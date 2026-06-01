@@ -33,7 +33,7 @@ message("Current qmake Qt prefix=$$[QT_INSTALL_PREFIX]")
 
 include(common.pri)
 
-QT += core gui widgets svg sql
+QT += core gui widgets svg sql printsupport
 
 FFMPEG_ROOT = $$(FFMPEG_ROOT)
 isEmpty(FFMPEG_ROOT) {
@@ -131,6 +131,7 @@ SOURCES += \
     tensorrtrtmw3dbackend.cpp \
     tensorrtrunner.cpp \
     trajectorywidget.cpp \
+    trainingreviewdialog.cpp \
     trainingrepository.cpp \
     videoopenglwidget.cpp
 
@@ -155,6 +156,7 @@ HEADERS += \
     tensorrtrunner.h \
     trajectorywidget.h \
     trainingdomain.h \
+    trainingreviewdialog.h \
     trainingrepository.h \
     videoopenglwidget.h
 

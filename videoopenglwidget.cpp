@@ -139,6 +139,15 @@ bool VideoOpenGLWidget::isPlaying() const
 void VideoOpenGLWidget::setPlaying(bool playing)
 {
     if (playing) {
+        if (m_stream) {
+            m_stream->pause(false);
+            m_playing = true;
+            m_statusText = QStringLiteral("播放中");
+            m_renderTimer->start();
+            notifyStreamChanged();
+            update();
+            return;
+        }
         playDefaultVideo();
     } else {
         stopPlayback();
@@ -180,12 +189,11 @@ void VideoOpenGLWidget::playFile(const QString &filePath, qint64 startPositionMs
 
 void VideoOpenGLWidget::pausePlayback()
 {
-    m_stream.reset();
+    if (m_stream) {
+        m_stream->pause(true);
+    }
     m_playing = false;
     m_statusText = QStringLiteral("已暂停");
-    m_renderTimer->stop();
-    m_videoSurface->setPoseFrame({});
-    m_videoSurface->hide();
     notifyStreamChanged();
     update();
 }
@@ -204,6 +212,48 @@ void VideoOpenGLWidget::stopPlayback()
     m_videoSurface->hide();
     notifyStreamChanged();
     update();
+}
+
+void VideoOpenGLWidget::seekTo(qint64 positionMs)
+{
+    if (!m_stream || !m_stream->isSeekable()) {
+        return;
+    }
+    m_stream->seekTo(positionMs);
+    m_playing = true;
+    m_renderTimer->start();
+    notifyStreamChanged();
+}
+
+void VideoOpenGLWidget::setPlaybackRate(double rate)
+{
+    if (m_stream) {
+        m_stream->setPlaybackRate(rate);
+    }
+}
+
+void VideoOpenGLWidget::stepForward()
+{
+    if (!m_stream || !m_stream->isSeekable()) {
+        return;
+    }
+    m_stream->stepForward();
+    m_renderTimer->start();
+}
+
+qint64 VideoOpenGLWidget::positionMs() const
+{
+    return m_stream ? m_stream->positionMs() : -1;
+}
+
+qint64 VideoOpenGLWidget::durationMs() const
+{
+    return m_stream ? m_stream->durationMs() : -1;
+}
+
+bool VideoOpenGLWidget::isSeekable() const
+{
+    return m_stream && m_stream->isSeekable();
 }
 
 QString VideoOpenGLWidget::currentVideoPath() const
@@ -387,7 +437,7 @@ void VideoOpenGLWidget::attachStream(const QString &source, const QString &fallb
              << (m_channelName.isEmpty() ? objectName() : m_channelName)
              << safeUrlForLog(normalizedSource);
     const qint64 initialSeekMs = std::max<qint64>(0, startPositionMs);
-    if (initialSeekMs > 0 && !hasUrlScheme(normalizedSource)) {
+    if (!hasUrlScheme(normalizedSource)) {
         auto stream = std::make_shared<RtspStream>(normalizedSource, initialSeekMs);
         stream->start();
         m_stream = std::move(stream);
@@ -650,7 +700,7 @@ QToolButton:pressed {
         qDebug() << "[VideoOpenGLWidget] play button clicked"
                  << (m_channelName.isEmpty() ? objectName() : m_channelName)
                  << safeUrlForLog(previewUrl());
-        playDefaultVideo();
+        setPlaying(true);
     });
     connect(m_pauseButton, &QToolButton::clicked, this, [this]() {
         qDebug() << "[VideoOpenGLWidget] pause button clicked" << (m_channelName.isEmpty() ? objectName() : m_channelName);

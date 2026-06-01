@@ -3,6 +3,9 @@
 #include "poseresult.h"
 #include "posestandardnessscorer.h"
 
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLineF>
 #include <QtMath>
 
@@ -81,6 +84,50 @@ ActionIssue issueForMetric(const QString &title,
     issue.correction = correction;
     issue.priority = priority;
     return issue;
+}
+
+QString poseFrameToJson(const PoseFrameResult &frame)
+{
+    QJsonObject root;
+    root.insert(QStringLiteral("cameraId"), frame.cameraId);
+    root.insert(QStringLiteral("timestampMs"), QString::number(frame.timestampMs));
+    root.insert(QStringLiteral("width"), frame.frameSize.width());
+    root.insert(QStringLiteral("height"), frame.frameSize.height());
+    root.insert(QStringLiteral("skeletonType"), static_cast<int>(frame.skeletonType));
+    root.insert(QStringLiteral("sourceName"), frame.sourceName);
+
+    QJsonArray instances;
+    for (const PoseInstance &instance : frame.instances) {
+        QJsonObject instanceObject;
+        instanceObject.insert(QStringLiteral("trackId"), instance.trackId);
+        instanceObject.insert(QStringLiteral("skeletonType"), static_cast<int>(instance.skeletonType));
+        instanceObject.insert(QStringLiteral("kind"), static_cast<int>(instance.kind));
+        instanceObject.insert(QStringLiteral("confidence"), instance.confidence);
+        instanceObject.insert(QStringLiteral("x"), instance.box.x());
+        instanceObject.insert(QStringLiteral("y"), instance.box.y());
+        instanceObject.insert(QStringLiteral("w"), instance.box.width());
+        instanceObject.insert(QStringLiteral("h"), instance.box.height());
+
+        QJsonArray keypoints;
+        for (const PoseKeypoint &keypoint : instance.keypoints) {
+            QJsonObject keypointObject;
+            keypointObject.insert(QStringLiteral("index"), keypoint.index);
+            keypointObject.insert(QStringLiteral("name"), keypoint.name);
+            keypointObject.insert(QStringLiteral("x"), keypoint.imagePoint.x());
+            keypointObject.insert(QStringLiteral("y"), keypoint.imagePoint.y());
+            keypointObject.insert(QStringLiteral("x3"), keypoint.point3d.x());
+            keypointObject.insert(QStringLiteral("y3"), keypoint.point3d.y());
+            keypointObject.insert(QStringLiteral("z3"), keypoint.point3d.z());
+            keypointObject.insert(QStringLiteral("confidence"), keypoint.confidence);
+            keypointObject.insert(QStringLiteral("valid"), keypoint.valid);
+            keypointObject.insert(QStringLiteral("hasPoint3d"), keypoint.hasPoint3d);
+            keypoints.append(keypointObject);
+        }
+        instanceObject.insert(QStringLiteral("keypoints"), keypoints);
+        instances.append(instanceObject);
+    }
+    root.insert(QStringLiteral("instances"), instances);
+    return QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Compact));
 }
 
 } // namespace
@@ -185,6 +232,7 @@ void ActionRepetitionTracker::clear()
     m_depthSum = 0;
     m_lowestScore = 101;
     m_keyFrameMs = 0;
+    m_keyFramePoseFrame = {};
     m_feedback.clear();
     m_issueTitles.clear();
 }
@@ -206,12 +254,12 @@ bool ActionRepetitionTracker::update(const PoseFrameResult &poseFrame,
 
     const int relativeMs = std::max<qint64>(0, nowMsec - sessionStartMsec);
     if (!m_armed && kneeBend > m_standard.armThreshold) {
-        beginRepetition(relativeMs, assessment);
+        beginRepetition(relativeMs, poseFrame, assessment);
         return false;
     }
 
     if (m_armed) {
-        accumulate(relativeMs, assessment);
+        accumulate(relativeMs, poseFrame, assessment);
     }
 
     if (m_armed && kneeBend < m_standard.releaseThreshold) {
@@ -231,15 +279,19 @@ bool ActionRepetitionTracker::update(const PoseFrameResult &poseFrame,
     return false;
 }
 
-void ActionRepetitionTracker::beginRepetition(int relativeMs, const ActionAssessment &assessment)
+void ActionRepetitionTracker::beginRepetition(int relativeMs,
+                                              const PoseFrameResult &poseFrame,
+                                              const ActionAssessment &assessment)
 {
     clear();
     m_armed = true;
     m_startedMs = relativeMs;
-    accumulate(relativeMs, assessment);
+    accumulate(relativeMs, poseFrame, assessment);
 }
 
-void ActionRepetitionTracker::accumulate(int relativeMs, const ActionAssessment &assessment)
+void ActionRepetitionTracker::accumulate(int relativeMs,
+                                         const PoseFrameResult &poseFrame,
+                                         const ActionAssessment &assessment)
 {
     ++m_frameCount;
     m_scoreSum += assessment.score;
@@ -251,6 +303,7 @@ void ActionRepetitionTracker::accumulate(int relativeMs, const ActionAssessment 
     if (assessment.score < m_lowestScore) {
         m_lowestScore = assessment.score;
         m_keyFrameMs = relativeMs;
+        m_keyFramePoseFrame = poseFrame;
         m_feedback = assessment.feedback;
     }
     for (const ActionIssue &issue : assessment.issues) {
@@ -263,7 +316,7 @@ void ActionRepetitionTracker::accumulate(int relativeMs, const ActionAssessment 
 ActionRepetition ActionRepetitionTracker::complete(int relativeMs, const ActionAssessment &assessment)
 {
     if (m_frameCount <= 0) {
-        accumulate(relativeMs, assessment);
+        accumulate(relativeMs, m_keyFramePoseFrame, assessment);
     }
 
     const int denominator = std::max(1, m_frameCount);
@@ -282,5 +335,6 @@ ActionRepetition ActionRepetitionTracker::complete(int relativeMs, const ActionA
     repetition.errorCodes = m_issueTitles.join(QStringLiteral("|"));
     repetition.feedback = m_feedback.trimmed().isEmpty() ? assessment.feedback : m_feedback;
     repetition.keyFrameMs = m_keyFrameMs;
+    repetition.keyFramePoseJson = poseFrameToJson(m_keyFramePoseFrame);
     return repetition;
 }

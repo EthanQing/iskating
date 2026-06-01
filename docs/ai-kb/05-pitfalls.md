@@ -42,7 +42,7 @@
 
 离线视频导入也复用这条硬解链路，不是软件解码 fallback；本地文件如果编码不支持 D3D11VA，仍会播放/分析失败。
 
-历史复盘“定位片段”只对本地离线视频做打开时的初始 seek；RTSP/网络视频没有通用 DVR seek 能力，只能打开保存的视频源并提示片段起点供人工参考。离线文件若被移动或删除，复盘摘要仍保留，但回看无法播放，需要恢复原文件或重新导入。
+历史复盘的精确 seek、慢放、逐帧和关键帧定位只对本地离线视频可用；RTSP/网络视频没有通用 DVR seek 能力，只能打开保存的视频源并提示片段起点供人工参考。离线文件若被移动或删除，复盘摘要仍保留，但回看无法播放，需要恢复原文件或重新导入。
 
 相关文件：
 
@@ -79,11 +79,17 @@
 
 ## 数据库/迁移坑点
 
-项目没有数据库迁移。历史记录和相机配置使用 `QSettings`，字段变化要兼容旧 key。
+项目没有独立迁移命令。`TrainingRepository::open()` 会在启动时执行 schema v3 建表、`ensureColumn()` 补列、seed 和旧 `QSettings/trainingHistory` 迁移。新增字段必须同时更新建表 SQL、补列、读取、写入和旧数据默认值。
+
+动作标准 seed 只应插入缺失项，不能覆盖用户本地维护的阈值、权重、提示文案或参考视频路径。`saveActionStandard()` 会递增标准版本，复盘参考视频这类编辑也会形成新版本。
+
+人工复核字段采用“人工优先、AI 原始保留”的读取约定。历史页、建议页、报告和基线重算应通过 `TrainingRepository` 的 effective 数据路径，避免直接读 AI 原始分造成展示不一致。
 
 相关文件：
 
 - `mainwindow.cpp`
+- `trainingrepository.cpp`
+- `trainingdomain.h`
 
 ## 认证/权限坑点
 
@@ -97,9 +103,10 @@
 ## 构建或部署坑点
 
 - Release 构建才调用 `windeployqt`，Debug 是否完整部署需要本机验证。
-- `mainwindow.pro` 会复制 FFmpeg/TensorRT/CUDA DLL 和 `models/` 到输出目录。
+- `mainwindow.pro` 会复制 FFmpeg/TensorRT/CUDA DLL、Qt SQL driver、`Qt6PrintSupport.dll` 和 `models/` 到输出目录。
 - `models/body/rtmw3d-x.onnx` 很大且被 `.gitignore` 忽略，缺失时 RTMW3D 会不可用，但 2D 姿态仍可初始化。
 - 如果 `x64/Release/iskating.exe` 正在运行，Release 构建复制 FFmpeg DLL 时会失败并提示文件被占用；先关闭该进程再重新构建。
+- 在普通 PowerShell 中可能没有 `nmake`，Release 构建前需要通过 Visual Studio `vcvars64.bat` 初始化 MSVC 环境。
 
 ## UI 布局坑点
 
@@ -110,4 +117,4 @@
 
 ## 测试坑点
 
-TODO: 当前没有测试目录和测试命令。修改核心逻辑后至少应做手动启动、采集、保存记录和模型加载验证。
+TODO: 当前没有测试目录和测试命令。修改核心逻辑后至少应做手动启动、采集、保存记录、复盘校准、导出报告和模型加载验证。

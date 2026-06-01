@@ -7,14 +7,15 @@
 
 ## 作用
 
-负责保存和读取摄像头配置、采集偏好、训练业务数据。摄像头与采集偏好仍使用 Qt `QSettings`；训练动作标准闭环和训练复盘 v1 已迁移到本地 SQLite。
+负责保存和读取摄像头配置、采集偏好、训练业务数据。摄像头与采集偏好仍使用 Qt `QSettings`；训练动作标准、训练复盘校准和报告数据使用本地 SQLite，当前 schema v3。
 
 ## 关键文件
 
 - `main.cpp`: 设置 `QApplication` applicationName 和 organizationName。
-- `mainwindow.cpp`: 读写摄像头配置、训练上下文、训练历史/复盘卡、训练报告导出和采集偏好。
+- `mainwindow.cpp`: 读写摄像头配置、训练上下文、训练历史/复盘卡、动作标准编辑、训练报告导出和采集偏好。
 - `trainingdomain.h`: 训练领域结构，包括运动员、教练、动作标准、训练 session、动作明细和训练趋势窗口。
-- `trainingrepository.cpp`: SQLite 打开、建表、增量补列、seed、旧 `trainingHistory` 迁移、训练记录保存和趋势统计查询。
+- `trainingrepository.cpp`: SQLite 打开、建表、schema v3 增量补列、seed、旧 `trainingHistory` 迁移、训练记录保存、人工复核、手动动作、动作标准保存、session 汇总重算和趋势统计查询。
+- `trainingreviewdialog.cpp`: 复盘校准对话框，读写动作复核字段和动作标准参考视频。
 - `systemsettingsdialog.h`: `SharedCameraSettings`, `CameraSlotSettings`, `CapturePreferenceSettings`。
 - `systemsettingsdialog.cpp`: 系统设置对话框读写 settings struct。
 
@@ -49,7 +50,9 @@ SQLite 主要表：
 - `training_sessions`, `action_repetitions`
 - `athlete_action_baselines`
 
-`training_sessions` 记录训练上下文、任务/计划归属、分项分、视频源引用、回退视频源、机位名称、反馈、备注和单次训练教练批注。`action_repetitions` 记录每个动作实例的起止时间、关键帧时间、视频片段起止时间、分项分、错误项和反馈；历史复盘会用本地离线视频的 `video_clip_start_ms` 做打开时的初始定位。
+`training_sessions` 记录训练上下文、任务/计划归属、分项分、视频源引用、回退视频源、机位名称、反馈、备注和单次训练教练批注。`action_repetitions` 保留 AI 原始起止时间、有效性、总分/分项分、错误项、反馈、关键帧时间和视频片段，同时保存人工复核字段：来源、复核状态、复核教练、复核时间、人工起止时间、人工有效性、人工总分/分项分、人工错误项、人工反馈、教练备注和关键帧姿态 JSON。`action_standards` 保存本地标准参考视频路径、参考动作实例和参考说明，用于复盘中的标准动作对比。
+
+复盘、趋势和报告默认使用“人工优先”的有效值：动作有人工复核时使用人工字段，否则使用 AI 原始字段。保存复核或新增手动动作后，`TrainingRepository::recalculateSessionSummary()` 会重算 `training_sessions` 汇总分、动作数和个体基线。
 
 `loadCameraSettings()` 兼容旧字段：`previewUrl`, `mainUrl`, `url`, `ip`, `port`, `path`。
 
@@ -69,9 +72,14 @@ SQLite 主要表：
 - `ensureDailyTask()`
 - `saveTrainingSession()`
 - `saveCoachComment()`
+- `reviewedRepetitionsForSession()`
+- `saveRepetitionReview()`
+- `createManualRepetition()`
+- `saveActionStandard()`
+- `recalculateSessionSummary()`
 - `recentSessions()`, `repetitionsForSession()`, `trendForRecentDays()`, `baselineFor()`
 
-`trendForRecentDays(days)` 用 `training_sessions.saved_at` 做最近 N 天窗口统计，返回训练次数、session 均分、最佳分和动作完成数；动作完成数优先来自 `action_repetitions` 数量，旧记录没有动作明细时退回 `training_sessions.total_reps`。弱项分项均值优先来自动作实例分项分，没有动作实例分项时退回 session 分项分。
+`trendForRecentDays(days)` 用 `training_sessions.saved_at` 做最近 N 天窗口统计，返回训练次数、session 均分、最佳分和动作完成数；动作完成数优先来自 `action_repetitions` 数量，旧记录没有动作明细时退回 `training_sessions.total_reps`。弱项分项均值优先来自动作实例的人工有效分项分，没有动作实例分项时退回 session 分项分。
 
 ## 常见修改任务
 
@@ -80,6 +88,7 @@ SQLite 主要表：
 1. 修改 `trainingdomain.h` 中对应 session 或 repetition struct。
 2. 在 `trainingrepository.cpp` 的建表、`ensureColumn()` 补列、读取和保存逻辑中同步字段，并考虑迁移默认值。
 3. 更新 `mainwindow.cpp` 的保存、历史和建议页展示。
+4. 如果字段影响复盘校准，更新 `trainingreviewdialog.cpp` 和报告导出。
 
 ### 增加摄像头配置字段
 
@@ -95,7 +104,8 @@ SQLite 主要表：
 - RTSP 密码会被持久化到本机设置。
 - 删除或重命名 key 会影响旧用户配置；应保留兼容读取。
 - 不再向 `trainingHistory` 写入新训练记录。
-- 视频复盘 v1 保存的是主码流/回退码流引用和动作片段时间窗口，不会录制、剪辑或复制视频文件；离线回看依赖原文件仍在本机，RTSP 回看仍依赖原视频源可访问且不支持通用自动 seek。
+- 复盘校准保存的是主码流/回退码流引用、动作片段时间窗口和关键帧姿态 JSON，不会录制、剪辑或复制视频文件；离线回看依赖原文件仍在本机，RTSP 回看仍依赖原视频源可访问且不支持通用自动 seek。
+- 默认动作标准 seed 只插入缺失项，不应覆盖用户本地编辑的阈值、权重、提示文案或参考视频。
 
 ## 相关流程
 
@@ -104,5 +114,5 @@ SQLite 主要表：
 
 ## 未确认问题
 
-- TODO: 后续是否需要 PDF/CSV/Excel 等正式训练数据导出格式；当前仅支持 Markdown 单次训练报告。
+- TODO: 未确认是否需要 Excel 或可导入第三方训练系统的专用格式；当前支持 Markdown、CSV 明细和 PDF 复盘报告。
 - TODO: 未确认 QSettings 中密码是否需要加密。

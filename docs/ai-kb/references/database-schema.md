@@ -10,7 +10,7 @@
 项目使用两类本地持久化：
 
 - Qt `QSettings`: 保存摄像头配置和采集偏好。
-- SQLite: 保存训练动作标准闭环与训练复盘 v1 的运动员、动作标准、计划任务、训练记录、动作明细、视频引用和教练批注。
+- SQLite: 保存训练动作标准闭环与训练复盘校准的运动员、动作标准、计划任务、训练记录、动作明细、视频引用、人工复核、标准参考视频和教练批注。
 
 相关文件：
 
@@ -25,7 +25,7 @@ QSettings schema 仍分散在读写代码中：
 
 - `MainWindow::loadCameraSettings()`
 - `MainWindow::persistSystemSettings()`
-SQLite schema 在 `TrainingRepository::migrate()` 中创建，seed 数据在 `TrainingRepository::seedDefaults()` 中维护。新增列通过 `TrainingRepository::ensureColumn()` 兼容已有本地数据库。
+SQLite schema 在 `TrainingRepository::migrate()` 中创建，当前版本为 v3。seed 数据在 `TrainingRepository::seedDefaults()` 中维护。新增列通过 `TrainingRepository::ensureColumn()` 兼容已有本地数据库。
 
 ## 主要数据结构
 
@@ -82,7 +82,13 @@ SQLite schema 在 `TrainingRepository::migrate()` 中创建，seed 数据在 `Tr
 
 动作类别和动作标准库。首批内置 8 个动作标准：基础外刃滑行、蹬冰伸展、压步重心转换、转体准备姿态、跳跃起跳准备、落冰控制、旋转轴线保持、步法节奏控制。
 
-`action_standards` 保存版本、目标次数/分数、组数、休息时间、膝/髋计数阈值、防抖、分项权重、分项最低分、关键阶段、关键点要求、错误项和纠正提示。
+`action_standards` 保存版本、目标次数/分数、组数、休息时间、膝/髋计数阈值、防抖、分项权重、分项最低分、关键阶段、关键点要求、错误项、纠正提示、本地参考视频路径、参考动作实例和参考说明。
+
+复盘参考字段：
+
+- `reference_video_source`: 本地标准参考视频路径或可打开的视频源。
+- `reference_repetition_id`: 可选的参考动作实例 id。
+- `reference_notes`: 标准参考说明。
 
 #### `training_plans`, `training_tasks`
 
@@ -101,13 +107,25 @@ SQLite schema 在 `TrainingRepository::migrate()` 中创建，seed 数据在 `Tr
 
 #### `action_repetitions`
 
-保存每次动作实例：开始/结束时间、有效性、总分、分项分、错误项、反馈、关键帧时间和视频片段时间窗口。
+保存每次动作实例：AI 原始开始/结束时间、有效性、总分、分项分、错误项、反馈、关键帧时间、视频片段时间窗口、人工复核字段和关键帧姿态 JSON。
 
 复盘相关字段：
 
+- `source`: `ai` 或 `manual`，区分自动识别和人工新增动作。
+- `review_status`: `unreviewed`, `reviewed`, `adjusted` 等本地复核状态。
+- `reviewed_by_coach_id`: 执行复核的教练 id。
+- `reviewed_at`: 复核保存时间。
+- `manual_start_ms`, `manual_end_ms`: 人工修正后的动作起止时间。
+- `manual_valid`: 人工有效性。
+- `manual_score_total`: 人工总分。
+- `manual_score_breakdown_json`: 人工分项分 JSON。
+- `manual_error_tags_json`: 人工错误项 JSON。
+- `manual_feedback`: 人工反馈。
+- `coach_note`: 动作级教练备注。
 - `key_frame_ms`: 当前动作中最低分或关键错误帧的相对训练时间。
 - `video_clip_start_ms`: 回看片段起点，当前保存为动作开始前约 1.5 秒；离线视频复盘会用该值请求播放器初始 seek。
 - `video_clip_end_ms`: 回看片段终点，当前保存为动作结束后约 1.5 秒。
+- `key_frame_pose_json`: 关键帧姿态 JSON。旧记录可为空，UI 应禁用姿态叠加但保留复盘能力。
 
 #### `athlete_action_baselines`
 
@@ -136,7 +154,7 @@ SQLite schema 在 `TrainingRepository::migrate()` 中创建，seed 数据在 `Tr
 
 ## 迁移方式
 
-没有独立迁移命令。应用启动时 `TrainingRepository::open()` 会执行建表、复盘字段补列、seed 和旧 `trainingHistory` 迁移。
+没有独立迁移命令。应用启动时 `TrainingRepository::open()` 会执行建表、schema v3 字段补列、seed 和旧 `trainingHistory` 迁移。
 
 相关文件：
 
@@ -144,13 +162,20 @@ SQLite schema 在 `TrainingRepository::migrate()` 中创建，seed 数据在 `Tr
 
 ## seed 方式
 
-`TrainingRepository::seedDefaults()` 内置默认运动员、默认教练、动作类别和 8 条动作标准。
+`TrainingRepository::seedDefaults()` 内置默认运动员、默认教练、动作类别和 8 条动作标准。动作标准使用 `INSERT OR IGNORE` 初始化缺失项，不覆盖用户本地编辑后的阈值、权重、提示或参考视频。
 
 ## 查询入口
 
-训练历史通过 `TrainingRepository::recentSessions()` 查询；动作明细通过 `repetitionsForSession()` 查询；最近 7/30 天趋势通过 `trendForRecentDays()` 聚合 `training_sessions` 和 `action_repetitions` 查询；教练批注通过 `saveCoachComment()` 更新；个体基线通过 `baselineFor()` 查询。
+训练历史通过 `TrainingRepository::recentSessions()` 查询；动作明细通过 `repetitionsForSession()` / `reviewedRepetitionsForSession()` 查询；最近 7/30 天趋势通过 `trendForRecentDays()` 聚合 `training_sessions` 和 `action_repetitions` 查询；教练批注通过 `saveCoachComment()` 更新；个体基线通过 `baselineFor()` 查询。
 
-`trendForRecentDays()` 不新增表或列。统计窗口使用 `training_sessions.saved_at`；训练次数、平均分和最佳分来自 `training_sessions`；动作完成数和弱项分项均值优先来自 `action_repetitions`，旧数据没有动作明细时退回 session 汇总字段。
+复盘校准写入口：
+
+- `saveRepetitionReview(...)`: 保存人工复核字段，并按人工起止时间更新片段窗口。
+- `createManualRepetition(...)`: 创建人工新增动作。
+- `saveActionStandard(...)`: 保存动作标准阈值、权重、提示和参考视频；每次保存会递增版本。
+- `recalculateSessionSummary(sessionId)`: 按人工优先值重算 session 汇总和个体基线。
+
+`trendForRecentDays()` 不新增表或列。统计窗口使用 `training_sessions.saved_at`；训练次数、平均分和最佳分来自重算后的 `training_sessions`；动作完成数和弱项分项均值优先来自 `action_repetitions` 的人工有效值，旧数据没有动作明细时退回 session 汇总字段。
 
 相关文件：
 

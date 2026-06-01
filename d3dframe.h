@@ -27,7 +27,7 @@ struct D3DFrame
     D3DFrame(const D3DFrame &) = delete;
     D3DFrame &operator=(const D3DFrame &) = delete;
 
-    static std::shared_ptr<D3DFrame> fromAvFrame(const AVFrame *source)
+    static std::shared_ptr<D3DFrame> fromAvFrame(const AVFrame *source, qint64 mediaTimeMs = -1)
     {
         if (!source || source->format != AV_PIX_FMT_D3D11 || !source->data[0]) {
             return {};
@@ -45,6 +45,7 @@ struct D3DFrame
         result->width = source->width;
         result->height = source->height;
         result->pts = source->pts;
+        result->mediaTimeMs = mediaTimeMs;
         result->receivedMsec = QDateTime::currentMSecsSinceEpoch();
 
         D3D11_TEXTURE2D_DESC desc = {};
@@ -64,6 +65,7 @@ struct D3DFrame
     int textureHeight = 0;
     DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
     int64_t pts = AV_NOPTS_VALUE;
+    qint64 mediaTimeMs = -1;
     qint64 receivedMsec = 0;
 
 private:

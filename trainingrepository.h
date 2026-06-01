@@ -24,11 +24,23 @@ public:
     QVector<ActionStandard> actionStandards() const;
     QVector<SessionHistoryItem> recentSessions(int limit) const;
     QVector<ActionRepetition> repetitionsForSession(const QString &sessionId) const;
+    QVector<ActionRepetition> reviewedRepetitionsForSession(const QString &sessionId) const;
     TrainingTrendWindow trendForRecentDays(int days) const;
     TrainingBaseline baselineFor(const QString &athleteId, const QString &actionStandardId) const;
     bool saveCoachComment(const QString &sessionId,
                           const QString &comment,
                           QString *errorMessage = nullptr);
+    bool saveRepetitionReview(const ActionRepetition &repetition,
+                              QString *errorMessage = nullptr);
+    bool createManualRepetition(const QString &sessionId,
+                                const QString &actionStandardId,
+                                int standardVersion,
+                                ActionRepetition *repetition,
+                                QString *errorMessage = nullptr);
+    bool saveActionStandard(ActionStandard *standard,
+                            QString *errorMessage = nullptr);
+    bool recalculateSessionSummary(const QString &sessionId,
+                                   QString *errorMessage = nullptr);
 
     bool createAthlete(const QString &name, QString *athleteId, QString *errorMessage = nullptr);
     bool createCoach(const QString &name, QString *coachId, QString *errorMessage = nullptr);
@@ -65,6 +77,10 @@ private:
     QString scalarString(const QString &sql, const QVariantList &args = {}) const;
     int scalarInt(const QString &sql, const QVariantList &args = {}, int defaultValue = 0) const;
     void refreshBaseline(const QString &athleteId, const QString &actionStandardId);
+    bool sessionIdentity(const QString &sessionId,
+                         QString *athleteId,
+                         QString *actionStandardId,
+                         QString *errorMessage = nullptr) const;
 
     QSqlDatabase m_db;
     QString m_connectionName;

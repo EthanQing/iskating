@@ -4,6 +4,7 @@
 #include "iconutils.h"
 #include "posestandardnessscorer.h"
 #include "skeletonviewwidget.h"
+#include "trainingreviewdialog.h"
 #include "trainingrepository.h"
 #include "trajectorywidget.h"
 #include "ui_mainwindow.h"
@@ -15,6 +16,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QDoubleSpinBox>
 #include <QEvent>
 #include <QFile>
 #include <QFileDialog>
@@ -32,8 +34,11 @@
 #include <QMessageBox>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPageLayout>
+#include <QPageSize>
 #include <QPixmap>
 #include <QPlainTextEdit>
+#include <QPrinter>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QDebug>
@@ -42,11 +47,13 @@
 #include <QSignalBlocker>
 #include <QSize>
 #include <QSizePolicy>
+#include <QScrollArea>
 #include <QShortcut>
 #include <QSpinBox>
 #include <QStringConverter>
 #include <QStringList>
 #include <QStyle>
+#include <QTextDocument>
 #include <QTextStream>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -385,14 +392,75 @@ QString weakTrendSummary(const TrainingTrendWindow &recentTrend,
 
 QString repetitionReportLine(const ActionRepetition &repetition, int index, const std::function<QString(int)> &formatMs)
 {
-    return QStringLiteral("%1. %2-%3  %4分  %5  错误：%6  反馈：%7")
+    const QString reviewTag = repetition.hasManualReview() ? QStringLiteral("  复核") : QString();
+    return QStringLiteral("%1. %2-%3  %4分  %5%6  错误：%7  反馈：%8")
         .arg(index + 1)
-        .arg(formatMs(repetition.startedMs))
-        .arg(formatMs(repetition.endedMs))
-        .arg(repetition.score)
-        .arg(qualityLabel(repetition.score, repetition.valid))
-        .arg(issueSummary(repetition.errorCodes))
-        .arg(repetition.feedback.trimmed().isEmpty() ? QStringLiteral("无") : repetition.feedback.trimmed());
+        .arg(formatMs(repetition.effectiveStartedMs()))
+        .arg(formatMs(repetition.effectiveEndedMs()))
+        .arg(repetition.effectiveScore())
+        .arg(qualityLabel(repetition.effectiveScore(), repetition.effectiveValid()))
+        .arg(reviewTag)
+        .arg(issueSummary(repetition.effectiveErrorCodes()))
+        .arg(repetition.effectiveFeedback().trimmed().isEmpty() ? QStringLiteral("无") : repetition.effectiveFeedback().trimmed());
+}
+
+QString csvField(const QString &value)
+{
+    QString escaped = value;
+    escaped.replace(QLatin1Char('"'), QStringLiteral("\"\""));
+    return QStringLiteral("\"%1\"").arg(escaped);
+}
+
+QString boolText(bool value)
+{
+    return value ? QStringLiteral("是") : QStringLiteral("否");
+}
+
+QString sourceLabel(const ActionRepetition &repetition)
+{
+    return repetition.source == QStringLiteral("coach") ? QStringLiteral("教练手动") : QStringLiteral("AI");
+}
+
+QString reviewStatusLabel(const ActionRepetition &repetition)
+{
+    if (repetition.source == QStringLiteral("coach")) {
+        return QStringLiteral("教练新增");
+    }
+    if (repetition.hasManualReview()) {
+        return QStringLiteral("已复核");
+    }
+    return QStringLiteral("未复核");
+}
+
+QString sanitizedFilePart(QString value)
+{
+    value = value.trimmed();
+    if (value.isEmpty()) {
+        return QStringLiteral("training");
+    }
+    const QString invalid = QStringLiteral("<>:\"/\\|?*");
+    for (const QChar ch : invalid) {
+        value.replace(ch, QLatin1Char('_'));
+    }
+    value.replace(QLatin1Char(' '), QLatin1Char('_'));
+    return value.left(80);
+}
+
+QString withFileSuffix(QString path, const QString &suffix)
+{
+    QFileInfo info(path);
+    if (info.suffix().isEmpty()) {
+        path += QStringLiteral(".") + suffix;
+    }
+    return path;
+}
+
+QString htmlParagraph(const QString &text)
+{
+    const QString escaped = text.trimmed().isEmpty()
+                                ? QStringLiteral("未填写")
+                                : text.toHtmlEscaped().replace(QLatin1Char('\n'), QStringLiteral("<br>"));
+    return QStringLiteral("<p>%1</p>").arg(escaped);
 }
 
 void configureStableButton(QPushButton *button,
@@ -990,12 +1058,15 @@ void MainWindow::installTrainingContextPanel()
     titleRow->setSpacing(8);
     auto *titleLabel = new QLabel(QStringLiteral("训练上下文"), m_trainingContextPanel);
     titleLabel->setProperty("role", "sectionTitle");
+    auto *editStandardButton = new QPushButton(QStringLiteral("编辑标准"), m_trainingContextPanel);
+    editStandardButton->setProperty("role", "secondaryButton");
     m_standardDetailLabel = new QLabel(QStringLiteral("动作标准库初始化中"), m_trainingContextPanel);
     m_standardDetailLabel->setProperty("role", "muted");
     m_standardDetailLabel->setWordWrap(true);
     m_standardDetailLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     titleRow->addWidget(titleLabel, 0);
     titleRow->addWidget(m_standardDetailLabel, 1);
+    titleRow->addWidget(editStandardButton, 0);
     panelLayout->addLayout(titleRow);
 
     auto *grid = new QGridLayout();
@@ -1065,6 +1136,7 @@ void MainWindow::installTrainingContextPanel()
 
     connect(addAthleteButton, &QPushButton::clicked, this, [this]() { addAthleteFromDialog(); });
     connect(addCoachButton, &QPushButton::clicked, this, [this]() { addCoachFromDialog(); });
+    connect(editStandardButton, &QPushButton::clicked, this, [this]() { editActionStandard(); });
     connect(m_actionStandardComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
         refreshTrainingContextDetails();
     });
@@ -2326,7 +2398,7 @@ void MainWindow::refreshHistory()
     for (int i = 0; i < visibleCount; ++i) {
         const SessionHistoryItem &record = m_records.at(i);
         const QVector<ActionRepetition> repetitions = m_trainingRepository && m_trainingRepository->isOpen()
-                                                          ? m_trainingRepository->repetitionsForSession(record.id)
+                                                          ? m_trainingRepository->reviewedRepetitionsForSession(record.id)
                                                           : QVector<ActionRepetition>();
 
         auto *card = new QFrame(ui->historyPage);
@@ -2367,6 +2439,14 @@ void MainWindow::refreshHistory()
             openSessionVideo(record);
         });
 
+        auto *reviewButton = new QPushButton(QStringLiteral("复盘校准"), card);
+        reviewButton->setProperty("role", "secondaryButton");
+        configureStableButton(reviewButton, kHistoryActionButtonWidth, 32, QSize(0, 0));
+        reviewButton->setEnabled(m_trainingRepository && m_trainingRepository->isOpen());
+        connect(reviewButton, &QPushButton::clicked, this, [this, record]() {
+            openTrainingReview(record);
+        });
+
         auto *commentButton = new QPushButton(QStringLiteral("教练批注"), card);
         commentButton->setProperty("role", "secondaryButton");
         configureStableButton(commentButton, kHistoryActionButtonWidth, 32, QSize(0, 0));
@@ -2382,6 +2462,7 @@ void MainWindow::refreshHistory()
         });
 
         headerActionsLayout->addWidget(playButton);
+        headerActionsLayout->addWidget(reviewButton);
         headerActionsLayout->addWidget(commentButton);
         headerActionsLayout->addWidget(exportButton);
         if (ui->historyPage && ui->historyPage->width() < 900) {
@@ -2440,12 +2521,12 @@ void MainWindow::refreshHistory()
             const auto bestIt = std::max_element(repetitions.cbegin(),
                                                  repetitions.cend(),
                                                  [](const ActionRepetition &lhs, const ActionRepetition &rhs) {
-                                                     return lhs.score < rhs.score;
+                                                     return lhs.effectiveScore() < rhs.effectiveScore();
                                                  });
             const auto worstIt = std::min_element(repetitions.cbegin(),
                                                   repetitions.cend(),
                                                   [](const ActionRepetition &lhs, const ActionRepetition &rhs) {
-                                                      return lhs.score < rhs.score;
+                                                      return lhs.effectiveScore() < rhs.effectiveScore();
                                                   });
 
             const ActionRepetition best = bestIt != repetitions.cend() ? *bestIt : ActionRepetition();
@@ -2458,15 +2539,15 @@ void MainWindow::refreshHistory()
                                        : 0;
             auto *reviewLabel = new QLabel(QStringLiteral("代表动作：最好 #%1 %2-%3 · %4 分 · %5\n待纠正：最差 #%6 %7-%8 · %9 分 · %10")
                                                .arg(bestIndex + 1)
-                                               .arg(formatMilliseconds(best.startedMs))
-                                               .arg(formatMilliseconds(best.endedMs))
-                                               .arg(best.score)
-                                               .arg(best.feedback.trimmed().isEmpty() ? QStringLiteral("反馈为空") : best.feedback)
+                                               .arg(formatMilliseconds(best.effectiveStartedMs()))
+                                               .arg(formatMilliseconds(best.effectiveEndedMs()))
+                                               .arg(best.effectiveScore())
+                                               .arg(best.effectiveFeedback().trimmed().isEmpty() ? QStringLiteral("反馈为空") : best.effectiveFeedback())
                                                .arg(worstIndex + 1)
-                                               .arg(formatMilliseconds(worst.startedMs))
-                                               .arg(formatMilliseconds(worst.endedMs))
-                                               .arg(worst.score)
-                                               .arg(worst.feedback.trimmed().isEmpty() ? issueSummary(worst.errorCodes) : worst.feedback),
+                                               .arg(formatMilliseconds(worst.effectiveStartedMs()))
+                                               .arg(formatMilliseconds(worst.effectiveEndedMs()))
+                                               .arg(worst.effectiveScore())
+                                               .arg(worst.effectiveFeedback().trimmed().isEmpty() ? issueSummary(worst.effectiveErrorCodes()) : worst.effectiveFeedback()),
                                            card);
             reviewLabel->setProperty("role", "reviewSummary");
             reviewLabel->setWordWrap(true);
@@ -2475,16 +2556,16 @@ void MainWindow::refreshHistory()
             QStringList timelineLines;
             for (int repIndex = 0; repIndex < repetitions.size() && timelineLines.size() < 5; ++repIndex) {
                 const ActionRepetition &repetition = repetitions.at(repIndex);
-                if (repetition.valid && repetition.errorCodes.trimmed().isEmpty()) {
+                if (repetition.effectiveValid() && repetition.effectiveErrorCodes().trimmed().isEmpty()) {
                     continue;
                 }
                 timelineLines.append(QStringLiteral("#%1 关键帧 %2 · %3 · %4")
                                          .arg(repIndex + 1)
-                                         .arg(formatMilliseconds(repetition.keyFrameMs > 0 ? repetition.keyFrameMs : repetition.startedMs))
-                                         .arg(issueSummary(repetition.errorCodes))
-                                         .arg(repetition.feedback.trimmed().isEmpty()
-                                                  ? qualityLabel(repetition.score, repetition.valid)
-                                                  : repetition.feedback));
+                                         .arg(formatMilliseconds(repetition.keyFrameMs > 0 ? repetition.keyFrameMs : repetition.effectiveStartedMs()))
+                                         .arg(issueSummary(repetition.effectiveErrorCodes()))
+                                         .arg(repetition.effectiveFeedback().trimmed().isEmpty()
+                                                  ? qualityLabel(repetition.effectiveScore(), repetition.effectiveValid())
+                                                  : repetition.effectiveFeedback()));
             }
             auto *timelineLabel = new QLabel(timelineLines.isEmpty()
                                                  ? QStringLiteral("关键错误时间轴：本次动作未触发明显错误点。")
@@ -2748,6 +2829,266 @@ void MainWindow::openSessionVideo(const SessionHistoryItem &record, int offsetMs
     ui->saveTipLabel->show();
 }
 
+void MainWindow::openTrainingReview(const SessionHistoryItem &record)
+{
+    if (!m_trainingRepository || !m_trainingRepository->isOpen()) {
+        QMessageBox::warning(this, QStringLiteral("数据库未就绪"), QStringLiteral("训练数据库未就绪，无法打开复盘校准。"));
+        return;
+    }
+
+    ActionStandard standard;
+    for (const ActionStandard &candidate : std::as_const(m_actionStandards)) {
+        if (candidate.id == record.actionStandardId) {
+            standard = candidate;
+            break;
+        }
+    }
+    if (standard.id.isEmpty()) {
+        standard.id = record.actionStandardId;
+        standard.name = record.actionName;
+        standard.categoryName = record.actionCategory;
+        standard.version = record.standardVersion;
+        standard.targetReps = record.targetReps;
+        standard.targetScore = record.targetScore;
+    }
+
+    TrainingReviewDialog dialog(record, standard, m_trainingRepository.get(), this);
+    dialog.exec();
+
+    reloadTrainingContext();
+    loadTrainingRecords();
+    refreshHistory();
+    refreshSuggestions();
+}
+
+void MainWindow::editActionStandard()
+{
+    if (!m_trainingRepository || !m_trainingRepository->isOpen()) {
+        QMessageBox::warning(this, QStringLiteral("数据库未就绪"), QStringLiteral("训练数据库未就绪，无法编辑动作标准。"));
+        return;
+    }
+
+    ActionStandard standard = selectedActionStandard();
+    if (standard.id.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("暂无动作标准"), QStringLiteral("当前没有可编辑的动作标准。"));
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("编辑动作标准"));
+    dialog.resize(760, 720);
+    auto *root = new QVBoxLayout(&dialog);
+    root->setContentsMargins(16, 16, 16, 16);
+    root->setSpacing(10);
+
+    auto *titleLabel = new QLabel(QStringLiteral("%1 · %2 · 当前 v%3")
+                                      .arg(standard.categoryName, standard.name)
+                                      .arg(standard.version),
+                                  &dialog);
+    titleLabel->setWordWrap(true);
+    titleLabel->setProperty("role", "sectionTitle");
+    root->addWidget(titleLabel);
+
+    auto *scrollArea = new QScrollArea(&dialog);
+    scrollArea->setWidgetResizable(true);
+    auto *formWidget = new QWidget(scrollArea);
+    auto *form = new QFormLayout(formWidget);
+    form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    form->setHorizontalSpacing(12);
+    form->setVerticalSpacing(8);
+
+    auto *nameEdit = new QLineEdit(standard.name, &dialog);
+    auto *levelEdit = new QLineEdit(standard.level, &dialog);
+    auto *purposeEdit = new QLineEdit(standard.purpose, &dialog);
+    auto *targetRepsSpin = new QSpinBox(&dialog);
+    auto *targetScoreSpin = new QSpinBox(&dialog);
+    auto *setCountSpin = new QSpinBox(&dialog);
+    auto *restSecondsSpin = new QSpinBox(&dialog);
+    targetRepsSpin->setRange(1, 999);
+    targetScoreSpin->setRange(1, 100);
+    setCountSpin->setRange(1, 20);
+    restSecondsSpin->setRange(0, 600);
+    restSecondsSpin->setSingleStep(15);
+    targetRepsSpin->setValue(std::max(1, standard.targetReps));
+    targetScoreSpin->setValue(std::clamp(standard.targetScore, 1, 100));
+    setCountSpin->setValue(std::max(1, standard.setCount));
+    restSecondsSpin->setValue(std::max(0, standard.restSeconds));
+
+    auto makeDoubleSpin = [&dialog](double value, double min, double max, double step) {
+        auto *spin = new QDoubleSpinBox(&dialog);
+        spin->setRange(min, max);
+        spin->setSingleStep(step);
+        spin->setDecimals(3);
+        spin->setValue(value);
+        return spin;
+    };
+    auto *armSpin = makeDoubleSpin(standard.armThreshold, 0.01, 2.0, 0.01);
+    auto *releaseSpin = makeDoubleSpin(standard.releaseThreshold, 0.01, 2.0, 0.01);
+    auto *debounceSpin = new QSpinBox(&dialog);
+    debounceSpin->setRange(100, 5000);
+    debounceSpin->setSingleStep(50);
+    debounceSpin->setValue(std::max(100, standard.debounceMs));
+
+    auto *detectionWeightSpin = makeDoubleSpin(standard.detectionWeight, 0.0, 1.0, 0.01);
+    auto *symmetryWeightSpin = makeDoubleSpin(standard.symmetryWeight, 0.0, 1.0, 0.01);
+    auto *balanceWeightSpin = makeDoubleSpin(standard.balanceWeight, 0.0, 1.0, 0.01);
+    auto *stabilityWeightSpin = makeDoubleSpin(standard.stabilityWeight, 0.0, 1.0, 0.01);
+    auto *depthWeightSpin = makeDoubleSpin(standard.depthWeight, 0.0, 1.0, 0.01);
+
+    auto makeScoreSpin = [&dialog](int value) {
+        auto *spin = new QSpinBox(&dialog);
+        spin->setRange(0, 100);
+        spin->setValue(std::clamp(value, 0, 100));
+        return spin;
+    };
+    auto *detectionMinSpin = makeScoreSpin(standard.detectionMin);
+    auto *symmetryMinSpin = makeScoreSpin(standard.symmetryMin);
+    auto *balanceMinSpin = makeScoreSpin(standard.balanceMin);
+    auto *stabilityMinSpin = makeScoreSpin(standard.stabilityMin);
+    auto *depthMinSpin = makeScoreSpin(standard.depthMin);
+
+    auto *phasesEdit = new QPlainTextEdit(standard.phases, &dialog);
+    auto *keyPointsEdit = new QPlainTextEdit(standard.keyPoints, &dialog);
+    auto *issueTitleEdit = new QLineEdit(standard.issueTitle, &dialog);
+    auto *issueBodyPartEdit = new QLineEdit(standard.issueBodyPart, &dialog);
+    auto *issueCauseEdit = new QPlainTextEdit(standard.issueCause, &dialog);
+    auto *issueCorrectionEdit = new QPlainTextEdit(standard.issueCorrection, &dialog);
+    auto *issuePrioritySpin = new QSpinBox(&dialog);
+    issuePrioritySpin->setRange(0, 3);
+    issuePrioritySpin->setValue(std::clamp(standard.issuePriority, 0, 3));
+    auto *referencePathEdit = new QLineEdit(standard.referenceVideoSource, &dialog);
+    auto *referenceNotesEdit = new QPlainTextEdit(standard.referenceNotes, &dialog);
+    for (auto *editor : {phasesEdit, keyPointsEdit, issueCauseEdit, issueCorrectionEdit, referenceNotesEdit}) {
+        editor->setMaximumHeight(72);
+    }
+
+    auto *referenceRow = new QWidget(&dialog);
+    auto *referenceLayout = new QHBoxLayout(referenceRow);
+    referenceLayout->setContentsMargins(0, 0, 0, 0);
+    referenceLayout->setSpacing(6);
+    auto *chooseReferenceButton = new QPushButton(QStringLiteral("选择"), referenceRow);
+    chooseReferenceButton->setProperty("role", "secondaryButton");
+    referenceLayout->addWidget(referencePathEdit, 1);
+    referenceLayout->addWidget(chooseReferenceButton, 0);
+
+    form->addRow(QStringLiteral("名称"), nameEdit);
+    form->addRow(QStringLiteral("等级"), levelEdit);
+    form->addRow(QStringLiteral("目的"), purposeEdit);
+    form->addRow(QStringLiteral("目标次数"), targetRepsSpin);
+    form->addRow(QStringLiteral("目标分"), targetScoreSpin);
+    form->addRow(QStringLiteral("组数"), setCountSpin);
+    form->addRow(QStringLiteral("休息秒"), restSecondsSpin);
+    form->addRow(QStringLiteral("屈膝触发阈值"), armSpin);
+    form->addRow(QStringLiteral("释放阈值"), releaseSpin);
+    form->addRow(QStringLiteral("防抖 ms"), debounceSpin);
+    form->addRow(QStringLiteral("权重 关键点"), detectionWeightSpin);
+    form->addRow(QStringLiteral("权重 对称"), symmetryWeightSpin);
+    form->addRow(QStringLiteral("权重 重心"), balanceWeightSpin);
+    form->addRow(QStringLiteral("权重 稳定"), stabilityWeightSpin);
+    form->addRow(QStringLiteral("权重 3D"), depthWeightSpin);
+    form->addRow(QStringLiteral("最低分 关键点"), detectionMinSpin);
+    form->addRow(QStringLiteral("最低分 对称"), symmetryMinSpin);
+    form->addRow(QStringLiteral("最低分 重心"), balanceMinSpin);
+    form->addRow(QStringLiteral("最低分 稳定"), stabilityMinSpin);
+    form->addRow(QStringLiteral("最低分 3D"), depthMinSpin);
+    form->addRow(QStringLiteral("动作阶段"), phasesEdit);
+    form->addRow(QStringLiteral("关键要求"), keyPointsEdit);
+    form->addRow(QStringLiteral("错误标题"), issueTitleEdit);
+    form->addRow(QStringLiteral("问题部位"), issueBodyPartEdit);
+    form->addRow(QStringLiteral("触发原因"), issueCauseEdit);
+    form->addRow(QStringLiteral("纠正提示"), issueCorrectionEdit);
+    form->addRow(QStringLiteral("优先级"), issuePrioritySpin);
+    form->addRow(QStringLiteral("参考视频"), referenceRow);
+    form->addRow(QStringLiteral("参考说明"), referenceNotesEdit);
+    scrollArea->setWidget(formWidget);
+    root->addWidget(scrollArea, 1);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
+    buttons->button(QDialogButtonBox::Save)->setText(QStringLiteral("保存"));
+    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    root->addWidget(buttons);
+
+    connect(chooseReferenceButton, &QPushButton::clicked, &dialog, [&dialog, referencePathEdit]() {
+        const QString path = QFileDialog::getOpenFileName(&dialog,
+                                                          QStringLiteral("选择标准参考视频"),
+                                                          QDir::homePath(),
+                                                          QStringLiteral("视频文件 (*.mp4 *.mov *.avi *.mkv *.m4v *.wmv *.flv *.webm);;所有文件 (*.*)"));
+        if (!path.trimmed().isEmpty()) {
+            referencePathEdit->setText(QFileInfo(path).absoluteFilePath());
+        }
+    });
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, [&]() {
+        if (nameEdit->text().trimmed().isEmpty()) {
+            QMessageBox::warning(&dialog, QStringLiteral("名称为空"), QStringLiteral("动作标准名称不能为空。"));
+            nameEdit->setFocus();
+            return;
+        }
+        const double totalWeight = detectionWeightSpin->value()
+                                   + symmetryWeightSpin->value()
+                                   + balanceWeightSpin->value()
+                                   + stabilityWeightSpin->value()
+                                   + depthWeightSpin->value();
+        if (totalWeight <= 0.0) {
+            QMessageBox::warning(&dialog, QStringLiteral("权重无效"), QStringLiteral("至少需要一个评分权重大于 0。"));
+            return;
+        }
+        dialog.accept();
+    });
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    standard.name = nameEdit->text().trimmed();
+    standard.level = levelEdit->text().trimmed();
+    standard.purpose = purposeEdit->text().trimmed();
+    standard.targetReps = targetRepsSpin->value();
+    standard.targetScore = targetScoreSpin->value();
+    standard.setCount = setCountSpin->value();
+    standard.restSeconds = restSecondsSpin->value();
+    standard.armThreshold = armSpin->value();
+    standard.releaseThreshold = releaseSpin->value();
+    standard.debounceMs = debounceSpin->value();
+    standard.detectionWeight = detectionWeightSpin->value();
+    standard.symmetryWeight = symmetryWeightSpin->value();
+    standard.balanceWeight = balanceWeightSpin->value();
+    standard.stabilityWeight = stabilityWeightSpin->value();
+    standard.depthWeight = depthWeightSpin->value();
+    standard.detectionMin = detectionMinSpin->value();
+    standard.symmetryMin = symmetryMinSpin->value();
+    standard.balanceMin = balanceMinSpin->value();
+    standard.stabilityMin = stabilityMinSpin->value();
+    standard.depthMin = depthMinSpin->value();
+    standard.phases = phasesEdit->toPlainText().trimmed();
+    standard.keyPoints = keyPointsEdit->toPlainText().trimmed();
+    standard.issueTitle = issueTitleEdit->text().trimmed();
+    standard.issueBodyPart = issueBodyPartEdit->text().trimmed();
+    standard.issueCause = issueCauseEdit->toPlainText().trimmed();
+    standard.issueCorrection = issueCorrectionEdit->toPlainText().trimmed();
+    standard.issuePriority = issuePrioritySpin->value();
+    standard.referenceVideoSource = referencePathEdit->text().trimmed();
+    standard.referenceNotes = referenceNotesEdit->toPlainText().trimmed();
+
+    QString errorMessage;
+    const QString standardId = standard.id;
+    if (!m_trainingRepository->saveActionStandard(&standard, &errorMessage)) {
+        QMessageBox::warning(this, QStringLiteral("保存失败"), errorMessage);
+        return;
+    }
+
+    reloadTrainingContext();
+    if (m_actionStandardComboBox) {
+        const int index = m_actionStandardComboBox->findData(standardId);
+        if (index >= 0) {
+            m_actionStandardComboBox->setCurrentIndex(index);
+        }
+    }
+    refreshSuggestions();
+    ui->saveTipLabel->setText(QStringLiteral("动作标准已保存为 v%1。").arg(standard.version));
+    ui->saveTipLabel->show();
+}
+
 void MainWindow::editCoachComment(const QString &sessionId)
 {
     if (!m_trainingRepository || !m_trainingRepository->isOpen()) {
@@ -2821,56 +3162,295 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
         return;
     }
 
+    const QVector<ActionRepetition> repetitions = m_trainingRepository && m_trainingRepository->isOpen()
+                                                      ? m_trainingRepository->reviewedRepetitionsForSession(record.id)
+                                                      : QVector<ActionRepetition>();
+
     const QString defaultFileName = QStringLiteral("iSkating-%1-%2.md")
-                                        .arg(record.athleteName)
-                                        .arg(record.time.left(10));
-    const QString filePath = QFileDialog::getSaveFileName(this,
-                                                          QStringLiteral("导出训练报告"),
-                                                          QDir::home().absoluteFilePath(defaultFileName),
-                                                          QStringLiteral("Markdown (*.md);;Text (*.txt)"));
+                                        .arg(sanitizedFilePart(record.athleteName))
+                                        .arg(sanitizedFilePart(record.time.left(10)));
+    QString selectedFilter;
+    QString filePath = QFileDialog::getSaveFileName(this,
+                                                    QStringLiteral("导出训练报告"),
+                                                    QDir::home().absoluteFilePath(defaultFileName),
+                                                    QStringLiteral("Markdown (*.md);;CSV 明细 (*.csv);;PDF 复盘报告 (*.pdf)"),
+                                                    &selectedFilter);
     if (filePath.trimmed().isEmpty()) {
         return;
     }
 
-    QFile file(filePath);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        QMessageBox::warning(this, QStringLiteral("导出失败"), file.errorString());
+    QString suffix = QFileInfo(filePath).suffix().toLower();
+    if (suffix.isEmpty()) {
+        if (selectedFilter.contains(QStringLiteral("CSV"))) {
+            suffix = QStringLiteral("csv");
+        } else if (selectedFilter.contains(QStringLiteral("PDF"))) {
+            suffix = QStringLiteral("pdf");
+        } else {
+            suffix = QStringLiteral("md");
+        }
+        filePath = withFileSuffix(filePath, suffix);
+    }
+
+    auto writeTextFile = [this](const QString &path, const QString &content) {
+        QFile file(path);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QMessageBox::warning(this, QStringLiteral("导出失败"), file.errorString());
+            return false;
+        }
+        QTextStream out(&file);
+        out.setEncoding(QStringConverter::Utf8);
+        out << content;
+        return true;
+    };
+
+    auto buildMarkdown = [&]() {
+        QString content;
+        QTextStream out(&content);
+        out << "# iSkating 训练复盘报告\n\n";
+        out << "- 时间：" << record.time << "\n";
+        out << "- 运动员：" << record.athleteName << "\n";
+        out << "- 教练：" << (record.coachName.isEmpty() ? QStringLiteral("未指定") : record.coachName) << "\n";
+        out << "- 动作：" << record.actionCategory << " / " << record.actionName << " v" << record.standardVersion << "\n";
+        out << "- 场地/阶段/目标：" << (record.site.isEmpty() ? QStringLiteral("未填写") : record.site)
+            << " / " << (record.trainingPhase.isEmpty() ? QStringLiteral("未填写") : record.trainingPhase)
+            << " / " << (record.goal.isEmpty() ? QStringLiteral("未填写") : record.goal) << "\n";
+        out << "- 时长：" << formatTime(record.duration) << "\n";
+        out << "- 完成度：" << record.validReps << "/" << record.totalReps << "，目标 "
+            << record.targetReps << " 次/" << record.targetScore << " 分\n";
+        out << "- 复核后平均/最佳分：" << record.score << "/" << record.bestScore << "\n";
+        out << "- 分项均分：关键点 " << record.detectionScore
+            << "，对称 " << record.symmetryScore
+            << "，重心 " << record.balanceScore
+            << "，稳定 " << record.stabilityScore
+            << "，3D " << record.depthScore << "\n";
+        out << "- 视频：" << displayMediaSource(record.videoSource) << "\n";
+        if (!record.videoFallbackSource.trimmed().isEmpty()) {
+            out << "- 回退视频：" << displayMediaSource(record.videoFallbackSource) << "\n";
+        }
+        out << "\n## 综合反馈\n\n" << (record.feedback.trimmed().isEmpty() ? QStringLiteral("未填写") : record.feedback.trimmed()) << "\n\n";
+        out << "## 教练批注\n\n"
+            << (record.coachComment.trimmed().isEmpty() ? QStringLiteral("未填写") : record.coachComment.trimmed())
+            << "\n\n";
+        out << "## 动作明细\n\n";
+        if (repetitions.isEmpty()) {
+            out << "本次未保存动作实例。\n";
+        } else {
+            out << "| # | 来源 | 复核状态 | 时间 | AI原始 | 复核后 | 错误项 | 反馈 | 教练备注 |\n";
+            out << "|---|---|---|---|---|---|---|---|---|\n";
+            for (int i = 0; i < repetitions.size(); ++i) {
+                const ActionRepetition &rep = repetitions.at(i);
+                out << "| " << (i + 1)
+                    << " | " << sourceLabel(rep)
+                    << " | " << reviewStatusLabel(rep)
+                    << " | " << formatMilliseconds(rep.effectiveStartedMs()) << "-" << formatMilliseconds(rep.effectiveEndedMs())
+                    << " | " << rep.score << "分/" << boolText(rep.valid)
+                    << " | " << rep.effectiveScore() << "分/" << boolText(rep.effectiveValid())
+                    << " | " << issueSummary(rep.effectiveErrorCodes())
+                    << " | " << (rep.effectiveFeedback().trimmed().isEmpty() ? QStringLiteral("无") : rep.effectiveFeedback().trimmed()).replace(QLatin1Char('|'), QLatin1Char('/'))
+                    << " | " << (rep.coachNote.trimmed().isEmpty() ? QStringLiteral("无") : rep.coachNote.trimmed()).replace(QLatin1Char('|'), QLatin1Char('/'))
+                    << " |\n";
+            }
+        }
+        return content;
+    };
+
+    auto buildCsv = [&]() {
+        QString content;
+        QTextStream out(&content);
+        const QStringList headers = {
+            QStringLiteral("session_id"),
+            QStringLiteral("time"),
+            QStringLiteral("athlete"),
+            QStringLiteral("coach"),
+            QStringLiteral("action"),
+            QStringLiteral("standard_version"),
+            QStringLiteral("duration"),
+            QStringLiteral("total_reps"),
+            QStringLiteral("valid_reps"),
+            QStringLiteral("session_average_score"),
+            QStringLiteral("session_best_score"),
+            QStringLiteral("video_source"),
+            QStringLiteral("rep_index"),
+            QStringLiteral("source"),
+            QStringLiteral("review_status"),
+            QStringLiteral("ai_start_ms"),
+            QStringLiteral("ai_end_ms"),
+            QStringLiteral("effective_start_ms"),
+            QStringLiteral("effective_end_ms"),
+            QStringLiteral("ai_valid"),
+            QStringLiteral("effective_valid"),
+            QStringLiteral("ai_score"),
+            QStringLiteral("effective_score"),
+            QStringLiteral("ai_detection"),
+            QStringLiteral("effective_detection"),
+            QStringLiteral("ai_symmetry"),
+            QStringLiteral("effective_symmetry"),
+            QStringLiteral("ai_balance"),
+            QStringLiteral("effective_balance"),
+            QStringLiteral("ai_stability"),
+            QStringLiteral("effective_stability"),
+            QStringLiteral("ai_depth"),
+            QStringLiteral("effective_depth"),
+            QStringLiteral("ai_errors"),
+            QStringLiteral("effective_errors"),
+            QStringLiteral("ai_feedback"),
+            QStringLiteral("effective_feedback"),
+            QStringLiteral("coach_note"),
+            QStringLiteral("key_frame_ms"),
+            QStringLiteral("clip_start_ms"),
+            QStringLiteral("clip_end_ms")
+        };
+        out << headers.join(QLatin1Char(',')) << "\n";
+
+        auto writeRow = [&](int index, const ActionRepetition *rep) {
+            QStringList row;
+            row << csvField(record.id)
+                << csvField(record.time)
+                << csvField(record.athleteName)
+                << csvField(record.coachName.isEmpty() ? QStringLiteral("未指定") : record.coachName)
+                << csvField(QStringLiteral("%1/%2").arg(record.actionCategory, record.actionName))
+                << csvField(QString::number(record.standardVersion))
+                << csvField(formatTime(record.duration))
+                << csvField(QString::number(record.totalReps))
+                << csvField(QString::number(record.validReps))
+                << csvField(QString::number(record.score))
+                << csvField(QString::number(record.bestScore))
+                << csvField(displayMediaSource(record.videoSource));
+            if (!rep) {
+                for (int i = 0; i < 29; ++i) {
+                    row << csvField(QString());
+                }
+                out << row.join(QLatin1Char(',')) << "\n";
+                return;
+            }
+            row << csvField(QString::number(index + 1))
+                << csvField(sourceLabel(*rep))
+                << csvField(reviewStatusLabel(*rep))
+                << csvField(QString::number(rep->startedMs))
+                << csvField(QString::number(rep->endedMs))
+                << csvField(QString::number(rep->effectiveStartedMs()))
+                << csvField(QString::number(rep->effectiveEndedMs()))
+                << csvField(boolText(rep->valid))
+                << csvField(boolText(rep->effectiveValid()))
+                << csvField(QString::number(rep->score))
+                << csvField(QString::number(rep->effectiveScore()))
+                << csvField(QString::number(rep->detectionScore))
+                << csvField(QString::number(rep->effectiveDetectionScore()))
+                << csvField(QString::number(rep->symmetryScore))
+                << csvField(QString::number(rep->effectiveSymmetryScore()))
+                << csvField(QString::number(rep->balanceScore))
+                << csvField(QString::number(rep->effectiveBalanceScore()))
+                << csvField(QString::number(rep->stabilityScore))
+                << csvField(QString::number(rep->effectiveStabilityScore()))
+                << csvField(QString::number(rep->depthScore))
+                << csvField(QString::number(rep->effectiveDepthScore()))
+                << csvField(rep->errorCodes)
+                << csvField(rep->effectiveErrorCodes())
+                << csvField(rep->feedback)
+                << csvField(rep->effectiveFeedback())
+                << csvField(rep->coachNote)
+                << csvField(QString::number(rep->keyFrameMs))
+                << csvField(QString::number(rep->videoClipStartMs))
+                << csvField(QString::number(rep->videoClipEndMs));
+            out << row.join(QLatin1Char(',')) << "\n";
+        };
+
+        if (repetitions.isEmpty()) {
+            writeRow(0, nullptr);
+        } else {
+            for (int i = 0; i < repetitions.size(); ++i) {
+                writeRow(i, &repetitions[i]);
+            }
+        }
+        return content;
+    };
+
+    bool ok = false;
+    if (suffix == QStringLiteral("csv")) {
+        ok = writeTextFile(filePath, buildCsv());
+    } else if (suffix == QStringLiteral("pdf")) {
+        QTextDocument document;
+        QString html;
+        QTextStream out(&html);
+        out << "<html><head><meta charset='utf-8'><style>"
+            << "body{font-family:'Microsoft YaHei',sans-serif;font-size:10pt;color:#20242a;}"
+            << "h1{font-size:20pt;} h2{font-size:14pt;margin-top:18px;}"
+            << "table{border-collapse:collapse;width:100%;} th,td{border:1px solid #c9d1dc;padding:5px;vertical-align:top;}"
+            << "th{background:#eef3f9;} .muted{color:#5f6b7a;}"
+            << "</style></head><body>";
+        out << "<h1>iSkating 训练复盘报告</h1>";
+        out << "<p class='muted'>" << record.time.toHtmlEscaped() << " · "
+            << record.athleteName.toHtmlEscaped() << " · "
+            << record.actionName.toHtmlEscaped() << "</p>";
+        out << "<h2>训练摘要</h2><table>";
+        const QVector<std::pair<QString, QString>> summaryRows = {
+            {QStringLiteral("教练"), record.coachName.isEmpty() ? QStringLiteral("未指定") : record.coachName},
+            {QStringLiteral("动作"), QStringLiteral("%1 / %2 v%3").arg(record.actionCategory, record.actionName).arg(record.standardVersion)},
+            {QStringLiteral("场地/阶段/目标"), QStringLiteral("%1 / %2 / %3")
+                                              .arg(record.site.isEmpty() ? QStringLiteral("未填写") : record.site,
+                                                   record.trainingPhase.isEmpty() ? QStringLiteral("未填写") : record.trainingPhase,
+                                                   record.goal.isEmpty() ? QStringLiteral("未填写") : record.goal)},
+            {QStringLiteral("时长"), formatTime(record.duration)},
+            {QStringLiteral("完成度"), QStringLiteral("%1/%2，目标 %3 次/%4 分")
+                                       .arg(record.validReps)
+                                       .arg(record.totalReps)
+                                       .arg(record.targetReps)
+                                       .arg(record.targetScore)},
+            {QStringLiteral("复核后平均/最佳分"), QStringLiteral("%1/%2").arg(record.score).arg(record.bestScore)},
+            {QStringLiteral("视频"), displayMediaSource(record.videoSource)}
+        };
+        for (const auto &row : summaryRows) {
+            out << "<tr><th>" << row.first.toHtmlEscaped() << "</th><td>" << row.second.toHtmlEscaped() << "</td></tr>";
+        }
+        out << "</table>";
+        out << "<h2>综合反馈</h2>" << htmlParagraph(record.feedback);
+        out << "<h2>教练批注</h2>" << htmlParagraph(record.coachComment);
+        out << "<h2>动作明细</h2>";
+        if (repetitions.isEmpty()) {
+            out << "<p>本次未保存动作实例。</p>";
+        } else {
+            out << "<table><tr><th>#</th><th>来源</th><th>复核</th><th>时间</th><th>AI原始</th><th>复核后</th><th>错误项</th><th>反馈/备注</th></tr>";
+            for (int i = 0; i < repetitions.size(); ++i) {
+                const ActionRepetition &rep = repetitions.at(i);
+                out << "<tr><td>" << (i + 1) << "</td>"
+                    << "<td>" << sourceLabel(rep).toHtmlEscaped() << "</td>"
+                    << "<td>" << reviewStatusLabel(rep).toHtmlEscaped() << "</td>"
+                    << "<td>" << QStringLiteral("%1-%2")
+                                      .arg(formatMilliseconds(rep.effectiveStartedMs()),
+                                           formatMilliseconds(rep.effectiveEndedMs()))
+                                      .toHtmlEscaped()
+                    << "</td>"
+                    << "<td>" << QStringLiteral("%1分/%2").arg(rep.score).arg(boolText(rep.valid)).toHtmlEscaped() << "</td>"
+                    << "<td>" << QStringLiteral("%1分/%2").arg(rep.effectiveScore()).arg(boolText(rep.effectiveValid())).toHtmlEscaped() << "</td>"
+                    << "<td>" << issueSummary(rep.effectiveErrorCodes()).toHtmlEscaped() << "</td>"
+                    << "<td>" << QStringLiteral("%1<br>%2")
+                                      .arg(rep.effectiveFeedback().trimmed().isEmpty() ? QStringLiteral("无反馈") : rep.effectiveFeedback().trimmed(),
+                                           rep.coachNote.trimmed().isEmpty() ? QStringLiteral("无备注") : rep.coachNote.trimmed())
+                                      .toHtmlEscaped()
+                                      .replace(QStringLiteral("&lt;br&gt;"), QStringLiteral("<br>"))
+                    << "</td></tr>";
+            }
+            out << "</table>";
+        }
+        out << "</body></html>";
+        document.setHtml(html);
+        QPrinter printer(QPrinter::HighResolution);
+        printer.setOutputFormat(QPrinter::PdfFormat);
+        printer.setOutputFileName(filePath);
+        printer.setPageSize(QPageSize(QPageSize::A4));
+        printer.setPageMargins(QMarginsF(12, 12, 12, 12), QPageLayout::Millimeter);
+        document.print(&printer);
+        ok = true;
+    } else {
+        filePath = withFileSuffix(filePath, QStringLiteral("md"));
+        ok = writeTextFile(filePath, buildMarkdown());
+    }
+
+    if (!ok) {
         return;
     }
 
-    const QVector<ActionRepetition> repetitions = m_trainingRepository && m_trainingRepository->isOpen()
-                                                      ? m_trainingRepository->repetitionsForSession(record.id)
-                                                      : QVector<ActionRepetition>();
-    QTextStream out(&file);
-    out.setEncoding(QStringConverter::Utf8);
-    out << "# iSkating 训练复盘报告\n\n";
-    out << "- 时间：" << record.time << "\n";
-    out << "- 运动员：" << record.athleteName << "\n";
-    out << "- 教练：" << (record.coachName.isEmpty() ? QStringLiteral("未指定") : record.coachName) << "\n";
-    out << "- 动作：" << record.actionCategory << " / " << record.actionName << " v" << record.standardVersion << "\n";
-    out << "- 场地/阶段/目标：" << record.site << " / " << record.trainingPhase << " / " << record.goal << "\n";
-    out << "- 时长：" << formatTime(record.duration) << "\n";
-    out << "- 完成度：" << record.validReps << "/" << record.totalReps << "，目标 "
-        << record.targetReps << " 次/" << record.targetScore << " 分\n";
-    out << "- 平均/最佳分：" << record.score << "/" << record.bestScore << "\n";
-    out << "- 视频：" << displayMediaSource(record.videoSource) << "\n\n";
-    out << "## 综合反馈\n\n" << record.feedback << "\n\n";
-    out << "## 教练批注\n\n"
-        << (record.coachComment.trimmed().isEmpty() ? QStringLiteral("未填写") : record.coachComment.trimmed())
-        << "\n\n";
-    out << "## 动作明细\n\n";
-    if (repetitions.isEmpty()) {
-        out << "本次未保存动作实例。\n";
-    } else {
-        for (int i = 0; i < repetitions.size(); ++i) {
-            out << "- " << repetitionReportLine(repetitions.at(i),
-                                                i,
-                                                [this](int ms) { return formatMilliseconds(ms); })
-                << "\n";
-        }
-    }
-
-    ui->saveTipLabel->setText(QStringLiteral("训练报告已导出：%1").arg(filePath));
+    ui->saveTipLabel->setText(QStringLiteral("训练报告已导出：%1").arg(QDir::toNativeSeparators(filePath)));
     ui->saveTipLabel->show();
 }
 
