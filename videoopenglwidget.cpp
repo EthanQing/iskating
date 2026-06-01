@@ -170,7 +170,12 @@ void VideoOpenGLWidget::playMainUrlWithFallback(const QString &mainUrl, const QS
 
 void VideoOpenGLWidget::playFile(const QString &filePath)
 {
-    attachStream(filePath);
+    playFile(filePath, 0);
+}
+
+void VideoOpenGLWidget::playFile(const QString &filePath, qint64 startPositionMs)
+{
+    attachStream(filePath, QString(), startPositionMs);
 }
 
 void VideoOpenGLWidget::pausePlayback()
@@ -362,12 +367,7 @@ void VideoOpenGLWidget::setStreamChangedHandler(std::function<void(VideoOpenGLWi
     m_streamChangedHandler = std::move(handler);
 }
 
-void VideoOpenGLWidget::attachStream(const QString &source)
-{
-    attachStream(source, QString());
-}
-
-void VideoOpenGLWidget::attachStream(const QString &source, const QString &fallbackSource)
+void VideoOpenGLWidget::attachStream(const QString &source, const QString &fallbackSource, qint64 startPositionMs)
 {
     const QString normalizedSource = normalizedMediaSource(source);
     if (normalizedSource.isEmpty()) {
@@ -386,7 +386,14 @@ void VideoOpenGLWidget::attachStream(const QString &source, const QString &fallb
     qDebug() << "[VideoOpenGLWidget] attach low-latency D3D11 stream"
              << (m_channelName.isEmpty() ? objectName() : m_channelName)
              << safeUrlForLog(normalizedSource);
-    m_stream = StreamRegistry::instance().acquire(normalizedSource);
+    const qint64 initialSeekMs = std::max<qint64>(0, startPositionMs);
+    if (initialSeekMs > 0 && !hasUrlScheme(normalizedSource)) {
+        auto stream = std::make_shared<RtspStream>(normalizedSource, initialSeekMs);
+        stream->start();
+        m_stream = std::move(stream);
+    } else {
+        m_stream = StreamRegistry::instance().acquire(normalizedSource);
+    }
     m_videoPath = normalizedSource;
     const QString normalizedFallback = normalizedMediaSource(fallbackSource);
     m_fallbackVideoPath = normalizedFallback == normalizedSource ? QString() : normalizedFallback;

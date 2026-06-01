@@ -2693,19 +2693,57 @@ void MainWindow::openSessionVideo(const SessionHistoryItem &record, int offsetMs
         return;
     }
 
-    ui->mainImageLabel->setPlaceholderText(record.videoCameraName.trimmed().isEmpty()
-                                               ? QStringLiteral("训练回看")
-                                               : record.videoCameraName);
-    ui->mainImageLabel->playMainUrlWithFallback(source, record.videoFallbackSource);
+    const bool sourceIsUrl = hasMediaUrlScheme(source);
+    const QString sourceTitle = record.videoCameraName.trimmed().isEmpty()
+                                    ? (sourceIsUrl ? QStringLiteral("训练回看") : offlineVideoDisplayName(source))
+                                    : record.videoCameraName.trimmed();
+    ui->mainImageLabel->setPlaceholderText(sourceTitle);
+
+    if (!sourceIsUrl) {
+        const QFileInfo fileInfo(source);
+        if (!fileInfo.exists() || !fileInfo.isFile()) {
+            ui->mainImageLabel->stopPlayback();
+            ui->mainImageLabel->setPlaceholderText(QStringLiteral("训练回看\n文件不存在"));
+            if (ui->focusTitleLabel) {
+                ui->focusTitleLabel->setText(QStringLiteral("当前来源：%1").arg(sourceTitle));
+            }
+            if (m_handAnalysisManager) {
+                m_handAnalysisManager->setPaused(true);
+                m_handAnalysisManager->setActiveStream(0, {});
+            }
+            switchPage(kCapturePage);
+
+            const QString message = QStringLiteral("视频文件不存在：%1。请恢复原文件或重新导入后再回看。")
+                                        .arg(QDir::toNativeSeparators(source));
+            ui->saveTipLabel->setText(message);
+            ui->saveTipLabel->show();
+            QMessageBox::warning(this, QStringLiteral("视频文件不存在"), message);
+            return;
+        }
+
+        ui->mainImageLabel->playFile(fileInfo.absoluteFilePath(), offsetMs);
+    } else {
+        ui->mainImageLabel->playMainUrlWithFallback(source, record.videoFallbackSource);
+    }
+
     if (m_handAnalysisManager) {
         m_handAnalysisManager->setPaused(true);
         m_handAnalysisManager->setActiveStream(0, {});
     }
+    if (ui->focusTitleLabel) {
+        ui->focusTitleLabel->setText(QStringLiteral("当前来源：%1").arg(sourceTitle));
+    }
     switchPage(kCapturePage);
 
-    const QString offsetTip = offsetMs > 0
-                                  ? QStringLiteral("。片段起点 %1，请在播放器中按该时间回看。").arg(formatMilliseconds(offsetMs))
-                                  : QString();
+    QString offsetTip;
+    if (offsetMs > 0) {
+        if (sourceIsUrl) {
+            offsetTip = QStringLiteral("。RTSP/网络视频暂不支持自动定位，已打开视频源；片段起点 %1 可作为人工回看参考。")
+                            .arg(formatMilliseconds(offsetMs));
+        } else {
+            offsetTip = QStringLiteral("。已请求定位到片段起点 %1。").arg(formatMilliseconds(offsetMs));
+        }
+    }
     ui->saveTipLabel->setText(QStringLiteral("正在回看：%1%2").arg(displayMediaSource(source), offsetTip));
     ui->saveTipLabel->show();
 }

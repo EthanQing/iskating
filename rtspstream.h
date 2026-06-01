@@ -22,7 +22,7 @@ public:
         Error,
     };
 
-    explicit RtspStream(QString url);
+    explicit RtspStream(QString url, qint64 initialSeekMs = 0);
     ~RtspStream();
 
     RtspStream(const RtspStream &) = delete;
@@ -48,6 +48,7 @@ private:
     bool openAndDecodeOnce();
 
     QString m_url;
+    qint64 m_initialSeekMs = 0;
     mutable QMutex m_mutex;
     std::shared_ptr<D3DFrame> m_latestFrame;
     State m_state = State::Idle;

@@ -31,6 +31,7 @@ public:
     void setStillImage(const QString &imagePath);
     void playDefaultVideo();
     void playFile(const QString &filePath);
+    void playFile(const QString &filePath, qint64 startPositionMs);
     void pausePlayback();
     void stopPlayback();
     QString currentVideoPath() const;
@@ -70,8 +71,7 @@ private:
     void setupOverlayControls();
     void layoutOverlayControls();
     void openConfigDialog();
-    void attachStream(const QString &source);
-    void attachStream(const QString &source, const QString &fallbackSource);
+    void attachStream(const QString &source, const QString &fallbackSource = QString(), qint64 startPositionMs = 0);
     void notifyStreamChanged();
     void refreshVideoFrame();
 

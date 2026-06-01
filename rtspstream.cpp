@@ -6,6 +6,7 @@
 #include <QMutexLocker>
 #include <QUrl>
 
+#include <algorithm>
 #include <chrono>
 #include <thread>
 
@@ -15,7 +16,9 @@ extern "C" {
 #include <libavutil/dict.h>
 #include <libavutil/error.h>
 #include <libavutil/hwcontext.h>
+#include <libavutil/mathematics.h>
 #include <libavutil/pixdesc.h>
+#include <libavutil/rational.h>
 }
 
 namespace {
@@ -49,6 +52,16 @@ QString sourceForFfmpeg(const QString &source)
         return trimmed;
     }
     return QFileInfo(trimmed).absoluteFilePath();
+}
+
+QString formatMilliseconds(qint64 milliseconds)
+{
+    const qint64 clamped = std::max<qint64>(0, milliseconds);
+    const qint64 totalSeconds = clamped / 1000;
+    return QStringLiteral("%1:%2.%3")
+        .arg(totalSeconds / 60, 2, 10, QLatin1Char('0'))
+        .arg(totalSeconds % 60, 2, 10, QLatin1Char('0'))
+        .arg((clamped % 1000) / 100, 1, 10, QLatin1Char('0'));
 }
 
 enum AVPixelFormat d3d11GetFormat(AVCodecContext *, const enum AVPixelFormat *formats)
@@ -154,8 +167,9 @@ void freeFrame(AVFrame **frame)
 
 } // namespace
 
-RtspStream::RtspStream(QString url)
+RtspStream::RtspStream(QString url, qint64 initialSeekMs)
     : m_url(std::move(url))
+    , m_initialSeekMs(std::max<qint64>(0, initialSeekMs))
 {
 }
 
@@ -348,6 +362,32 @@ bool RtspStream::openAndDecodeOnce()
     }
 
     AVStream *stream = format->streams[streamIndex];
+    QString initialSeekStatus;
+    if (m_initialSeekMs > 0) {
+        if (ffmpegSource.startsWith(QStringLiteral("rtsp://"), Qt::CaseInsensitive)) {
+            initialSeekStatus = QStringLiteral("RTSP 实时流不支持片段定位，已从实时画面播放");
+        } else {
+            const AVRational millisecondTimeBase = {1, 1000};
+            qint64 targetTimestamp = av_rescale_q(m_initialSeekMs,
+                                                  millisecondTimeBase,
+                                                  stream->time_base);
+            if (stream->start_time != AV_NOPTS_VALUE) {
+                targetTimestamp += stream->start_time;
+            }
+
+            rc = av_seek_frame(format.get(), streamIndex, targetTimestamp, AVSEEK_FLAG_BACKWARD);
+            if (rc < 0) {
+                initialSeekStatus = QStringLiteral("定位片段失败，已从头播放：%1").arg(avError(rc));
+                qWarning() << "[RtspStream] initial seek failed"
+                           << safeUrlForLog(m_url)
+                           << formatMilliseconds(m_initialSeekMs)
+                           << avError(rc);
+            } else {
+                initialSeekStatus = QStringLiteral("已定位到片段起点 %1").arg(formatMilliseconds(m_initialSeekMs));
+            }
+        }
+    }
+
     const AVCodec *codec = avcodec_find_decoder(stream->codecpar->codec_id);
     if (!codec) {
         setState(State::Error, QStringLiteral("找不到解码器"));
@@ -397,7 +437,11 @@ bool RtspStream::openAndDecodeOnce()
         return false;
     }
 
-    setState(State::Playing, QStringLiteral("播放中：D3D11VA"));
+    QString playingStatus = QStringLiteral("播放中：D3D11VA");
+    if (!initialSeekStatus.isEmpty()) {
+        playingStatus += QStringLiteral("（%1）").arg(initialSeekStatus);
+    }
+    setState(State::Playing, playingStatus);
     qDebug() << "[RtspStream] playing with D3D11VA" << safeUrlForLog(m_url)
              << "codec=" << codec->name
              << "size=" << codecContext->width << "x" << codecContext->height;
