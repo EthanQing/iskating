@@ -22,8 +22,8 @@
 4. 点击开始采集后，主视图默认显示第一路主码流，12 路小窗显示预览码流。
 5. AI 分析器订阅主视图活动流，持续输出姿态结果。
 6. `MainWindow` 刷新视频覆盖、骨架、轨迹、动作次数和评分。
-7. 用户点击保存记录后，当前训练数据写入 `QSettings`。
-8. 历史页展示最近训练记录，建议页基于最近记录和历史均分生成建议。
+7. 用户点击保存记录后，当前训练数据通过 `TrainingRepository` 写入本机 SQLite，旧 `QSettings/trainingHistory` 仅作为首次迁移来源。
+8. 历史页展示最近训练记录、复盘校准与报告导出入口，建议页基于最近记录、动作标准和 7/30 天趋势生成建议。
 
 ## 涉及文件
 
@@ -40,9 +40,12 @@
 - `SharedCameraSettings`
 - `CameraSlotSettings`
 - `CapturePreferenceSettings`
-- `TrainingRecord`
+- `TrainingSession`
+- `ActionRepetition`
+- `SessionHistoryItem`
 - `PoseFrameResult`
-- `QSettings` keys: `cameraDefaults/*`, `cameras/cameraXX/*`, `capture/*`, `trainingHistory`
+- `QSettings` keys: `cameraDefaults/*`, `cameras/cameraXX/*`, `capture/*`
+- SQLite tables: `training_sessions`, `action_repetitions`, `action_standards`
 
 ## 错误处理
 

@@ -12,8 +12,8 @@
 ## 关键文件
 
 - `main.cpp`: 配置本地 DLL/Qt 插件搜索路径，创建 `QApplication` 和 `MainWindow`。
-- `mainwindow.h`: 定义 `TrainingRecord`、主窗口状态和主要私有方法。
-- `mainwindow.cpp`: 主窗口业务编排、页面切换、采集控制、训练记录保存、评分刷新。
+- `mainwindow.h`: 定义主窗口状态、训练上下文控件、训练记录加载入口和主要私有方法。
+- `mainwindow.cpp`: 主窗口业务编排、页面切换、采集控制、训练记录保存、复盘/报告入口和评分刷新。
 - `mainwindow.ui`: Qt Designer 生成的基础界面布局。
 
 ## 当前设计
@@ -24,7 +24,7 @@
 - 将 AI 回调结果同步到主视频、骨架视图、轨迹视图、动作计数和分项评分。
 - 按页面维护实时采集、历史分析、纠正建议三个主页面。
 - 使用 `QTimer` 每秒累计训练时长。
-- 使用成员变量保存当前机位、采集状态、分数、训练历史和 UI 控件集合。
+- 使用成员变量保存当前机位、采集状态、分数、最近训练 session 摘要和 UI 控件集合；训练业务数据通过 `TrainingRepository` 读写 SQLite。
 
 ## 对外接口
 
@@ -44,9 +44,9 @@
 
 ### 修改训练保存字段
 
-1. 更新 `TrainingRecord` in `mainwindow.h`。
-2. 同步更新 `loadTrainingRecords()` 和 `persistTrainingRecords()` in `mainwindow.cpp`。
-3. 更新 `refreshHistory()` 和 `refreshSuggestions()` 的展示/建议逻辑。
+1. 更新 `trainingdomain.h` 中对应的 `TrainingSession`、`ActionRepetition` 或 `SessionHistoryItem`。
+2. 同步更新 `trainingrepository.cpp` 的建表、补列、保存和读取逻辑。
+3. 更新 `mainwindow.cpp` 中的保存、`loadTrainingRecords()`、`refreshHistory()`、`refreshSuggestions()` 和报告/复盘展示逻辑。
 
 ### 修改采集状态逻辑
 
