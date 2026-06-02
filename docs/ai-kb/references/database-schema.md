@@ -10,11 +10,12 @@
 项目使用两类本地持久化：
 
 - Qt `QSettings`: 保存摄像头配置和采集偏好。
-- SQLite: 保存训练动作标准闭环与训练复盘校准的运动员、动作标准、计划任务、训练记录、动作明细、视频引用、人工复核、标准参考视频和教练批注。
+- SQLite: 保存训练动作标准闭环与训练复盘校准的运动员/教练档案、教练-运动员关系、动作标准、计划任务、训练记录、动作明细、视频引用、人工复核、标准参考视频和教练批注。
 
 相关文件：
 
 - `mainwindow.cpp`
+- `personmanagementdialog.cpp`
 - `trainingdomain.h`
 - `trainingrepository.cpp`
 - `main.cpp`
@@ -25,7 +26,7 @@ QSettings schema 仍分散在读写代码中：
 
 - `MainWindow::loadCameraSettings()`
 - `MainWindow::persistSystemSettings()`
-SQLite schema 在 `TrainingRepository::migrate()` 中创建，当前版本为 v3。seed 数据在 `TrainingRepository::seedDefaults()` 中维护。新增列通过 `TrainingRepository::ensureColumn()` 兼容已有本地数据库。
+SQLite schema 在 `TrainingRepository::migrate()` 中创建，当前版本为 v4。seed 数据在 `TrainingRepository::seedDefaults()` 中维护。新增列通过 `TrainingRepository::ensureColumn()` 兼容已有本地数据库。
 
 ## 主要数据结构
 
@@ -86,11 +87,11 @@ P1 轨迹拼接默认把 12 路相机按 5m 一段初始化为 CAM 01: 0-5m 至 
 
 #### `athletes`
 
-运动员档案：姓名、编号、年龄组、身高体重、项目类型、技术等级、惯用方向/起跳脚、伤病限制和训练目标。
+运动员档案：姓名、编号、年龄组、身高体重、项目类型、技术等级、惯用方向/起跳脚、伤病限制、训练目标和 `active` 归档状态。人员管理中的删除会把 `active` 设为 0，不硬删历史训练记录引用。
 
 #### `coaches`, `coach_athletes`
 
-教练档案和教练-运动员基础关系。
+教练档案和教练-运动员基础关系。`coaches` 保存姓名、编号、专项、电话、备注和 `active` 归档状态；`coach_athletes` 保存当前可带训运动员关系。教练删除同样使用归档方式。
 
 #### `action_categories`, `action_standards`
 
@@ -169,11 +170,13 @@ P1 轨迹拼接默认把 12 路相机按 5m 一段初始化为 CAM 01: 0-5m 至 
 
 ## 迁移方式
 
-没有独立迁移命令。应用启动时 `TrainingRepository::open()` 会执行建表、schema v3 字段补列、seed 和旧 `trainingHistory` 迁移。
+没有独立迁移命令。应用启动时 `TrainingRepository::open()` 会执行建表、schema v4 字段补列、seed 和旧 `trainingHistory` 迁移。
 
 相关文件：
 
 - `mainwindow.cpp`
+- `trainingrepository.cpp`
+- `personmanagementdialog.cpp`
 
 ## seed 方式
 
@@ -181,7 +184,14 @@ P1 轨迹拼接默认把 12 路相机按 5m 一段初始化为 CAM 01: 0-5m 至 
 
 ## 查询入口
 
-训练历史通过 `TrainingRepository::recentSessions()` 查询；动作明细通过 `repetitionsForSession()` / `reviewedRepetitionsForSession()` 查询；最近 7/30 天趋势通过 `trendForRecentDays()` 聚合 `training_sessions` 和 `action_repetitions` 查询；教练批注通过 `saveCoachComment()` 更新；个体基线通过 `baselineFor()` 查询。
+训练历史通过 `TrainingRepository::recentSessions()` 查询；动作明细通过 `repetitionsForSession()` / `reviewedRepetitionsForSession()` 查询；人员档案通过 `athletes()`、`coaches()`、`athleteIdsForCoach()` 查询；最近 7/30 天趋势通过 `trendForRecentDays()` 聚合 `training_sessions` 和 `action_repetitions` 查询；教练批注通过 `saveCoachComment()` 更新；个体基线通过 `baselineFor()` 查询。
+
+人员管理写入口：
+
+- `saveAthleteProfile(...)`: 新增或更新运动员档案。
+- `archiveAthlete(...)`: 归档运动员，保留历史训练记录引用。
+- `saveCoachProfile(...)`: 新增或更新教练档案，并重写该教练的可带训运动员关系。
+- `archiveCoach(...)`: 归档教练，保留历史训练记录引用。
 
 复盘校准写入口：
 
@@ -196,3 +206,4 @@ P1 轨迹拼接默认把 12 路相机按 5m 一段初始化为 CAM 01: 0-5m 至 
 
 - `mainwindow.h`
 - `mainwindow.cpp`
+- `personmanagementdialog.cpp`

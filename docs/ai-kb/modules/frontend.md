@@ -19,6 +19,7 @@
 - `systemsettingsdialog.cpp`: 系统设置对话框，包含公共 RTSP、12 路 IP、场地段标定、机位用途和采集偏好。
 - `videoopenglwidget.cpp`: 视频控件占位状态和浮层按钮。
 - `trainingreviewdialog.cpp`: 历史复盘校准对话框，包含主视频回放、动作列表、人工修正表单和标准参考视频。
+- `personmanagementdialog.cpp`: 人员管理对话框，维护运动员档案、教练档案和教练-运动员绑定关系。
 - `skeletonviewwidget.cpp`: 2D/3D 骨架绘制。
 - `trajectorywidget.cpp`: 三维轨迹绘制；配置了相机场地段后会切换到全场轨迹视图，并显示各相机覆盖段。
 
@@ -33,6 +34,7 @@
 - 历史卡片保留摘要、教练批注和导出入口；动作级复盘进入独立 `TrainingReviewDialog`，避免继续膨胀历史卡片。
 - 训练趋势在建议页复用 `suggestionCard` 动态卡片样式，展示最近 7/30 天训练次数、人工优先均分、最佳分、动作完成数和弱项变化摘要。
 - 训练上下文区提供“编辑标准”入口，可维护阈值、权重、目标次数/分数、提示文案和本地参考视频路径。
+- 训练上下文区提供“人员管理”入口，可维护运动员档案、教练档案和带训关系；快速新增运动员/教练按钮仍保留用于训练现场录入。
 - 训练上下文区提供训练备注输入，可记录主观感受、疲劳程度、冰面情况和训练重点；保存后历史卡片和报告会展示。
 - 系统设置中的“场地与机位标定”表按 12 路相机维护是否参与轨迹、用途、覆盖起止距离、横向偏移、安装高度、朝向、俯仰和质量/兼容备注。
 - 复盘校准对话框左侧是主视频与标准参考视频，右侧是动作表格、播放控制和人工复核表单。点击动作行会定位到片段；本地视频支持 seek、慢放、逐帧和关键帧定位，RTSP 只打开源并显示片段时间提示。
@@ -83,6 +85,13 @@
 2. 人工复核保存必须通过 `TrainingRepository::saveRepetitionReview()` 或 `createManualRepetition()`，不要绕过仓储直接写 SQL。
 3. 新增标准参考信息时通过 `TrainingRepository::saveActionStandard()` 保存，注意该方法会递增动作标准版本。
 4. 回放控制应先判断 `VideoOpenGLWidget::isSeekable()`；RTSP/网络源需要保留清晰提示，不应假装支持精确定位。
+
+### 修改人员管理界面
+
+1. 优先修改 `personmanagementdialog.cpp/.h`。
+2. 人员档案必须通过 `TrainingRepository::saveAthleteProfile()` / `saveCoachProfile()` 保存，不要绕过仓储直接写 SQL。
+3. 删除人员应走 `archiveAthlete()` / `archiveCoach()` 归档，保持历史训练记录可回看。
+4. 新增源码文件后同步维护 `mainwindow.pro`。
 
 ## 注意事项
 

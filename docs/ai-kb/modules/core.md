@@ -13,8 +13,9 @@
 
 - `main.cpp`: 配置本地 DLL/Qt 插件搜索路径，创建 `QApplication` 和 `MainWindow`。
 - `mainwindow.h`: 定义主窗口状态、训练上下文控件、训练记录加载入口和主要私有方法。
-- `mainwindow.cpp`: 主窗口业务编排、页面切换、采集控制、训练记录保存、复盘/报告入口和评分刷新。
+- `mainwindow.cpp`: 主窗口业务编排、页面切换、采集控制、人员管理入口、训练记录保存、复盘/报告入口和评分刷新。
 - `mainwindow.ui`: Qt Designer 生成的基础界面布局。
+- `personmanagementdialog.cpp`: 主窗口训练上下文中打开的人员管理对话框。
 
 ## 当前设计
 
@@ -23,6 +24,7 @@
 - 构造时创建 `PoseStandardnessScorer` 和 `HandAnalysisManager`。
 - 将 AI 回调结果同步到主视频、骨架视图、轨迹视图、动作计数和分项评分。
 - 按页面维护实时采集、历史分析、纠正建议三个主页面。
+- 训练上下文区通过 `openPersonManagement()` 打开人员管理对话框，保存后重新加载人员下拉、历史和建议。
 - 使用 `QTimer` 每秒累计训练时长。
 - 使用成员变量保存当前机位、采集状态、分数、最近训练 session 摘要和 UI 控件集合；训练业务数据通过 `TrainingRepository` 读写 SQLite。
 

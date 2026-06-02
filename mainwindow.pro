@@ -121,6 +121,7 @@ SOURCES += \
     iconutils.cpp \
     main.cpp \
     mainwindow.cpp \
+    personmanagementdialog.cpp \
     poseresult.cpp \
     posestandardnessscorer.cpp \
     rtspstream.cpp \
@@ -145,6 +146,7 @@ HEADERS += \
     handanalysismanager.h \
     iconutils.h \
     mainwindow.h \
+    personmanagementdialog.h \
     poseresult.h \
     posestandardnessscorer.h \
     rtspstream.h \

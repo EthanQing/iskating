@@ -180,12 +180,17 @@ bool TrainingRepository::migrate(QString *errorMessage)
                        "preferred_takeoff_foot TEXT,"
                        "injury_notes TEXT,"
                        "goals TEXT,"
+                       "active INTEGER NOT NULL DEFAULT 1,"
                        "created_at TEXT NOT NULL,"
                        "updated_at TEXT NOT NULL)"),
         QStringLiteral("CREATE TABLE IF NOT EXISTS coaches ("
                        "id TEXT PRIMARY KEY,"
                        "name TEXT NOT NULL,"
                        "code TEXT,"
+                       "specialty TEXT,"
+                       "phone TEXT,"
+                       "notes TEXT,"
+                       "active INTEGER NOT NULL DEFAULT 1,"
                        "created_at TEXT NOT NULL,"
                        "updated_at TEXT NOT NULL)"),
         QStringLiteral("CREATE TABLE IF NOT EXISTS coach_athletes ("
@@ -392,6 +397,11 @@ bool TrainingRepository::migrate(QString *errorMessage)
         return false;
     }
     const QVector<std::tuple<QString, QString, QString>> reviewColumns = {
+        {QStringLiteral("athletes"), QStringLiteral("active"), QStringLiteral("INTEGER NOT NULL DEFAULT 1")},
+        {QStringLiteral("coaches"), QStringLiteral("specialty"), QStringLiteral("TEXT")},
+        {QStringLiteral("coaches"), QStringLiteral("phone"), QStringLiteral("TEXT")},
+        {QStringLiteral("coaches"), QStringLiteral("notes"), QStringLiteral("TEXT")},
+        {QStringLiteral("coaches"), QStringLiteral("active"), QStringLiteral("INTEGER NOT NULL DEFAULT 1")},
         {QStringLiteral("action_standards"), QStringLiteral("reference_video_source"), QStringLiteral("TEXT")},
         {QStringLiteral("action_standards"), QStringLiteral("reference_repetition_id"), QStringLiteral("TEXT")},
         {QStringLiteral("action_standards"), QStringLiteral("reference_notes"), QStringLiteral("TEXT")},
@@ -418,7 +428,7 @@ bool TrainingRepository::migrate(QString *errorMessage)
             return false;
         }
     }
-    return setMetaValue(QStringLiteral("schemaVersion"), QStringLiteral("3"), errorMessage);
+    return setMetaValue(QStringLiteral("schemaVersion"), QStringLiteral("4"), errorMessage);
 }
 
 bool TrainingRepository::seedDefaults(QString *errorMessage)
@@ -643,8 +653,8 @@ QVector<AthleteProfile> TrainingRepository::athletes() const
     QVector<AthleteProfile> result;
     QSqlQuery query(m_db);
     query.exec(QStringLiteral("SELECT id, name, code, age_group, height_cm, weight_kg, discipline, level,"
-                              "preferred_rotation, preferred_takeoff_foot, injury_notes, goals "
-                              "FROM athletes ORDER BY name COLLATE NOCASE"));
+                              "preferred_rotation, preferred_takeoff_foot, injury_notes, goals, active "
+                              "FROM athletes WHERE active = 1 ORDER BY name COLLATE NOCASE"));
     while (query.next()) {
         AthleteProfile athlete;
         athlete.id = query.value(0).toString();
@@ -659,6 +669,7 @@ QVector<AthleteProfile> TrainingRepository::athletes() const
         athlete.preferredTakeoffFoot = query.value(9).toString();
         athlete.injuryNotes = query.value(10).toString();
         athlete.goals = query.value(11).toString();
+        athlete.active = query.value(12).toInt() != 0;
         result.append(athlete);
     }
     return result;
@@ -668,13 +679,37 @@ QVector<CoachProfile> TrainingRepository::coaches() const
 {
     QVector<CoachProfile> result;
     QSqlQuery query(m_db);
-    query.exec(QStringLiteral("SELECT id, name, code FROM coaches ORDER BY name COLLATE NOCASE"));
+    query.exec(QStringLiteral("SELECT id, name, code, specialty, phone, notes, active "
+                              "FROM coaches WHERE active = 1 ORDER BY name COLLATE NOCASE"));
     while (query.next()) {
         CoachProfile coach;
         coach.id = query.value(0).toString();
         coach.name = query.value(1).toString();
         coach.code = query.value(2).toString();
+        coach.specialty = query.value(3).toString();
+        coach.phone = query.value(4).toString();
+        coach.notes = query.value(5).toString();
+        coach.active = query.value(6).toInt() != 0;
         result.append(coach);
+    }
+    return result;
+}
+
+QVector<QString> TrainingRepository::athleteIdsForCoach(const QString &coachId) const
+{
+    QVector<QString> result;
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral("SELECT ca.athlete_id "
+                                 "FROM coach_athletes ca "
+                                 "JOIN athletes a ON a.id = ca.athlete_id "
+                                 "WHERE ca.coach_id = ? AND a.active = 1 "
+                                 "ORDER BY a.name COLLATE NOCASE"));
+    query.addBindValue(coachId);
+    if (!query.exec()) {
+        return result;
+    }
+    while (query.next()) {
+        result.append(query.value(0).toString());
     }
     return result;
 }
@@ -1305,8 +1340,8 @@ bool TrainingRepository::createAthlete(const QString &name, QString *athleteId, 
     const QString id = newId();
     QSqlQuery query(m_db);
     query.prepare(QStringLiteral("INSERT INTO athletes "
-                                 "(id, name, code, age_group, discipline, level, goals, created_at, updated_at) "
-                                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"));
+                                 "(id, name, code, age_group, discipline, level, goals, active, created_at, updated_at) "
+                                 "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)"));
     if (!bindAndExec(query,
                      {id,
                       safeText(name, QStringLiteral("新运动员")),
@@ -1323,7 +1358,7 @@ bool TrainingRepository::createAthlete(const QString &name, QString *athleteId, 
         return false;
     }
 
-    const QString coachId = scalarString(QStringLiteral("SELECT id FROM coaches ORDER BY created_at LIMIT 1"));
+    const QString coachId = scalarString(QStringLiteral("SELECT id FROM coaches WHERE active = 1 ORDER BY created_at LIMIT 1"));
     if (!coachId.isEmpty()) {
         QSqlQuery relation(m_db);
         relation.prepare(QStringLiteral("INSERT OR IGNORE INTO coach_athletes "
@@ -1341,8 +1376,8 @@ bool TrainingRepository::createCoach(const QString &name, QString *coachId, QStr
 {
     const QString id = newId();
     QSqlQuery query(m_db);
-    query.prepare(QStringLiteral("INSERT INTO coaches (id, name, code, created_at, updated_at) "
-                                 "VALUES (?, ?, ?, ?, ?)"));
+    query.prepare(QStringLiteral("INSERT INTO coaches (id, name, code, active, created_at, updated_at) "
+                                 "VALUES (?, ?, ?, 1, ?, ?)"));
     if (!bindAndExec(query,
                      {id,
                       safeText(name, QStringLiteral("新教练")),
@@ -1356,6 +1391,260 @@ bool TrainingRepository::createCoach(const QString &name, QString *coachId, QStr
     }
     if (coachId) {
         *coachId = id;
+    }
+    return true;
+}
+
+bool TrainingRepository::saveAthleteProfile(AthleteProfile *athlete, QString *errorMessage)
+{
+    if (!athlete) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("运动员档案为空。");
+        }
+        return false;
+    }
+    if (athlete->name.trimmed().isEmpty()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("运动员姓名不能为空。");
+        }
+        return false;
+    }
+
+    const bool isNew = athlete->id.trimmed().isEmpty()
+                       || scalarInt(QStringLiteral("SELECT COUNT(*) FROM athletes WHERE id = ?"),
+                                    {athlete->id.trimmed()},
+                                    0) <= 0;
+    athlete->id = ensureId(athlete->id);
+    athlete->name = athlete->name.trimmed();
+    athlete->code = safeText(athlete->code, QStringLiteral("ATH-%1").arg(QDateTime::currentMSecsSinceEpoch()));
+    athlete->active = true;
+
+    QSqlQuery query(m_db);
+    if (isNew) {
+        query.prepare(QStringLiteral(
+            "INSERT INTO athletes ("
+            "id, name, code, age_group, height_cm, weight_kg, discipline, level,"
+            "preferred_rotation, preferred_takeoff_foot, injury_notes, goals, active, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)"));
+        if (!bindAndExec(query,
+                         {athlete->id,
+                          athlete->name,
+                          athlete->code,
+                          athlete->ageGroup.trimmed(),
+                          athlete->heightCm,
+                          athlete->weightKg,
+                          athlete->discipline.trimmed(),
+                          athlete->level.trimmed(),
+                          athlete->preferredRotation.trimmed(),
+                          athlete->preferredTakeoffFoot.trimmed(),
+                          athlete->injuryNotes.trimmed(),
+                          athlete->goals.trimmed(),
+                          nowIso(),
+                          nowIso()})) {
+            if (errorMessage) {
+                *errorMessage = query.lastError().text();
+            }
+            return false;
+        }
+
+        const QString coachId = scalarString(QStringLiteral("SELECT id FROM coaches WHERE active = 1 ORDER BY created_at LIMIT 1"));
+        if (!coachId.isEmpty()) {
+            QSqlQuery relation(m_db);
+            relation.prepare(QStringLiteral("INSERT OR IGNORE INTO coach_athletes "
+                                            "(coach_id, athlete_id, created_at) VALUES (?, ?, ?)"));
+            bindAndExec(relation, {coachId, athlete->id, nowIso()});
+        }
+        return true;
+    }
+
+    query.prepare(QStringLiteral(
+        "UPDATE athletes SET "
+        "name = ?, code = ?, age_group = ?, height_cm = ?, weight_kg = ?, discipline = ?, level = ?,"
+        "preferred_rotation = ?, preferred_takeoff_foot = ?, injury_notes = ?, goals = ?, active = 1, updated_at = ? "
+        "WHERE id = ?"));
+    if (!bindAndExec(query,
+                     {athlete->name,
+                      athlete->code,
+                      athlete->ageGroup.trimmed(),
+                      athlete->heightCm,
+                      athlete->weightKg,
+                      athlete->discipline.trimmed(),
+                      athlete->level.trimmed(),
+                      athlete->preferredRotation.trimmed(),
+                      athlete->preferredTakeoffFoot.trimmed(),
+                      athlete->injuryNotes.trimmed(),
+                      athlete->goals.trimmed(),
+                      nowIso(),
+                      athlete->id})) {
+        if (errorMessage) {
+            *errorMessage = query.lastError().text();
+        }
+        return false;
+    }
+    return true;
+}
+
+bool TrainingRepository::archiveAthlete(const QString &athleteId, QString *errorMessage)
+{
+    const QString id = athleteId.trimmed();
+    if (id.isEmpty()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("运动员不存在。");
+        }
+        return false;
+    }
+    if (scalarInt(QStringLiteral("SELECT COUNT(*) FROM athletes WHERE active = 1"), {}, 0) <= 1) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("至少需要保留一名可用运动员。");
+        }
+        return false;
+    }
+
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral("UPDATE athletes SET active = 0, updated_at = ? WHERE id = ? AND active = 1"));
+    if (!bindAndExec(query, {nowIso(), id})) {
+        if (errorMessage) {
+            *errorMessage = query.lastError().text();
+        }
+        return false;
+    }
+    if (query.numRowsAffected() <= 0) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("未找到可删除的运动员。");
+        }
+        return false;
+    }
+    return true;
+}
+
+bool TrainingRepository::saveCoachProfile(CoachProfile *coach,
+                                          const QVector<QString> &athleteIds,
+                                          QString *errorMessage)
+{
+    if (!coach) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("教练档案为空。");
+        }
+        return false;
+    }
+    if (coach->name.trimmed().isEmpty()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("教练姓名不能为空。");
+        }
+        return false;
+    }
+
+    const bool isNew = coach->id.trimmed().isEmpty()
+                       || scalarInt(QStringLiteral("SELECT COUNT(*) FROM coaches WHERE id = ?"),
+                                    {coach->id.trimmed()},
+                                    0) <= 0;
+    coach->id = ensureId(coach->id);
+    coach->name = coach->name.trimmed();
+    coach->code = safeText(coach->code, QStringLiteral("COACH-%1").arg(QDateTime::currentMSecsSinceEpoch()));
+    coach->active = true;
+
+    if (!m_db.transaction()) {
+        if (errorMessage) {
+            *errorMessage = m_db.lastError().text();
+        }
+        return false;
+    }
+
+    auto rollback = [this, errorMessage](const QString &message) {
+        m_db.rollback();
+        if (errorMessage) {
+            *errorMessage = message;
+        }
+        return false;
+    };
+
+    QSqlQuery query(m_db);
+    if (isNew) {
+        query.prepare(QStringLiteral(
+            "INSERT INTO coaches (id, name, code, specialty, phone, notes, active, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)"));
+        if (!bindAndExec(query,
+                         {coach->id,
+                          coach->name,
+                          coach->code,
+                          coach->specialty.trimmed(),
+                          coach->phone.trimmed(),
+                          coach->notes.trimmed(),
+                          nowIso(),
+                          nowIso()})) {
+            return rollback(query.lastError().text());
+        }
+    } else {
+        query.prepare(QStringLiteral(
+            "UPDATE coaches SET name = ?, code = ?, specialty = ?, phone = ?, notes = ?, active = 1, updated_at = ? "
+            "WHERE id = ?"));
+        if (!bindAndExec(query,
+                         {coach->name,
+                          coach->code,
+                          coach->specialty.trimmed(),
+                          coach->phone.trimmed(),
+                          coach->notes.trimmed(),
+                          nowIso(),
+                          coach->id})) {
+            return rollback(query.lastError().text());
+        }
+    }
+
+    QSqlQuery deleteRelations(m_db);
+    deleteRelations.prepare(QStringLiteral("DELETE FROM coach_athletes WHERE coach_id = ?"));
+    if (!bindAndExec(deleteRelations, {coach->id})) {
+        return rollback(deleteRelations.lastError().text());
+    }
+
+    for (const QString &athleteId : athleteIds) {
+        const QString trimmedAthleteId = athleteId.trimmed();
+        if (trimmedAthleteId.isEmpty()) {
+            continue;
+        }
+        QSqlQuery relation(m_db);
+        relation.prepare(QStringLiteral(
+            "INSERT OR IGNORE INTO coach_athletes (coach_id, athlete_id, created_at) "
+            "SELECT ?, id, ? FROM athletes WHERE id = ? AND active = 1"));
+        if (!bindAndExec(relation, {coach->id, nowIso(), trimmedAthleteId})) {
+            return rollback(relation.lastError().text());
+        }
+    }
+
+    if (!m_db.commit()) {
+        return rollback(m_db.lastError().text());
+    }
+    return true;
+}
+
+bool TrainingRepository::archiveCoach(const QString &coachId, QString *errorMessage)
+{
+    const QString id = coachId.trimmed();
+    if (id.isEmpty()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("教练不存在。");
+        }
+        return false;
+    }
+    if (scalarInt(QStringLiteral("SELECT COUNT(*) FROM coaches WHERE active = 1"), {}, 0) <= 1) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("至少需要保留一名可用教练。");
+        }
+        return false;
+    }
+
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral("UPDATE coaches SET active = 0, updated_at = ? WHERE id = ? AND active = 1"));
+    if (!bindAndExec(query, {nowIso(), id})) {
+        if (errorMessage) {
+            *errorMessage = query.lastError().text();
+        }
+        return false;
+    }
+    if (query.numRowsAffected() <= 0) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("未找到可删除的教练。");
+        }
+        return false;
     }
     return true;
 }

@@ -21,6 +21,7 @@ public:
 
     QVector<AthleteProfile> athletes() const;
     QVector<CoachProfile> coaches() const;
+    QVector<QString> athleteIdsForCoach(const QString &coachId) const;
     QVector<ActionStandard> actionStandards() const;
     QVector<SessionHistoryItem> recentSessions(int limit) const;
     QVector<ActionRepetition> repetitionsForSession(const QString &sessionId) const;
@@ -44,6 +45,15 @@ public:
 
     bool createAthlete(const QString &name, QString *athleteId, QString *errorMessage = nullptr);
     bool createCoach(const QString &name, QString *coachId, QString *errorMessage = nullptr);
+    bool saveAthleteProfile(AthleteProfile *athlete,
+                            QString *errorMessage = nullptr);
+    bool archiveAthlete(const QString &athleteId,
+                        QString *errorMessage = nullptr);
+    bool saveCoachProfile(CoachProfile *coach,
+                          const QVector<QString> &athleteIds,
+                          QString *errorMessage = nullptr);
+    bool archiveCoach(const QString &coachId,
+                      QString *errorMessage = nullptr);
     bool ensureDailyTask(const QString &athleteId,
                          const QString &coachId,
                          const QString &actionStandardId,

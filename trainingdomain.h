@@ -19,6 +19,7 @@ struct AthleteProfile
     QString preferredTakeoffFoot;
     QString injuryNotes;
     QString goals;
+    bool active = true;
 };
 
 struct CoachProfile
@@ -26,6 +27,10 @@ struct CoachProfile
     QString id;
     QString name;
     QString code;
+    QString specialty;
+    QString phone;
+    QString notes;
+    bool active = true;
 };
 
 struct ActionStandard

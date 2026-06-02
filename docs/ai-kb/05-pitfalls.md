@@ -92,15 +92,18 @@
 
 ## 数据库/迁移坑点
 
-项目没有独立迁移命令。`TrainingRepository::open()` 会在启动时执行 schema v3 建表、`ensureColumn()` 补列、seed 和旧 `QSettings/trainingHistory` 迁移。新增字段必须同时更新建表 SQL、补列、读取、写入和旧数据默认值。
+项目没有独立迁移命令。`TrainingRepository::open()` 会在启动时执行 schema v4 建表、`ensureColumn()` 补列、seed 和旧 `QSettings/trainingHistory` 迁移。新增字段必须同时更新建表 SQL、补列、读取、写入和旧数据默认值。
 
 动作标准 seed 只应插入缺失项，不能覆盖用户本地维护的阈值、权重、提示文案或参考视频路径。`saveActionStandard()` 会递增标准版本，复盘参考视频这类编辑也会形成新版本。
 
 人工复核字段采用“人工优先、AI 原始保留”的读取约定。历史页、建议页、报告和基线重算应通过 `TrainingRepository` 的 effective 数据路径，避免直接读 AI 原始分造成展示不一致。
 
+人员档案删除采用 `active=0` 归档，避免破坏 `training_sessions` 中的历史外键。训练选择、人员管理列表和教练绑定关系只显示 active 人员；历史记录仍应保留原人员引用。
+
 相关文件：
 
 - `mainwindow.cpp`
+- `personmanagementdialog.cpp`
 - `trainingrepository.cpp`
 - `trainingdomain.h`
 

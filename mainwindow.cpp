@@ -2,6 +2,7 @@
 #include "actionstandardscorer.h"
 #include "handanalysismanager.h"
 #include "iconutils.h"
+#include "personmanagementdialog.h"
 #include "posestandardnessscorer.h"
 #include "skeletonviewwidget.h"
 #include "trainingreviewdialog.h"
@@ -1094,13 +1095,16 @@ void MainWindow::installTrainingContextPanel()
     auto *titleLabel = new QLabel(QStringLiteral("训练上下文"), m_trainingContextPanel);
     titleLabel->setProperty("role", "sectionTitle");
     auto *editStandardButton = new QPushButton(QStringLiteral("编辑标准"), m_trainingContextPanel);
+    auto *managePersonsButton = new QPushButton(QStringLiteral("人员管理"), m_trainingContextPanel);
     editStandardButton->setProperty("role", "secondaryButton");
+    managePersonsButton->setProperty("role", "secondaryButton");
     m_standardDetailLabel = new QLabel(QStringLiteral("动作标准库初始化中"), m_trainingContextPanel);
     m_standardDetailLabel->setProperty("role", "muted");
     m_standardDetailLabel->setWordWrap(true);
     m_standardDetailLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     titleRow->addWidget(titleLabel, 0);
     titleRow->addWidget(m_standardDetailLabel, 1);
+    titleRow->addWidget(managePersonsButton, 0);
     titleRow->addWidget(editStandardButton, 0);
     panelLayout->addLayout(titleRow);
 
@@ -1176,6 +1180,7 @@ void MainWindow::installTrainingContextPanel()
 
     connect(addAthleteButton, &QPushButton::clicked, this, [this]() { addAthleteFromDialog(); });
     connect(addCoachButton, &QPushButton::clicked, this, [this]() { addCoachFromDialog(); });
+    connect(managePersonsButton, &QPushButton::clicked, this, [this]() { openPersonManagement(); });
     connect(editStandardButton, &QPushButton::clicked, this, [this]() { editActionStandard(); });
     connect(m_actionStandardComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
         refreshTrainingContextDetails();
@@ -1823,6 +1828,41 @@ void MainWindow::addCoachFromDialog()
             m_coachComboBox->setCurrentIndex(index);
         }
     }
+}
+
+void MainWindow::openPersonManagement()
+{
+    if (!m_trainingRepository || !m_trainingRepository->isOpen()) {
+        QMessageBox::warning(this, QStringLiteral("数据库未就绪"), QStringLiteral("训练数据库未就绪，无法管理人员。"));
+        return;
+    }
+
+    const QString previousAthleteId = selectedAthleteId();
+    const QString previousCoachId = selectedCoachId();
+    PersonManagementDialog dialog(m_trainingRepository.get(), this);
+    dialog.exec();
+    if (!dialog.changed()) {
+        return;
+    }
+
+    reloadTrainingContext();
+    loadTrainingRecords();
+    refreshHistory();
+    refreshSuggestions();
+    if (m_athleteComboBox) {
+        const int index = m_athleteComboBox->findData(previousAthleteId);
+        if (index >= 0) {
+            m_athleteComboBox->setCurrentIndex(index);
+        }
+    }
+    if (m_coachComboBox) {
+        const int index = m_coachComboBox->findData(previousCoachId);
+        if (index >= 0) {
+            m_coachComboBox->setCurrentIndex(index);
+        }
+    }
+    ui->saveTipLabel->setText(QStringLiteral("人员档案已更新。"));
+    ui->saveTipLabel->show();
 }
 
 ActionStandard MainWindow::selectedActionStandard() const

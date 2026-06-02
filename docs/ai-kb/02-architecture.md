@@ -37,7 +37,7 @@
 项目没有独立服务端或 ORM。当前本地持久化分两层：
 
 - Qt `QSettings`: 摄像头公共配置、每路摄像头 URL、采集偏好，继续兼容旧 key。
-- SQLite `QSQLITE`: 训练业务数据，当前 schema v3，保存运动员/教练、动作标准、训练计划任务、训练 session、动作实例、人工复核、标准参考视频和个体基线。
+- SQLite `QSQLITE`: 训练业务数据，当前 schema v4，保存运动员/教练档案、教练-运动员关系、动作标准、训练计划任务、训练 session、动作实例、人工复核、标准参考视频和个体基线。
 
 `TrainingRepository::open()` 在启动时完成建表、增量补列、默认种子数据和旧 `QSettings/trainingHistory` 迁移。动作标准 seed 只初始化缺失项，不覆盖本地编辑后的阈值、权重、提示或参考视频。
 
@@ -45,6 +45,7 @@
 
 - `trainingdomain.h`
 - `trainingrepository.cpp`
+- `personmanagementdialog.cpp`
 - `mainwindow.cpp`
 - `systemsettingsdialog.cpp`
 - `main.cpp`

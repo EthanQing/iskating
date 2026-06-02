@@ -12,6 +12,7 @@
 ## 触发条件
 
 - 用户选择运动员、教练、动作标准和训练目标后点击“开始采集”。
+- 用户在训练上下文中快速新增人员，或打开“人员管理”维护完整运动员/教练档案。
 - 姿态回调完成一次动作计数。
 - 用户点击“保存记录”。
 - 应用启动时加载历史记录。
@@ -20,24 +21,26 @@
 ## 流程步骤
 
 1. `initializeTrainingRepository()` 打开 SQLite，执行 schema 建表、seed 默认动作标准，并迁移旧 `QSettings/trainingHistory`。
-2. `installTrainingContextPanel()` 在采集页插入运动员、教练、动作标准、场地、阶段、目标和目标次数/分数控件。
-3. 用户点击开始采集前必须选择运动员和动作标准。
-4. AI 回调先由 `PoseStandardnessScorer` 生成通用分项分，再由 `ActionStandardScorer` 按所选动作标准权重和阈值生成动作分与纠错反馈。
-5. `ActionRepetitionTracker` 根据动作标准中的膝/髋屈伸阈值、防抖规则识别一次动作，生成 `ActionRepetition`。
-6. `tick()` 每秒累加 `m_durationSec`，统计卡展示有效动作数、目标次数、均分、目标分和最好分。
-7. 用户点击保存记录，`saveRecord()` 通过 `TrainingRepository::ensureDailyTask()` 生成或更新今日训练计划/任务，再保存 `training_sessions` 与 `action_repetitions`。session 会记录主码流、回退码流和机位名称；离线视频训练会记录本地视频绝对路径且 `camera=0`；每个动作实例会记录动作片段起止时间。
-8. `refreshHistory()` 重新生成历史复盘卡和统计摘要。复盘卡展示训练摘要、视频引用、最好/最差动作、关键错误时间轴、教练批注入口、复盘校准入口和 Markdown/CSV/PDF 报告导出入口。
-9. `openTrainingReview()` 打开独立 `TrainingReviewDialog`。对话框加载动作明细、主视频、标准参考视频和人工复核表单；点击动作行会定位片段，本地视频支持 seek、慢放、逐帧、关键帧定位和姿态叠加，RTSP/网络视频只打开保存源并显示片段时间提示。
-10. 教练在复盘校准中可保存人工有效性、起止时间、总分/分项分、错误项、反馈和备注，或手动新增动作。保存后 `TrainingRepository::recalculateSessionSummary()` 重算 session 汇总和个体基线。
-11. `editActionStandard()` 可维护动作标准阈值、权重、目标次数/分数、提示文案和参考视频路径；参考视频也可在复盘对话框中选择并保存。
-12. `openSessionVideo()` 仍可用保存的视频引用在主视图快速回看训练视频；离线视频“定位片段”按 `videoClipStartMs` 请求 seek，RTSP/网络视频打开保存源并提示无法自动定位。
-13. `editCoachComment()` 更新 `training_sessions.coach_comment`，并刷新历史和建议。
-14. `refreshSuggestions()` 基于最近 session、动作标准和弱项分数生成建议，并通过 `TrainingRepository::trendForRecentDays(7/30)` 展示训练次数、人工优先均分、最佳分、动作完成数和弱项变化摘要。
+2. `installTrainingContextPanel()` 在采集页插入运动员、教练、动作标准、场地、阶段、目标和目标次数/分数控件，并提供“人员管理”和快速新增人员入口。
+3. `PersonManagementDialog` 通过仓储层维护运动员档案、教练档案和教练-运动员关系；删除人员时只归档，不硬删历史外键。
+4. 用户点击开始采集前必须选择运动员和动作标准。
+5. AI 回调先由 `PoseStandardnessScorer` 生成通用分项分，再由 `ActionStandardScorer` 按所选动作标准权重和阈值生成动作分与纠错反馈。
+6. `ActionRepetitionTracker` 根据动作标准中的膝/髋屈伸阈值、防抖规则识别一次动作，生成 `ActionRepetition`。
+7. `tick()` 每秒累加 `m_durationSec`，统计卡展示有效动作数、目标次数、均分、目标分和最好分。
+8. 用户点击保存记录，`saveRecord()` 通过 `TrainingRepository::ensureDailyTask()` 生成或更新今日训练计划/任务，再保存 `training_sessions` 与 `action_repetitions`。session 会记录主码流、回退码流和机位名称；离线视频训练会记录本地视频绝对路径且 `camera=0`；每个动作实例会记录动作片段起止时间。
+9. `refreshHistory()` 重新生成历史复盘卡和统计摘要。复盘卡展示训练摘要、视频引用、最好/最差动作、关键错误时间轴、教练批注入口、复盘校准入口和 Markdown/CSV/PDF 报告导出入口。
+10. `openTrainingReview()` 打开独立 `TrainingReviewDialog`。对话框加载动作明细、主视频、标准参考视频和人工复核表单；点击动作行会定位片段，本地视频支持 seek、慢放、逐帧、关键帧定位和姿态叠加，RTSP/网络视频只打开保存源并显示片段时间提示。
+11. 教练在复盘校准中可保存人工有效性、起止时间、总分/分项分、错误项、反馈和备注，或手动新增动作。保存后 `TrainingRepository::recalculateSessionSummary()` 重算 session 汇总和个体基线。
+12. `editActionStandard()` 可维护动作标准阈值、权重、目标次数/分数、提示文案和参考视频路径；参考视频也可在复盘对话框中选择并保存。
+13. `openSessionVideo()` 仍可用保存的视频引用在主视图快速回看训练视频；离线视频“定位片段”按 `videoClipStartMs` 请求 seek，RTSP/网络视频打开保存源并提示无法自动定位。
+14. `editCoachComment()` 更新 `training_sessions.coach_comment`，并刷新历史和建议。
+15. `refreshSuggestions()` 基于最近 session、动作标准和弱项分数生成建议，并通过 `TrainingRepository::trendForRecentDays(7/30)` 展示训练次数、人工优先均分、最佳分、动作完成数和弱项变化摘要。
 
 ## 涉及文件
 
 - `mainwindow.h`
 - `mainwindow.cpp`
+- `personmanagementdialog.cpp`
 - `trainingdomain.h`
 - `trainingrepository.cpp`
 - `trainingreviewdialog.cpp`
@@ -49,7 +52,12 @@
 - `TrainingSession`
 - `ActionRepetition`
 - `SessionHistoryItem`
+- `AthleteProfile`
+- `CoachProfile`
 - `TrainingTrendWindow`
+- `athletes`
+- `coaches`
+- `coach_athletes`
 - `training_sessions`
 - `action_repetitions`
 - `video_source`, `video_fallback_source`, `video_clip_start_ms`, `video_clip_end_ms`

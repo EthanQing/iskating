@@ -65,6 +65,7 @@ private:
     void refreshTrainingContextDetails();
     void addAthleteFromDialog();
     void addCoachFromDialog();
+    void openPersonManagement();
     ActionStandard selectedActionStandard() const;
     QString selectedAthleteId() const;
     QString selectedCoachId() const;
