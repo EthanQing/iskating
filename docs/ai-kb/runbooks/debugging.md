@@ -26,7 +26,9 @@ TODO: 未确认发布包中日志如何收集。`x64/Release` 中曾出现 `uia-
 - RTSP URL 由 `composeCameraUrl()` 生成。
 - 日志会用 `safeUrlForLog()` 遮蔽密码。
 - `RtspStream` 先尝试 UDP，失败后尝试 TCP。
-- FFmpeg open/read 错误会进入状态文本。
+- FFmpeg open/read 错误会进入状态文本，并记录断流时间、重连次数、恢复时间和最近错误。
+- 断流重连日志使用 `[RtspStream]` 前缀：`open attempt` 表示一次打开尝试；`udp failed, retry tcp` 表示 UDP fallback；`stream interrupted` 表示打开或读取失败；`reconnect scheduled` 表示已排队下次重连；`long outage` 表示断流超过 30 秒；`stream recovered` 表示恢复成功。
+- 现场排查时优先看 UI 状态：`断流重连中` 通常是网络/摄像头临时不可达；`长时间断流` 需要检查摄像头供电、网络、RTSP 服务、用户名密码、端口和码流路径；`D3D11VA` 或 `硬解` 错误优先排查编码兼容和 GPU 驱动。
 
 相关文件：
 

@@ -16,7 +16,7 @@
 - `streamregistry.h`: 按 URL 复用视频流。
 - `streamregistry.cpp`: 创建并缓存 `RtspStream`。
 - `rtspstream.h`: 视频流状态、帧读取和本地回放控制接口。
-- `rtspstream.cpp`: FFmpeg 打开输入、D3D11VA 解码、UDP/TCP RTSP 重试和重连；本地文件按 PTS 控速并支持 seek、倍率和单帧步进。
+- `rtspstream.cpp`: FFmpeg 打开输入、D3D11VA 解码、UDP/TCP RTSP 重试、断流统计和重连；本地文件按 PTS 控速并支持 seek、倍率和单帧步进。
 - `d3d11videodevice.cpp`: 全局 D3D11 设备和 FFmpeg hw device。
 - `d3dframe.h`: D3D11 硬件帧封装。
 - `d3dvideosurface.cpp`: D3D11 swap chain、shader、视频渲染和骨架叠加。
@@ -26,7 +26,8 @@
 
 - `VideoOpenGLWidget` 是 UI 层入口。
 - `StreamRegistry::acquire(url)` 按 URL 返回共享 `RtspStream`。
-- `RtspStream` 后台线程使用 FFmpeg 打开视频源，优先 RTSP UDP，失败后尝试 TCP。
+- `RtspStream` 后台线程使用 FFmpeg 打开视频源，优先 RTSP UDP，失败后尝试 TCP；断流时记录连续/总重连次数、最近断流/恢复时间、最近错误和当前传输协议。
+- RTSP 断流后保留 1s/2s/5s/5s 退避重连；超过 30 秒未恢复时状态显示“长时间断流，请检查摄像头网络或 RTSP 配置”。
 - 离线视频导入复用同一条链路：`MainWindow::importOfflineVideo()` 选择本地文件后，主视图通过 `VideoOpenGLWidget::playFile()` 打开文件并把 active stream 交给 AI 分析。
 - 解码必须输出 `AV_PIX_FMT_D3D11`，否则视为 fatal error。
 - `D3DVideoSurface` 负责把最新 `D3DFrame` 显示到 Qt 控件。
@@ -63,6 +64,12 @@
 2. 确认修改是否影响低延迟、重连和 UDP/TCP fallback。
 3. 使用真实摄像头验证连接、断流和恢复。
 
+### 调整断流状态和诊断日志
+
+1. 阅读 `RtspStream::recordStreamInterrupted()`, `recordReconnectScheduled()` 和 `recordStreamRecovered()`。
+2. 保持日志前缀为 `[RtspStream] open attempt`、`udp failed, retry tcp`、`stream interrupted`、`reconnect scheduled`、`stream recovered` 或 `long outage`，并继续用 `safeUrlForLog()` 脱敏 URL。
+3. 状态文案需要能被 `VideoOpenGLWidget::refreshVideoFrame()` 直接展示，避免把排查细节写成过长 UI 文本。
+
 ### 修改主码流 fallback
 
 1. 阅读 `VideoOpenGLWidget::refreshVideoFrame()`。
@@ -97,6 +104,7 @@
 - ⚠️ 高风险区域：D3D11 设备是全局共享的，修改线程/生命周期要谨慎。
 - 不要在日志中直接打印未脱敏 RTSP URL。
 - `RtspStream::stop()` 等待 8 秒后会 terminate 线程，这是最后手段，修改时要考虑 FFmpeg 阻塞。
+- RTSP 断流状态依赖真实摄像头或可控 RTSP 服务验证；本地文件回放不能覆盖 UDP/TCP fallback 和长时间断流路径。
 
 ## 相关流程
 

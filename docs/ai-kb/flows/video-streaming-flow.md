@@ -23,9 +23,16 @@
 2. 小窗调用 `playDefaultVideo()` 接入预览码流。
 3. 主视图调用 `playMainUrlWithFallback()` 接入主码流，并保存预览码流作为 fallback。
 4. `VideoOpenGLWidget::attachStream()` 通过 `StreamRegistry::acquire()` 获取共享 `RtspStream`。
-5. `RtspStream` 后台线程用 FFmpeg 打开源，RTSP 先 UDP，失败后 TCP。
+5. `RtspStream` 后台线程用 FFmpeg 打开源，RTSP 先 UDP，失败后 TCP，并记录当前 transport。
 6. 解码器必须支持 D3D11VA，成功后输出 `D3DFrame`。
 7. `VideoOpenGLWidget::refreshVideoFrame()` 取最新帧并交给 `D3DVideoSurface::presentFrame()`。
+
+断流恢复路径：
+
+1. `avformat_open_input()`、`avformat_find_stream_info()`、视频轨道查找或 `av_read_frame()` 失败时，`RtspStream` 记录最近错误和最近断流时间。
+2. `run()` 使用 1s/2s/5s/5s 退避重连，并累计连续重连次数和总重连次数。
+3. 重连中状态显示“断流重连中，N 秒后重连（第 X 次）”；超过 30 秒未恢复时显示长时间断流提示。
+4. 重新进入 `Playing` 后记录最近恢复时间、恢复耗时并清零连续重连次数。
 
 离线视频路径：
 
@@ -60,7 +67,9 @@
 
 ## 错误处理
 
-- FFmpeg 打不开源时设置 `RtspStream::State::Error` 并进入重连。
+- FFmpeg 打不开源时设置 `RtspStream::State::Error`、记录断流原因并进入重连。
+- RTSP UDP 打开失败时记录 fallback 事件，再使用 TCP 尝试打开。
+- 断流重连期间 UI 直接显示 `RtspStream::statusText()`，长时间断流会提示检查摄像头网络或 RTSP 配置。
 - 解码器不支持 D3D11VA 时设置 fatal error。
 - 主码流遇到 D3D11/硬解相关错误时，主视图尝试回退预览码流。
 - 本地文件不存在时视频控件显示“文件不存在”。

@@ -51,6 +51,10 @@ private:
     void setState(State state, const QString &message = QString());
     void setFatalError(const QString &message);
     void setLatestFrame(std::shared_ptr<D3DFrame> frame);
+    void setCurrentTransport(const QString &transport);
+    void recordStreamInterrupted(const QString &message);
+    void recordReconnectScheduled(int delayMs);
+    void recordStreamRecovered(const QString &transport);
     bool openAndDecodeOnce();
 
     QString m_url;
@@ -60,6 +64,12 @@ private:
     State m_state = State::Idle;
     QString m_statusText = QStringLiteral("未连接");
     QString m_lastError;
+    QString m_currentTransport;
+    int m_consecutiveReconnects = 0;
+    int m_totalReconnects = 0;
+    qint64 m_lastDisconnectUnixMs = -1;
+    qint64 m_lastRecoverUnixMs = -1;
+    bool m_longOutage = false;
     qint64 m_positionMs = -1;
     qint64 m_durationMs = -1;
     bool m_seekable = false;

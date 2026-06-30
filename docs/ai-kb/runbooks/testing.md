@@ -50,6 +50,7 @@ cmd /c "call ""C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxili
 - 在动作标准编辑入口维护阈值、权重、目标次数/分数、提示文案和参考视频路径，确认重启后不被 seed 覆盖。
 - 导出 Markdown、CSV 明细和 PDF 复盘报告，确认包含训练摘要、动作明细、AI 原始分、人工修正、教练备注和视频引用。
 - RTSP 源仍可预览、开始/暂停/停止采集、保存记录；RTSP 历史复盘应禁用精确 seek/慢放/逐帧并显示片段时间提示。
+- RTSP 断流验证：正常播放后临时断开摄像头网络或关闭 RTSP 服务，确认 UI 显示断流重连；30 秒后显示长时间断流；恢复网络后自动回到播放状态，日志包含 `stream interrupted`、`reconnect scheduled` 和 `stream recovered`，且 URL 密码脱敏。
 
 相关文件：
 

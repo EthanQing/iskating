@@ -1,6 +1,7 @@
 #include "rtspstream.h"
 #include "d3d11videodevice.h"
 
+#include <QDateTime>
 #include <QDebug>
 #include <QFileInfo>
 #include <QMutexLocker>
@@ -22,6 +23,8 @@ extern "C" {
 }
 
 namespace {
+
+constexpr qint64 kLongOutageThresholdMs = 30000;
 
 QString avError(int rc)
 {
@@ -62,6 +65,15 @@ QString formatMilliseconds(qint64 milliseconds)
         .arg(totalSeconds / 60, 2, 10, QLatin1Char('0'))
         .arg(totalSeconds % 60, 2, 10, QLatin1Char('0'))
         .arg((clamped % 1000) / 100, 1, 10, QLatin1Char('0'));
+}
+
+QString formatDurationMs(qint64 milliseconds)
+{
+    const qint64 clamped = std::max<qint64>(0, milliseconds);
+    if (clamped < 1000) {
+        return QStringLiteral("%1 ms").arg(clamped);
+    }
+    return QStringLiteral("%1 秒").arg((clamped + 999) / 1000);
 }
 
 bool isRealtimeRtspSource(const QString &source)
@@ -337,7 +349,7 @@ void RtspStream::run()
 
         const int delay = reconnectDelaysMs[std::min(reconnectAttempt, 3)];
         ++reconnectAttempt;
-        setState(State::Reconnecting, QStringLiteral("断流，%1 秒后重连").arg(delay / 1000));
+        recordReconnectScheduled(delay);
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(delay);
         while (!m_stopRequested && std::chrono::steady_clock::now() < deadline) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -378,10 +390,118 @@ void RtspStream::setLatestFrame(std::shared_ptr<D3DFrame> frame)
     m_latestFrame = std::move(frame);
 }
 
+void RtspStream::setCurrentTransport(const QString &transport)
+{
+    QMutexLocker locker(&m_mutex);
+    m_currentTransport = transport;
+}
+
+void RtspStream::recordStreamInterrupted(const QString &message)
+{
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    QString transport;
+    bool newOutage = false;
+    {
+        QMutexLocker locker(&m_mutex);
+        transport = m_currentTransport;
+        m_lastError = message;
+        if (m_lastDisconnectUnixMs < 0 || m_lastRecoverUnixMs > m_lastDisconnectUnixMs) {
+            m_lastDisconnectUnixMs = now;
+            m_longOutage = false;
+            newOutage = true;
+        }
+    }
+
+    qWarning() << "[RtspStream] stream interrupted"
+               << safeUrlForLog(m_url)
+               << "transport=" << (transport.isEmpty() ? QStringLiteral("unknown") : transport)
+               << "newOutage=" << newOutage
+               << "error=" << message;
+}
+
+void RtspStream::recordReconnectScheduled(int delayMs)
+{
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    int attempt = 0;
+    int total = 0;
+    qint64 outageMs = 0;
+    bool longOutage = false;
+    QString transport;
+    {
+        QMutexLocker locker(&m_mutex);
+        ++m_consecutiveReconnects;
+        ++m_totalReconnects;
+        attempt = m_consecutiveReconnects;
+        total = m_totalReconnects;
+        transport = m_currentTransport;
+        if (m_lastDisconnectUnixMs < 0) {
+            m_lastDisconnectUnixMs = now;
+        }
+        outageMs = now - m_lastDisconnectUnixMs;
+        longOutage = outageMs >= kLongOutageThresholdMs;
+        if (longOutage) {
+            m_longOutage = true;
+            m_statusText = QStringLiteral("长时间断流，请检查摄像头网络或 RTSP 配置（第 %1 次重连）").arg(attempt);
+        } else {
+            m_statusText = QStringLiteral("断流重连中，%1 秒后重连（第 %2 次）").arg(delayMs / 1000).arg(attempt);
+        }
+        m_state = State::Reconnecting;
+    }
+
+    qWarning() << "[RtspStream] reconnect scheduled"
+               << safeUrlForLog(m_url)
+               << "transport=" << (transport.isEmpty() ? QStringLiteral("unknown") : transport)
+               << "attempt=" << attempt
+               << "total=" << total
+               << "delayMs=" << delayMs
+               << "outageDuration=" << formatDurationMs(outageMs);
+    if (longOutage) {
+        qWarning() << "[RtspStream] long outage"
+                   << safeUrlForLog(m_url)
+                   << "transport=" << (transport.isEmpty() ? QStringLiteral("unknown") : transport)
+                   << "attempt=" << attempt
+                   << "outageDuration=" << formatDurationMs(outageMs);
+    }
+}
+
+void RtspStream::recordStreamRecovered(const QString &transport)
+{
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    int previousAttempts = 0;
+    int total = 0;
+    qint64 outageMs = 0;
+    bool hadOutage = false;
+    {
+        QMutexLocker locker(&m_mutex);
+        hadOutage = m_lastDisconnectUnixMs >= 0 && m_lastRecoverUnixMs <= m_lastDisconnectUnixMs;
+        if (hadOutage) {
+            outageMs = now - m_lastDisconnectUnixMs;
+        }
+        previousAttempts = m_consecutiveReconnects;
+        total = m_totalReconnects;
+        m_lastRecoverUnixMs = now;
+        m_consecutiveReconnects = 0;
+        m_longOutage = false;
+        m_currentTransport = transport;
+    }
+
+    if (hadOutage) {
+        qDebug() << "[RtspStream] stream recovered"
+                 << safeUrlForLog(m_url)
+                 << "transport=" << transport
+                 << "attempts=" << previousAttempts
+                 << "total=" << total
+                 << "outageDuration=" << formatDurationMs(outageMs);
+    }
+}
+
 bool RtspStream::openAndDecodeOnce()
 {
     const QString ffmpegSource = sourceForFfmpeg(m_url);
-    setState(State::Connecting, QStringLiteral("连接中"));
+    const bool realtimeRtsp = ffmpegSource.startsWith(QStringLiteral("rtsp://"), Qt::CaseInsensitive);
+    const QString initialTransport = realtimeRtsp ? QStringLiteral("udp") : QStringLiteral("file");
+    setCurrentTransport(initialTransport);
+    setState(State::Connecting, realtimeRtsp ? QStringLiteral("UDP 连接中") : QStringLiteral("连接中"));
 
     QString hwError;
     AVBufferRef *rawHwDevice = D3D11VideoDevice::createFfmpegHwDevice(&hwError);
@@ -401,13 +521,29 @@ bool RtspStream::openAndDecodeOnce()
     format->interrupt_callback.opaque = this;
 
     AVDictionary *options = nullptr;
+    int attemptForLog = 1;
+    {
+        QMutexLocker locker(&m_mutex);
+        attemptForLog = m_consecutiveReconnects + 1;
+    }
+    qDebug() << "[RtspStream] open attempt"
+             << safeUrlForLog(m_url)
+             << "transport=" << initialTransport
+             << "attempt=" << attemptForLog;
     setRtspOptions(&options, ffmpegSource, "udp");
     AVFormatContext *rawFormat = format.get();
     int rc = avformat_open_input(&rawFormat, ffmpegSource.toUtf8().constData(), nullptr, &options);
     format.ptr = rawFormat;
     av_dict_free(&options);
-    if (rc < 0 && !m_stopRequested && ffmpegSource.startsWith(QStringLiteral("rtsp://"), Qt::CaseInsensitive)) {
-        qWarning() << "[RtspStream] UDP open failed, retry TCP" << safeUrlForLog(m_url) << avError(rc);
+    if (rc < 0 && !m_stopRequested && realtimeRtsp) {
+        const QString udpError = avError(rc);
+        qWarning() << "[RtspStream] udp failed, retry tcp"
+                   << safeUrlForLog(m_url)
+                   << "transport=udp"
+                   << "attempt=" << attemptForLog
+                   << "error=" << udpError;
+        setCurrentTransport(QStringLiteral("tcp"));
+        setState(State::Connecting, QStringLiteral("UDP 失败，切换 TCP"));
         format.reset();
         format.ptr = avformat_alloc_context();
         if (!format.get()) {
@@ -416,6 +552,10 @@ bool RtspStream::openAndDecodeOnce()
         }
         format->interrupt_callback.callback = &RtspStream::ffmpegInterruptCallback;
         format->interrupt_callback.opaque = this;
+        qDebug() << "[RtspStream] open attempt"
+                 << safeUrlForLog(m_url)
+                 << "transport=tcp"
+                 << "attempt=" << attemptForLog;
         setRtspOptions(&options, ffmpegSource, "tcp");
         rawFormat = format.get();
         rc = avformat_open_input(&rawFormat, ffmpegSource.toUtf8().constData(), nullptr, &options);
@@ -423,20 +563,26 @@ bool RtspStream::openAndDecodeOnce()
         av_dict_free(&options);
     }
     if (rc < 0) {
-        setState(State::Error, QStringLiteral("打开视频源失败：%1").arg(avError(rc)));
+        const QString error = QStringLiteral("打开视频源失败：%1").arg(avError(rc));
+        recordStreamInterrupted(error);
+        setState(State::Error, error);
         return false;
     }
 
     format->flags |= AVFMT_FLAG_NOBUFFER;
     rc = avformat_find_stream_info(format.get(), nullptr);
     if (rc < 0) {
-        setState(State::Error, QStringLiteral("读取视频流信息失败：%1").arg(avError(rc)));
+        const QString error = QStringLiteral("读取视频流信息失败：%1").arg(avError(rc));
+        recordStreamInterrupted(error);
+        setState(State::Error, error);
         return false;
     }
 
     const int streamIndex = av_find_best_stream(format.get(), AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
     if (streamIndex < 0) {
-        setState(State::Error, QStringLiteral("视频源没有可用视频轨道"));
+        const QString error = QStringLiteral("视频源没有可用视频轨道");
+        recordStreamInterrupted(error);
+        setState(State::Error, error);
         return false;
     }
 
@@ -523,12 +669,28 @@ bool RtspStream::openAndDecodeOnce()
         return false;
     }
 
+    QString transport;
+    {
+        QMutexLocker locker(&m_mutex);
+        transport = m_currentTransport;
+    }
+    if (transport.isEmpty()) {
+        transport = ffmpegSource.startsWith(QStringLiteral("rtsp://"), Qt::CaseInsensitive)
+                        ? QStringLiteral("udp")
+                        : QStringLiteral("file");
+        setCurrentTransport(transport);
+    }
     QString playingStatus = QStringLiteral("播放中：D3D11VA");
+    if (ffmpegSource.startsWith(QStringLiteral("rtsp://"), Qt::CaseInsensitive)) {
+        playingStatus = QStringLiteral("%1 播放中：D3D11VA").arg(transport.toUpper());
+    }
     if (!initialSeekStatus.isEmpty()) {
         playingStatus += QStringLiteral("（%1）").arg(initialSeekStatus);
     }
+    recordStreamRecovered(transport);
     setState(State::Playing, playingStatus);
     qDebug() << "[RtspStream] playing with D3D11VA" << safeUrlForLog(m_url)
+             << "transport=" << transport
              << "codec=" << codec->name
              << "size=" << codecContext->width << "x" << codecContext->height;
 
@@ -582,7 +744,9 @@ bool RtspStream::openAndDecodeOnce()
 
         rc = av_read_frame(format.get(), packet.get());
         if (rc < 0) {
-            setState(State::Error, QStringLiteral("读取视频包失败：%1").arg(avError(rc)));
+            const QString error = QStringLiteral("读取视频包失败：%1").arg(avError(rc));
+            recordStreamInterrupted(error);
+            setState(State::Error, error);
             break;
         }
 
