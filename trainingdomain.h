@@ -5,6 +5,39 @@
 #include <QString>
 #include <QVector>
 
+enum class SessionSearchSortField
+{
+    SavedAt,
+    AverageScore,
+    BestScore,
+    ValidReps,
+    DurationSec
+};
+
+struct SessionSearchFilters
+{
+    QString athleteId;
+    QString coachId;
+    QString actionStandardId;
+    QDateTime savedFrom;
+    QDateTime savedTo;
+    QString competitionText;
+    int minScore = -1;
+    int maxScore = -1;
+};
+
+struct SessionSearchPage
+{
+    int pageNumber = 1;
+    int pageSize = 10;
+};
+
+struct SessionSearchSort
+{
+    SessionSearchSortField field = SessionSearchSortField::SavedAt;
+    bool descending = true;
+};
+
 struct AthleteProfile
 {
     QString id;
@@ -283,6 +316,14 @@ struct TrainingTrendWindow
     int depthScore = 0;
     QString weakestMetricName;
     int weakestMetricScore = 0;
+};
+
+struct SessionSearchResult
+{
+    QVector<SessionHistoryItem> items;
+    int totalCount = 0;
+    int pageNumber = 1;
+    int pageSize = 10;
 };
 
 #endif // TRAININGDOMAIN_H

@@ -81,7 +81,9 @@ SQLite 主要表：
 - `createManualRepetition()`
 - `saveActionStandard()`
 - `recalculateSessionSummary()`
-- `recentSessions()`, `repetitionsForSession()`, `trendForRecentDays()`, `baselineFor()`
+- `searchSessions()`, `recentSessions()`, `repetitionsForSession()`, `trendForRecentDays()`, `baselineFor()`
+
+`searchSessions(filters, page, sort)` 是历史页组合检索入口，按运动员、教练、动作标准、保存时间、分数区间和比赛关键词分页查询 `training_sessions`。比赛关键词不新增字段，复用匹配 `site/training_phase/goal/notes/feedback/coach_comment`。`recentSessions(limit)` 保留兼容，内部按保存时间倒序读取第一页。
 
 `trendForRecentDays(days)` 用 `training_sessions.saved_at` 做最近 N 天窗口统计，返回训练次数、session 均分、最佳分和动作完成数；动作完成数优先来自 `action_repetitions` 数量，旧记录没有动作明细时退回 `training_sessions.total_reps`。弱项分项均值优先来自动作实例的人工有效分项分，没有动作实例分项时退回 session 分项分。
 

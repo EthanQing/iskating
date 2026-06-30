@@ -28,7 +28,7 @@
 6. `ActionRepetitionTracker` 根据动作标准中的膝/髋屈伸阈值、防抖规则识别一次动作，生成 `ActionRepetition`。
 7. `tick()` 每秒累加 `m_durationSec`，统计卡展示有效动作数、目标次数、均分、目标分和最好分。
 8. 用户点击保存记录，`saveRecord()` 通过 `TrainingRepository::ensureDailyTask()` 生成或更新今日训练计划/任务，再保存 `training_sessions` 与 `action_repetitions`。session 会记录主码流、回退码流和机位名称；离线视频训练会记录本地视频绝对路径且 `camera=0`；每个动作实例会记录动作片段起止时间。
-9. `refreshHistory()` 重新生成历史复盘卡和统计摘要。复盘卡展示训练摘要、视频引用、最好/最差动作、关键错误时间轴、教练批注入口、复盘校准入口和 Markdown/CSV/PDF 报告导出入口。
+9. `refreshHistory()` 基于历史页当前筛选和分页结果重新生成历史复盘卡和统计摘要。历史页通过 `TrainingRepository::searchSessions()` 支持运动员、教练、时间、比赛关键词、动作和分数区间组合检索，并可按保存时间、平均分、最佳分、有效动作数或训练时长排序；复盘卡展示训练摘要、视频引用、最好/最差动作、关键错误时间轴、教练批注入口、复盘校准入口和 Markdown/CSV/PDF 报告导出入口。
 10. `openTrainingReview()` 打开独立 `TrainingReviewDialog`。对话框加载动作明细、主视频、标准参考视频和人工复核表单；点击动作行会定位片段，本地视频支持 seek、慢放、逐帧、关键帧定位和姿态叠加，RTSP/网络视频只打开保存源并显示片段时间提示。
 11. 教练在复盘校准中可保存人工有效性、起止时间、总分/分项分、错误项、反馈和备注，或手动新增动作。保存后 `TrainingRepository::recalculateSessionSummary()` 重算 session 汇总和个体基线。
 12. `editActionStandard()` 可维护动作标准阈值、权重、目标次数/分数、提示文案和参考视频路径；参考视频也可在复盘对话框中选择并保存。
@@ -81,7 +81,7 @@
 
 ## 边界情况
 
-- 历史页只展示最多 10 条历史记录，见 `kMaxVisibleHistoryItems`，内存中保留最近 200 条用于摘要。
+- 历史页每页展示 10 条查询结果，由 `SessionSearchPage.pageSize` 控制；不再预先只保留最近 200 条。空结果会保留筛选栏和分页状态，便于调整条件。
 - 训练趋势展示在建议页，最近 7/30 天窗口按 `training_sessions.saved_at` 过滤；动作完成数优先统计 `action_repetitions`，旧数据没有动作明细时退回 session 的 `total_reps`。
 - 不做动作类型自动分类；动作类型来自训练上下文手动选择。复盘中可人工新增动作，用于修正漏检。
 - 动作实例自动计数沿用膝/髋屈伸启发式，但阈值、防抖和目标分可在动作标准编辑入口维护。

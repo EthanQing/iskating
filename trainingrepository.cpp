@@ -7,6 +7,7 @@
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QStandardPaths>
+#include <QStringList>
 #include <QVariant>
 #include <QUuid>
 
@@ -67,6 +68,90 @@ bool bindAndExec(QSqlQuery &query, const QVariantList &args)
         query.addBindValue(arg);
     }
     return query.exec();
+}
+
+QString sessionHistorySelectColumns()
+{
+    return QStringLiteral(
+        "ts.id, ts.athlete_id, COALESCE(ts.coach_id, ''), COALESCE(ts.plan_id, ''), COALESCE(ts.task_id, ''),"
+        "ts.action_standard_id, a.name, COALESCE(c.name, ''), s.name, ac.name, ts.standard_version, ts.saved_at,"
+        "ts.duration_sec, ts.total_reps, ts.valid_reps, ts.target_reps, ts.target_score, ts.average_score,"
+        "ts.best_score, ts.camera, ts.model_precision, ts.fps, ts.detection_score, ts.symmetry_score,"
+        "ts.balance_score, ts.stability_score, ts.depth_score, ts.site, ts.training_phase, ts.goal,"
+        "COALESCE(ts.video_source, ''), COALESCE(ts.video_fallback_source, ''), COALESCE(ts.video_camera_name, ''),"
+        "ts.feedback, COALESCE(ts.notes, ''), COALESCE(ts.coach_comment, '') ");
+}
+
+QString sessionHistoryFromClause()
+{
+    return QStringLiteral(
+        "FROM training_sessions ts "
+        "JOIN athletes a ON a.id = ts.athlete_id "
+        "LEFT JOIN coaches c ON c.id = ts.coach_id "
+        "JOIN action_standards s ON s.id = ts.action_standard_id "
+        "JOIN action_categories ac ON ac.id = s.category_id ");
+}
+
+SessionHistoryItem readSessionHistoryItem(const QSqlQuery &query)
+{
+    SessionHistoryItem item;
+    int col = 0;
+    item.id = query.value(col++).toString();
+    item.athleteId = query.value(col++).toString();
+    item.coachId = query.value(col++).toString();
+    item.planId = query.value(col++).toString();
+    item.taskId = query.value(col++).toString();
+    item.actionStandardId = query.value(col++).toString();
+    item.athleteName = query.value(col++).toString();
+    item.coachName = query.value(col++).toString();
+    item.actionName = query.value(col++).toString();
+    item.actionCategory = query.value(col++).toString();
+    item.standardVersion = query.value(col++).toInt();
+    const QDateTime savedAt = QDateTime::fromString(query.value(col++).toString(), Qt::ISODate);
+    item.time = savedAt.isValid() ? savedAt.toString(QStringLiteral("yyyy-MM-dd hh:mm:ss"))
+                                  : query.value(col - 1).toString();
+    item.duration = query.value(col++).toInt();
+    item.totalReps = query.value(col++).toInt();
+    item.validReps = query.value(col++).toInt();
+    item.targetReps = query.value(col++).toInt();
+    item.targetScore = query.value(col++).toInt();
+    item.score = query.value(col++).toInt();
+    item.bestScore = query.value(col++).toInt();
+    item.camera = query.value(col++).toInt();
+    item.modelPrecision = query.value(col++).toString();
+    item.fps = query.value(col++).toInt();
+    item.detectionScore = query.value(col++).toInt();
+    item.symmetryScore = query.value(col++).toInt();
+    item.balanceScore = query.value(col++).toInt();
+    item.stabilityScore = query.value(col++).toInt();
+    item.depthScore = query.value(col++).toInt();
+    item.site = query.value(col++).toString();
+    item.trainingPhase = query.value(col++).toString();
+    item.goal = query.value(col++).toString();
+    item.videoSource = query.value(col++).toString();
+    item.videoFallbackSource = query.value(col++).toString();
+    item.videoCameraName = query.value(col++).toString();
+    item.feedback = query.value(col++).toString();
+    item.notes = query.value(col++).toString();
+    item.coachComment = query.value(col++).toString();
+    return item;
+}
+
+QString sessionSortColumn(SessionSearchSortField field)
+{
+    switch (field) {
+    case SessionSearchSortField::AverageScore:
+        return QStringLiteral("ts.average_score");
+    case SessionSearchSortField::BestScore:
+        return QStringLiteral("ts.best_score");
+    case SessionSearchSortField::ValidReps:
+        return QStringLiteral("ts.valid_reps");
+    case SessionSearchSortField::DurationSec:
+        return QStringLiteral("ts.duration_sec");
+    case SessionSearchSortField::SavedAt:
+    default:
+        return QStringLiteral("ts.saved_at");
+    }
 }
 
 } // namespace
@@ -771,72 +856,106 @@ QVector<ActionStandard> TrainingRepository::actionStandards() const
     return result;
 }
 
-QVector<SessionHistoryItem> TrainingRepository::recentSessions(int limit) const
+SessionSearchResult TrainingRepository::searchSessions(const SessionSearchFilters &filters,
+                                                       const SessionSearchPage &page,
+                                                       const SessionSearchSort &sort) const
 {
-    QVector<SessionHistoryItem> result;
+    SessionSearchResult result;
+    result.pageNumber = std::max(1, page.pageNumber);
+    result.pageSize = std::clamp(page.pageSize, 1, 500);
+
+    if (!m_db.isOpen()) {
+        return result;
+    }
+
+    QStringList where;
+    QVariantList args;
+    const auto addEquals = [&where, &args](const QString &column, const QString &value) {
+        const QString trimmed = value.trimmed();
+        if (!trimmed.isEmpty()) {
+            where.append(QStringLiteral("%1 = ?").arg(column));
+            args.append(trimmed);
+        }
+    };
+
+    addEquals(QStringLiteral("ts.athlete_id"), filters.athleteId);
+    addEquals(QStringLiteral("ts.coach_id"), filters.coachId);
+    addEquals(QStringLiteral("ts.action_standard_id"), filters.actionStandardId);
+    if (filters.savedFrom.isValid()) {
+        where.append(QStringLiteral("ts.saved_at >= ?"));
+        args.append(filters.savedFrom.toString(Qt::ISODate));
+    }
+    if (filters.savedTo.isValid()) {
+        where.append(QStringLiteral("ts.saved_at <= ?"));
+        args.append(filters.savedTo.toString(Qt::ISODate));
+    }
+    if (filters.minScore >= 0) {
+        where.append(QStringLiteral("ts.average_score >= ?"));
+        args.append(filters.minScore);
+    }
+    if (filters.maxScore >= 0) {
+        where.append(QStringLiteral("ts.average_score <= ?"));
+        args.append(filters.maxScore);
+    }
+    const QString competitionText = filters.competitionText.trimmed();
+    if (!competitionText.isEmpty()) {
+        const QString likeText = QStringLiteral("%") + competitionText + QStringLiteral("%");
+        where.append(QStringLiteral("("
+                                    "COALESCE(ts.site, '') LIKE ? OR "
+                                    "COALESCE(ts.training_phase, '') LIKE ? OR "
+                                    "COALESCE(ts.goal, '') LIKE ? OR "
+                                    "COALESCE(ts.notes, '') LIKE ? OR "
+                                    "COALESCE(ts.feedback, '') LIKE ? OR "
+                                    "COALESCE(ts.coach_comment, '') LIKE ?)"));
+        for (int i = 0; i < 6; ++i) {
+            args.append(likeText);
+        }
+    }
+
+    const QString whereSql = where.isEmpty()
+                                 ? QString()
+                                 : QStringLiteral("WHERE %1 ").arg(where.join(QStringLiteral(" AND ")));
+
+    QSqlQuery countQuery(m_db);
+    countQuery.prepare(QStringLiteral("SELECT COUNT(*) ") + sessionHistoryFromClause() + whereSql);
+    if (bindAndExec(countQuery, args) && countQuery.next()) {
+        result.totalCount = countQuery.value(0).toInt();
+    } else {
+        return result;
+    }
+
+    const int maxPage = std::max(1, (result.totalCount + result.pageSize - 1) / result.pageSize);
+    result.pageNumber = std::min(result.pageNumber, maxPage);
+
     QSqlQuery query(m_db);
-    query.prepare(QStringLiteral(
-        "SELECT ts.id, ts.athlete_id, COALESCE(ts.coach_id, ''), COALESCE(ts.plan_id, ''), COALESCE(ts.task_id, ''),"
-        "ts.action_standard_id, a.name, COALESCE(c.name, ''), s.name, ac.name, ts.standard_version, ts.saved_at,"
-        "ts.duration_sec, ts.total_reps, ts.valid_reps, ts.target_reps, ts.target_score, ts.average_score,"
-        "ts.best_score, ts.camera, ts.model_precision, ts.fps, ts.detection_score, ts.symmetry_score,"
-        "ts.balance_score, ts.stability_score, ts.depth_score, ts.site, ts.training_phase, ts.goal,"
-        "COALESCE(ts.video_source, ''), COALESCE(ts.video_fallback_source, ''), COALESCE(ts.video_camera_name, ''),"
-        "ts.feedback, COALESCE(ts.notes, ''), COALESCE(ts.coach_comment, '') "
-        "FROM training_sessions ts "
-        "JOIN athletes a ON a.id = ts.athlete_id "
-        "LEFT JOIN coaches c ON c.id = ts.coach_id "
-        "JOIN action_standards s ON s.id = ts.action_standard_id "
-        "JOIN action_categories ac ON ac.id = s.category_id "
-        "ORDER BY ts.saved_at DESC LIMIT ?"));
-    query.addBindValue(std::max(1, limit));
-    if (!query.exec()) {
+    const QString orderDirection = sort.descending ? QStringLiteral("DESC") : QStringLiteral("ASC");
+    query.prepare(QStringLiteral("SELECT ")
+                  + sessionHistorySelectColumns()
+                  + sessionHistoryFromClause()
+                  + whereSql
+                  + QStringLiteral("ORDER BY %1 %2, ts.id DESC LIMIT ? OFFSET ?")
+                        .arg(sessionSortColumn(sort.field), orderDirection));
+    QVariantList pageArgs = args;
+    pageArgs.append(result.pageSize);
+    pageArgs.append((result.pageNumber - 1) * result.pageSize);
+    if (!bindAndExec(query, pageArgs)) {
+        result.items.clear();
+        result.totalCount = 0;
         return result;
     }
     while (query.next()) {
-        SessionHistoryItem item;
-        int col = 0;
-        item.id = query.value(col++).toString();
-        item.athleteId = query.value(col++).toString();
-        item.coachId = query.value(col++).toString();
-        item.planId = query.value(col++).toString();
-        item.taskId = query.value(col++).toString();
-        item.actionStandardId = query.value(col++).toString();
-        item.athleteName = query.value(col++).toString();
-        item.coachName = query.value(col++).toString();
-        item.actionName = query.value(col++).toString();
-        item.actionCategory = query.value(col++).toString();
-        item.standardVersion = query.value(col++).toInt();
-        const QDateTime savedAt = QDateTime::fromString(query.value(col++).toString(), Qt::ISODate);
-        item.time = savedAt.isValid() ? savedAt.toString(QStringLiteral("yyyy-MM-dd hh:mm:ss"))
-                                      : query.value(col - 1).toString();
-        item.duration = query.value(col++).toInt();
-        item.totalReps = query.value(col++).toInt();
-        item.validReps = query.value(col++).toInt();
-        item.targetReps = query.value(col++).toInt();
-        item.targetScore = query.value(col++).toInt();
-        item.score = query.value(col++).toInt();
-        item.bestScore = query.value(col++).toInt();
-        item.camera = query.value(col++).toInt();
-        item.modelPrecision = query.value(col++).toString();
-        item.fps = query.value(col++).toInt();
-        item.detectionScore = query.value(col++).toInt();
-        item.symmetryScore = query.value(col++).toInt();
-        item.balanceScore = query.value(col++).toInt();
-        item.stabilityScore = query.value(col++).toInt();
-        item.depthScore = query.value(col++).toInt();
-        item.site = query.value(col++).toString();
-        item.trainingPhase = query.value(col++).toString();
-        item.goal = query.value(col++).toString();
-        item.videoSource = query.value(col++).toString();
-        item.videoFallbackSource = query.value(col++).toString();
-        item.videoCameraName = query.value(col++).toString();
-        item.feedback = query.value(col++).toString();
-        item.notes = query.value(col++).toString();
-        item.coachComment = query.value(col++).toString();
-        result.append(item);
+        result.items.append(readSessionHistoryItem(query));
     }
     return result;
+}
+
+QVector<SessionHistoryItem> TrainingRepository::recentSessions(int limit) const
+{
+    SessionSearchPage page;
+    page.pageNumber = 1;
+    page.pageSize = std::max(1, limit);
+    const SessionSearchResult result = searchSessions({}, page, {});
+    return result.items;
 }
 
 QVector<ActionRepetition> TrainingRepository::repetitionsForSession(const QString &sessionId) const

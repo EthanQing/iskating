@@ -359,7 +359,8 @@ QPushButton[role="tri"]:hover {
     border-radius: 0;
 }
 
-#trainingContextPanel {
+#trainingContextPanel,
+#historySearchPanel {
     border: 1px solid #1f3048;
     background: #0f141d;
     border-radius: 8px;

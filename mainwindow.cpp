@@ -12,8 +12,11 @@
 #include "videoopenglwidget.h"
 
 #include <QAction>
+#include <QCheckBox>
 #include <QComboBox>
+#include <QDate>
 #include <QDateTime>
+#include <QDateEdit>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -56,6 +59,7 @@
 #include <QStyle>
 #include <QTextDocument>
 #include <QTextStream>
+#include <QTime>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -74,7 +78,6 @@ constexpr int kDefaultFps = 30;
 constexpr int kDefaultPreviewStreamFps = 30;
 constexpr int kDefaultMainStreamFps = 120;
 constexpr int kDefaultRtspPort = 554;
-constexpr int kMaxVisibleHistoryItems = 10;
 constexpr int kTopIconButtonWidth = 92;
 constexpr int kOperationRailWidth = 110;
 constexpr int kOperationButtonHeight = 72;
@@ -758,6 +761,7 @@ MainWindow::MainWindow(QWidget *parent)
     installTrajectoryWidget();
     installMetricBars();
     installTrainingContextPanel();
+    installHistorySearchPanel();
 
     auto *fullScreenShortcut = new QShortcut(QKeySequence(Qt::Key_F11), this);
     fullScreenShortcut->setContext(Qt::WindowShortcut);
@@ -1190,6 +1194,134 @@ void MainWindow::installTrainingContextPanel()
     });
     connect(m_targetRepsSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, [this]() { refreshStats(); });
     connect(m_targetScoreSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, [this]() { refreshStats(); });
+}
+
+void MainWindow::installHistorySearchPanel()
+{
+    if (m_historySearchPanel || !ui->historyPageLayout) {
+        return;
+    }
+
+    m_historySearchPanel = new QFrame(ui->historyPage);
+    m_historySearchPanel->setObjectName(QStringLiteral("historySearchPanel"));
+    auto *panelLayout = new QVBoxLayout(m_historySearchPanel);
+    panelLayout->setContentsMargins(12, 10, 12, 10);
+    panelLayout->setSpacing(8);
+
+    auto *titleRow = new QHBoxLayout();
+    titleRow->setContentsMargins(0, 0, 0, 0);
+    titleRow->setSpacing(8);
+    auto *titleLabel = new QLabel(QStringLiteral("历史检索"), m_historySearchPanel);
+    titleLabel->setProperty("role", "sectionTitle");
+    m_historyPageLabel = new QLabel(QStringLiteral("第 1/1 页 · 共 0 条"), m_historySearchPanel);
+    m_historyPageLabel->setProperty("role", "muted");
+    titleRow->addWidget(titleLabel, 0);
+    titleRow->addWidget(m_historyPageLabel, 1, Qt::AlignVCenter);
+    panelLayout->addLayout(titleRow);
+
+    auto *grid = new QGridLayout();
+    grid->setContentsMargins(0, 0, 0, 0);
+    grid->setHorizontalSpacing(8);
+    grid->setVerticalSpacing(6);
+
+    m_historyAthleteComboBox = new QComboBox(m_historySearchPanel);
+    m_historyCoachComboBox = new QComboBox(m_historySearchPanel);
+    m_historyActionComboBox = new QComboBox(m_historySearchPanel);
+    m_historySortComboBox = new QComboBox(m_historySearchPanel);
+    m_historyCompetitionLineEdit = new QLineEdit(m_historySearchPanel);
+    m_historyMinScoreSpinBox = new QSpinBox(m_historySearchPanel);
+    m_historyMaxScoreSpinBox = new QSpinBox(m_historySearchPanel);
+    m_historyFromCheckBox = new QCheckBox(QStringLiteral("开始"), m_historySearchPanel);
+    m_historyToCheckBox = new QCheckBox(QStringLiteral("结束"), m_historySearchPanel);
+    m_historyFromDateEdit = new QDateEdit(QDate::currentDate().addMonths(-1), m_historySearchPanel);
+    m_historyToDateEdit = new QDateEdit(QDate::currentDate(), m_historySearchPanel);
+
+    m_historyCompetitionLineEdit->setPlaceholderText(QStringLiteral("比赛/场地/阶段/目标/备注关键词"));
+    for (QDateEdit *dateEdit : {m_historyFromDateEdit, m_historyToDateEdit}) {
+        dateEdit->setCalendarPopup(true);
+        dateEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd"));
+        dateEdit->setEnabled(false);
+    }
+    for (QSpinBox *scoreSpinBox : {m_historyMinScoreSpinBox, m_historyMaxScoreSpinBox}) {
+        scoreSpinBox->setRange(-1, 100);
+        scoreSpinBox->setSpecialValueText(QStringLiteral("不限"));
+        scoreSpinBox->setValue(-1);
+    }
+
+    m_historySortComboBox->addItem(QStringLiteral("保存时间 · 新到旧"), 0);
+    m_historySortComboBox->addItem(QStringLiteral("保存时间 · 旧到新"), 1);
+    m_historySortComboBox->addItem(QStringLiteral("平均分 · 高到低"), 2);
+    m_historySortComboBox->addItem(QStringLiteral("平均分 · 低到高"), 3);
+    m_historySortComboBox->addItem(QStringLiteral("最佳分 · 高到低"), 4);
+    m_historySortComboBox->addItem(QStringLiteral("有效动作 · 多到少"), 5);
+    m_historySortComboBox->addItem(QStringLiteral("训练时长 · 长到短"), 6);
+
+    auto *searchButton = new QPushButton(QStringLiteral("查询"), m_historySearchPanel);
+    auto *resetButton = new QPushButton(QStringLiteral("重置"), m_historySearchPanel);
+    m_historyPreviousPageButton = new QPushButton(QStringLiteral("上一页"), m_historySearchPanel);
+    m_historyNextPageButton = new QPushButton(QStringLiteral("下一页"), m_historySearchPanel);
+    for (QPushButton *button : {searchButton, resetButton, m_historyPreviousPageButton, m_historyNextPageButton}) {
+        button->setProperty("role", "secondaryButton");
+        configureStableButton(button, kHistoryActionButtonWidth, 32, QSize(0, 0));
+    }
+
+    grid->addWidget(new QLabel(QStringLiteral("运动员"), m_historySearchPanel), 0, 0);
+    grid->addWidget(m_historyAthleteComboBox, 0, 1);
+    grid->addWidget(new QLabel(QStringLiteral("教练"), m_historySearchPanel), 0, 2);
+    grid->addWidget(m_historyCoachComboBox, 0, 3);
+    grid->addWidget(new QLabel(QStringLiteral("动作"), m_historySearchPanel), 0, 4);
+    grid->addWidget(m_historyActionComboBox, 0, 5);
+
+    grid->addWidget(m_historyFromCheckBox, 1, 0);
+    grid->addWidget(m_historyFromDateEdit, 1, 1);
+    grid->addWidget(m_historyToCheckBox, 1, 2);
+    grid->addWidget(m_historyToDateEdit, 1, 3);
+    grid->addWidget(new QLabel(QStringLiteral("分数"), m_historySearchPanel), 1, 4);
+    grid->addWidget(m_historyMinScoreSpinBox, 1, 5);
+    grid->addWidget(m_historyMaxScoreSpinBox, 1, 6);
+
+    grid->addWidget(new QLabel(QStringLiteral("比赛"), m_historySearchPanel), 2, 0);
+    grid->addWidget(m_historyCompetitionLineEdit, 2, 1, 1, 3);
+    grid->addWidget(new QLabel(QStringLiteral("排序"), m_historySearchPanel), 2, 4);
+    grid->addWidget(m_historySortComboBox, 2, 5, 1, 2);
+    grid->addWidget(searchButton, 2, 7);
+    grid->addWidget(resetButton, 2, 8);
+    grid->addWidget(m_historyPreviousPageButton, 2, 9);
+    grid->addWidget(m_historyNextPageButton, 2, 10);
+
+    panelLayout->addLayout(grid);
+    ui->historyPageLayout->insertWidget(1, m_historySearchPanel);
+
+    connect(m_historyFromCheckBox, &QCheckBox::toggled, m_historyFromDateEdit, &QDateEdit::setEnabled);
+    connect(m_historyToCheckBox, &QCheckBox::toggled, m_historyToDateEdit, &QDateEdit::setEnabled);
+    connect(searchButton, &QPushButton::clicked, this, [this]() {
+        m_historyPageNumber = 1;
+        loadTrainingRecords();
+        refreshHistory();
+        refreshSuggestions();
+    });
+    connect(resetButton, &QPushButton::clicked, this, [this]() { resetHistorySearch(); });
+    connect(m_historyPreviousPageButton, &QPushButton::clicked, this, [this]() {
+        m_historyPageNumber = std::max(1, m_historyPageNumber - 1);
+        loadTrainingRecords();
+        refreshHistory();
+        refreshSuggestions();
+    });
+    connect(m_historyNextPageButton, &QPushButton::clicked, this, [this]() {
+        m_historyPageNumber = std::min(historyMaxPage(), m_historyPageNumber + 1);
+        loadTrainingRecords();
+        refreshHistory();
+        refreshSuggestions();
+    });
+    connect(m_historySortComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
+        m_historyPageNumber = 1;
+        loadTrainingRecords();
+        refreshHistory();
+        refreshSuggestions();
+    });
+
+    reloadHistorySearchOptions();
+    refreshHistoryPager();
 }
 
 // 从资源系统读取 QSS，统一应用暗色仪表盘主题样式。
@@ -1649,10 +1781,194 @@ void MainWindow::openSystemSettings()
 void MainWindow::loadTrainingRecords()
 {
     m_records.clear();
+    m_historyTotalCount = 0;
     if (m_trainingRepository && m_trainingRepository->isOpen()) {
-        m_records = m_trainingRepository->recentSessions(200);
+        SessionSearchPage page;
+        page.pageNumber = m_historyPageNumber;
+        page.pageSize = m_historyPageSize;
+        const SessionSearchResult result = m_trainingRepository->searchSessions(currentHistorySearchFilters(),
+                                                                                page,
+                                                                                currentHistorySearchSort());
+        m_records = result.items;
+        m_historyPageNumber = result.pageNumber;
+        m_historyPageSize = result.pageSize;
+        m_historyTotalCount = result.totalCount;
     }
     m_lastSavedAt = m_records.isEmpty() ? QString() : m_records.first().time;
+    refreshHistoryPager();
+}
+
+void MainWindow::reloadHistorySearchOptions()
+{
+    if (!m_historySearchPanel) {
+        return;
+    }
+
+    const QString previousAthleteId = m_historyAthleteComboBox ? m_historyAthleteComboBox->currentData().toString() : QString();
+    const QString previousCoachId = m_historyCoachComboBox ? m_historyCoachComboBox->currentData().toString() : QString();
+    const QString previousActionId = m_historyActionComboBox ? m_historyActionComboBox->currentData().toString() : QString();
+
+    if (m_historyAthleteComboBox) {
+        QSignalBlocker blocker(m_historyAthleteComboBox);
+        m_historyAthleteComboBox->clear();
+        m_historyAthleteComboBox->addItem(QStringLiteral("全部运动员"), QString());
+        for (const AthleteProfile &athlete : std::as_const(m_athletes)) {
+            m_historyAthleteComboBox->addItem(athlete.name, athlete.id);
+        }
+        const int index = m_historyAthleteComboBox->findData(previousAthleteId);
+        m_historyAthleteComboBox->setCurrentIndex(index >= 0 ? index : 0);
+    }
+
+    if (m_historyCoachComboBox) {
+        QSignalBlocker blocker(m_historyCoachComboBox);
+        m_historyCoachComboBox->clear();
+        m_historyCoachComboBox->addItem(QStringLiteral("全部教练"), QString());
+        for (const CoachProfile &coach : std::as_const(m_coaches)) {
+            m_historyCoachComboBox->addItem(coach.name, coach.id);
+        }
+        const int index = m_historyCoachComboBox->findData(previousCoachId);
+        m_historyCoachComboBox->setCurrentIndex(index >= 0 ? index : 0);
+    }
+
+    if (m_historyActionComboBox) {
+        QSignalBlocker blocker(m_historyActionComboBox);
+        m_historyActionComboBox->clear();
+        m_historyActionComboBox->addItem(QStringLiteral("全部动作"), QString());
+        for (const ActionStandard &standard : std::as_const(m_actionStandards)) {
+            m_historyActionComboBox->addItem(QStringLiteral("%1 · %2").arg(standard.categoryName, standard.name),
+                                             standard.id);
+        }
+        const int index = m_historyActionComboBox->findData(previousActionId);
+        m_historyActionComboBox->setCurrentIndex(index >= 0 ? index : 0);
+    }
+}
+
+SessionSearchFilters MainWindow::currentHistorySearchFilters() const
+{
+    SessionSearchFilters filters;
+    if (m_historyAthleteComboBox) {
+        filters.athleteId = m_historyAthleteComboBox->currentData().toString();
+    }
+    if (m_historyCoachComboBox) {
+        filters.coachId = m_historyCoachComboBox->currentData().toString();
+    }
+    if (m_historyActionComboBox) {
+        filters.actionStandardId = m_historyActionComboBox->currentData().toString();
+    }
+    if (m_historyFromCheckBox && m_historyFromCheckBox->isChecked() && m_historyFromDateEdit) {
+        filters.savedFrom = QDateTime(m_historyFromDateEdit->date(), QTime(0, 0, 0));
+    }
+    if (m_historyToCheckBox && m_historyToCheckBox->isChecked() && m_historyToDateEdit) {
+        filters.savedTo = QDateTime(m_historyToDateEdit->date(), QTime(23, 59, 59, 999));
+    }
+    if (m_historyCompetitionLineEdit) {
+        filters.competitionText = m_historyCompetitionLineEdit->text();
+    }
+    if (m_historyMinScoreSpinBox && m_historyMinScoreSpinBox->value() >= 0) {
+        filters.minScore = m_historyMinScoreSpinBox->value();
+    }
+    if (m_historyMaxScoreSpinBox && m_historyMaxScoreSpinBox->value() >= 0) {
+        filters.maxScore = m_historyMaxScoreSpinBox->value();
+    }
+    if (filters.minScore >= 0 && filters.maxScore >= 0 && filters.minScore > filters.maxScore) {
+        std::swap(filters.minScore, filters.maxScore);
+    }
+    return filters;
+}
+
+SessionSearchSort MainWindow::currentHistorySearchSort() const
+{
+    SessionSearchSort sort;
+    const int value = m_historySortComboBox ? m_historySortComboBox->currentData().toInt() : 0;
+    switch (value) {
+    case 1:
+        sort.field = SessionSearchSortField::SavedAt;
+        sort.descending = false;
+        break;
+    case 2:
+        sort.field = SessionSearchSortField::AverageScore;
+        sort.descending = true;
+        break;
+    case 3:
+        sort.field = SessionSearchSortField::AverageScore;
+        sort.descending = false;
+        break;
+    case 4:
+        sort.field = SessionSearchSortField::BestScore;
+        sort.descending = true;
+        break;
+    case 5:
+        sort.field = SessionSearchSortField::ValidReps;
+        sort.descending = true;
+        break;
+    case 6:
+        sort.field = SessionSearchSortField::DurationSec;
+        sort.descending = true;
+        break;
+    case 0:
+    default:
+        sort.field = SessionSearchSortField::SavedAt;
+        sort.descending = true;
+        break;
+    }
+    return sort;
+}
+
+void MainWindow::resetHistorySearch()
+{
+    if (m_historyAthleteComboBox) {
+        m_historyAthleteComboBox->setCurrentIndex(0);
+    }
+    if (m_historyCoachComboBox) {
+        m_historyCoachComboBox->setCurrentIndex(0);
+    }
+    if (m_historyActionComboBox) {
+        m_historyActionComboBox->setCurrentIndex(0);
+    }
+    if (m_historySortComboBox) {
+        m_historySortComboBox->setCurrentIndex(0);
+    }
+    if (m_historyCompetitionLineEdit) {
+        m_historyCompetitionLineEdit->clear();
+    }
+    if (m_historyMinScoreSpinBox) {
+        m_historyMinScoreSpinBox->setValue(-1);
+    }
+    if (m_historyMaxScoreSpinBox) {
+        m_historyMaxScoreSpinBox->setValue(-1);
+    }
+    if (m_historyFromCheckBox) {
+        m_historyFromCheckBox->setChecked(false);
+    }
+    if (m_historyToCheckBox) {
+        m_historyToCheckBox->setChecked(false);
+    }
+    m_historyPageNumber = 1;
+    loadTrainingRecords();
+    refreshHistory();
+    refreshSuggestions();
+}
+
+int MainWindow::historyMaxPage() const
+{
+    return std::max(1, (m_historyTotalCount + m_historyPageSize - 1) / std::max(1, m_historyPageSize));
+}
+
+void MainWindow::refreshHistoryPager()
+{
+    const int maxPage = historyMaxPage();
+    if (m_historyPageLabel) {
+        m_historyPageLabel->setText(QStringLiteral("第 %1/%2 页 · 共 %3 条")
+                                        .arg(m_historyPageNumber)
+                                        .arg(maxPage)
+                                        .arg(m_historyTotalCount));
+    }
+    if (m_historyPreviousPageButton) {
+        m_historyPreviousPageButton->setEnabled(m_historyPageNumber > 1);
+    }
+    if (m_historyNextPageButton) {
+        m_historyNextPageButton->setEnabled(m_historyPageNumber < maxPage);
+    }
 }
 
 void MainWindow::initializeTrainingRepository()
@@ -1729,6 +2045,7 @@ void MainWindow::reloadTrainingContext()
         }
     }
 
+    reloadHistorySearchOptions();
     refreshTrainingContextDetails();
 }
 
@@ -2632,7 +2949,9 @@ void MainWindow::refreshHistory()
     clearLayout(ui->historyListLayout);
 
     if (m_records.isEmpty()) {
-        auto *emptyLabel = new QLabel(QStringLiteral("暂无训练历史记录。\n开始一次训练并点击“保存记录”后，这里会显示最近训练数据。"),
+        auto *emptyLabel = new QLabel(m_historyTotalCount == 0
+                                          ? QStringLiteral("暂无匹配的训练历史记录。\n请调整筛选条件，或开始一次训练并点击“保存记录”。")
+                                          : QStringLiteral("当前页暂无训练历史记录。\n请返回上一页或调整筛选条件。"),
                                       ui->historyPage);
         emptyLabel->setProperty("role", "emptyBox");
         emptyLabel->setAlignment(Qt::AlignCenter);
@@ -2641,7 +2960,7 @@ void MainWindow::refreshHistory()
         return;
     }
 
-    const int visibleCount = std::min(kMaxVisibleHistoryItems, static_cast<int>(m_records.size()));
+    const int visibleCount = m_records.size();
     for (int i = 0; i < visibleCount; ++i) {
         const SessionHistoryItem &record = m_records.at(i);
         const QVector<ActionRepetition> repetitions = m_trainingRepository && m_trainingRepository->isOpen()

@@ -184,7 +184,7 @@ P1 轨迹拼接默认把 12 路相机按 5m 一段初始化为 CAM 01: 0-5m 至 
 
 ## 查询入口
 
-训练历史通过 `TrainingRepository::recentSessions()` 查询；动作明细通过 `repetitionsForSession()` / `reviewedRepetitionsForSession()` 查询；人员档案通过 `athletes()`、`coaches()`、`athleteIdsForCoach()` 查询；最近 7/30 天趋势通过 `trendForRecentDays()` 聚合 `training_sessions` 和 `action_repetitions` 查询；教练批注通过 `saveCoachComment()` 更新；个体基线通过 `baselineFor()` 查询。
+训练历史通过 `TrainingRepository::searchSessions(filters, page, sort)` 查询，支持运动员、教练、动作标准、保存时间、平均分区间和比赛关键词组合检索，并返回总数和当前页结果；比赛关键词复用匹配 `training_sessions.site/training_phase/goal/notes/feedback/coach_comment`，不新增 schema。`recentSessions(limit)` 仍保留为兼容入口，内部调用默认查询。动作明细通过 `repetitionsForSession()` / `reviewedRepetitionsForSession()` 查询；人员档案通过 `athletes()`、`coaches()`、`athleteIdsForCoach()` 查询；最近 7/30 天趋势通过 `trendForRecentDays()` 聚合 `training_sessions` 和 `action_repetitions` 查询；教练批注通过 `saveCoachComment()` 更新；个体基线通过 `baselineFor()` 查询。
 
 人员管理写入口：
 

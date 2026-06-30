@@ -13,7 +13,9 @@
 #include <memory>
 
 class QLabel;
+class QCheckBox;
 class QComboBox;
+class QDateEdit;
 class QLineEdit;
 class QSpinBox;
 class QPlainTextEdit;
@@ -52,6 +54,7 @@ private:
     void setupConnections();
     void installMetricBars();
     void installTrainingContextPanel();
+    void installHistorySearchPanel();
     void installTrajectoryWidget();
     void installSkeletonView();
     void installStaticImages();
@@ -62,6 +65,12 @@ private:
     void loadTrainingRecords();
     void initializeTrainingRepository();
     void reloadTrainingContext();
+    void reloadHistorySearchOptions();
+    SessionSearchFilters currentHistorySearchFilters() const;
+    SessionSearchSort currentHistorySearchSort() const;
+    void resetHistorySearch();
+    int historyMaxPage() const;
+    void refreshHistoryPager();
     void refreshTrainingContextDetails();
     void addAthleteFromDialog();
     void addCoachFromDialog();
@@ -150,6 +159,21 @@ private:
     QPlainTextEdit *m_trainingNotesEdit = nullptr;
     QLabel *m_standardDetailLabel = nullptr;
     QLabel *m_trainingTargetLabel = nullptr;
+    QWidget *m_historySearchPanel = nullptr;
+    QComboBox *m_historyAthleteComboBox = nullptr;
+    QComboBox *m_historyCoachComboBox = nullptr;
+    QComboBox *m_historyActionComboBox = nullptr;
+    QComboBox *m_historySortComboBox = nullptr;
+    QLineEdit *m_historyCompetitionLineEdit = nullptr;
+    QSpinBox *m_historyMinScoreSpinBox = nullptr;
+    QSpinBox *m_historyMaxScoreSpinBox = nullptr;
+    QCheckBox *m_historyFromCheckBox = nullptr;
+    QCheckBox *m_historyToCheckBox = nullptr;
+    QDateEdit *m_historyFromDateEdit = nullptr;
+    QDateEdit *m_historyToDateEdit = nullptr;
+    QLabel *m_historyPageLabel = nullptr;
+    QPushButton *m_historyPreviousPageButton = nullptr;
+    QPushButton *m_historyNextPageButton = nullptr;
 
     TrajectoryWidget *m_trajectoryWidget = nullptr;
     QTimer m_timer;
@@ -159,6 +183,9 @@ private:
     QVector<ActionStandard> m_actionStandards;
     QVector<ActionRepetition> m_currentRepetitions;
     QString m_lastSavedAt;
+    int m_historyPageNumber = 1;
+    int m_historyPageSize = 10;
+    int m_historyTotalCount = 0;
 
     int m_activePage = 0;
     bool m_sidebarVisible = true;
