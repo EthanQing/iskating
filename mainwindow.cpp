@@ -1981,16 +1981,16 @@ void MainWindow::initializeTrainingRepository()
     if (!m_trainingRepository->open(&errorMessage)) {
         ui->storageStatusLabel->setText(topbarModuleHtml(QStringLiteral("DB"),
                                                          QStringLiteral("存储 Storage"),
-                                                         QStringLiteral("数据库不可用")));
-        ui->saveTipLabel->setText(QStringLiteral("训练数据库初始化失败：%1").arg(errorMessage));
+                                                         QStringLiteral("训练服务不可用")));
+        ui->saveTipLabel->setText(QStringLiteral("训练服务连接失败：%1").arg(errorMessage));
         ui->saveTipLabel->show();
-        qWarning() << "[MainWindow] training database open failed" << errorMessage;
+        qWarning() << "[MainWindow] training service open failed" << errorMessage;
         return;
     }
 
     ui->storageStatusLabel->setText(topbarModuleHtml(QStringLiteral("DB"),
                                                      QStringLiteral("存储 Storage"),
-                                                     QStringLiteral("SQLite 已就绪")));
+                                                     QStringLiteral("PostgreSQL 服务已就绪")));
     reloadTrainingContext();
 }
 

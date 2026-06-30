@@ -33,7 +33,7 @@ message("Current qmake Qt prefix=$$[QT_INSTALL_PREFIX]")
 
 include(common.pri)
 
-QT += core gui widgets svg sql printsupport
+QT += core gui widgets svg network printsupport
 
 FFMPEG_ROOT = $$(FFMPEG_ROOT)
 isEmpty(FFMPEG_ROOT) {
@@ -247,20 +247,11 @@ QMAKE_EXTRA_TARGETS += ai_models
 POST_TARGETDEPS += ai_models
 
 CONFIG(debug, debug|release) {
-    SQLITE_DRIVER_DLL = $$QT_ROOT/plugins/sqldrivers/qsqlited.dll
     WINDOWS_PLATFORM_DLL = $$QT_ROOT/plugins/platforms/qwindowsd.dll
 } else {
-    SQLITE_DRIVER_DLL = $$QT_ROOT/plugins/sqldrivers/qsqlite.dll
     WINDOWS_PLATFORM_DLL = $$QT_ROOT/plugins/platforms/qwindows.dll
 }
-SQLITE_DRIVER_DIR = $$DESTDIR/plugins/sqldrivers
 WINDOWS_PLATFORM_DIR = $$DESTDIR/plugins/platforms
-
-sqlite_driver.commands = \
-    if not exist $$shell_quote($$shell_path($$SQLITE_DRIVER_DIR)) $(MKDIR) $$shell_quote($$shell_path($$SQLITE_DRIVER_DIR)) $$escape_expand(\\n\\t) \
-    $(COPY_FILE) $$shell_quote($$shell_path($$SQLITE_DRIVER_DLL)) $$shell_quote($$shell_path($$SQLITE_DRIVER_DIR))
-QMAKE_EXTRA_TARGETS += sqlite_driver
-POST_TARGETDEPS += sqlite_driver
 
 windows_platform_plugin.commands = \
     if not exist $$shell_quote($$shell_path($$WINDOWS_PLATFORM_DIR)) $(MKDIR) $$shell_quote($$shell_path($$WINDOWS_PLATFORM_DIR)) $$escape_expand(\\n\\t) \

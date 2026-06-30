@@ -12,3 +12,11 @@
 - 记录高风险区域：构建环境强绑定、D3D11VA 硬解、TensorRT engine 缓存、QSettings 兼容和模型分发。
 - 补充 Obsidian 双链结构：`00-index.md` 作为中心节点，各分类 README 作为 MOC，具体模块/流程/runbook/reference 文档连接到直接相关文档，减少后续 AI 任务需要读取的文档数量。
 - 新增 [[tasks/product-feature-backlog|产品功能缺口待办]]，完整记录面向滑冰运动员日常训练动作标准系统的未做功能。
+
+## 2026-06-30
+
+- 将训练业务数据库从本机 SQLite 运行时替换为 FastAPI + PostgreSQL 服务端架构。
+- 新增 Alembic PostgreSQL 初始迁移、FastAPI 训练服务、基础登录/JWT、默认 seed 和训练业务 REST API。
+- `TrainingRepository` 保留原 C++ 同步接口，内部改为 QtNetwork 调用训练服务；桌面端不再创建或升级本机 `iskating.db`。
+- 新增 `tools/import_sqlite_to_postgres.py`，用于切换前一次性导入旧 SQLite 训练数据。
+- `mainwindow.pro` 移除 QtSql/SQLite driver 部署，改用 QtNetwork。

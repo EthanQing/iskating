@@ -23,7 +23,7 @@
 5. 点击开始采集后，主视图默认显示第一路主码流，12 路小窗显示预览码流。
 6. AI 分析器订阅参与轨迹的相机活动流，持续输出带 `cameraId` 的姿态结果。
 7. `MainWindow` 刷新选中机位视频覆盖、骨架、全场轨迹、动作次数和评分。
-8. 用户点击保存记录后，当前训练数据通过 `TrainingRepository` 写入本机 SQLite，旧 `QSettings/trainingHistory` 仅作为首次迁移来源。
+8. 用户点击保存记录后，当前训练数据通过 `TrainingRepository` 调用 FastAPI 写入 PostgreSQL。
 9. 历史页展示最近训练记录、复盘校准与报告导出入口，建议页基于最近记录、动作标准和 7/30 天趋势生成建议。
 
 ## 涉及文件
@@ -49,7 +49,7 @@
 - `SessionHistoryItem`
 - `PoseFrameResult`
 - `QSettings` keys: `cameraDefaults/*`, `cameras/cameraXX/*`, `capture/*`
-- SQLite tables: `athletes`, `coaches`, `coach_athletes`, `training_sessions`, `action_repetitions`, `action_standards`
+- PostgreSQL tables: `athletes`, `coaches`, `coach_athletes`, `training_sessions`, `action_repetitions`, `action_standards`
 
 ## 错误处理
 

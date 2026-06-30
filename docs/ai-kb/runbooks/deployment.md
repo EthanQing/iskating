@@ -26,6 +26,7 @@ nmake release
 - 复制 TensorRT/CUDA DLL 到 `DESTDIR`
 - 复制 `models/` 到 `DESTDIR/models`
 - Release 下调用 `windeployqt.exe --release --no-translations`
+- 训练业务数据不再随桌面端本地创建，需要先部署 FastAPI 服务和 PostgreSQL。
 
 相关文件：
 
@@ -37,6 +38,10 @@ TODO: 未找到 `.github/workflows/`、其他 CI 配置、安装器脚本或发�
 
 ## 部署前检查
 
+- 确认 PostgreSQL 数据库已创建，`alembic upgrade head` 已执行。
+- 确认 FastAPI 服务可通过内网访问，例如 `http://训练服务器:8000/health`。
+- 确认桌面端 `server/baseUrl` 指向训练服务，或设置 `ISKATING_API_BASE_URL`。
+- 如需迁移旧数据，先执行 `tools/import_sqlite_to_postgres.py` 并核对导入数量。
 - 确认 `x64/Release` 中存在 `iskating.exe`。
 - 确认 `platforms/qwindows.dll` 等 Qt 插件已部署。
 - 确认 FFmpeg DLL 存在，例如 `avcodec-62.dll`, `avformat-62.dll`。

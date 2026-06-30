@@ -87,6 +87,14 @@ pnpm-debug.log*
 .cache/
 coverage/
 
+# ---- Python backend generated files ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
 # ---- OS / editor temporary files ----
 .agents/
 .codex/

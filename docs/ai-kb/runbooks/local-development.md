@@ -46,12 +46,27 @@ TODO: 仓库未提供自动安装脚本。根据 `mainwindow.pro`，本机需要
 - `FFMPEG_ROOT`
 - `TENSORRT_ROOT`
 - `CUDA_ROOT`
+- `ISKATING_API_BASE_URL`
+- `ISKATING_API_USERNAME`
+- `ISKATING_API_PASSWORD`
 
 Qt 根目录当前写在 `mainwindow.pro`，不是环境变量。
 
-## 数据库准备
+## 数据库和训练服务准备
 
-无需数据库。配置和训练历史通过 `QSettings` 自动创建。
+桌面端启动前需要 PostgreSQL 和 FastAPI 训练服务：
+
+```powershell
+cd server
+python -m venv .venv
+.\.venv\Scripts\pip install -r requirements.txt
+$env:ISKATING_DATABASE_URL="postgresql+psycopg://iskating:password@127.0.0.1:5432/iskating"
+$env:ISKATING_JWT_SECRET="dev-secret"
+.\.venv\Scripts\alembic upgrade head
+.\.venv\Scripts\uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+桌面端默认连接 `http://127.0.0.1:8000`，也可用 `QSettings server/baseUrl` 或 `ISKATING_API_BASE_URL` 覆盖。
 
 相关文件：
 

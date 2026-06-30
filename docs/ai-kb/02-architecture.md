@@ -34,12 +34,13 @@
 
 ## 数据层架构
 
-项目没有独立服务端或 ORM。当前本地持久化分两层：
+当前数据层分为桌面端本地设置和训练业务服务端：
 
-- Qt `QSettings`: 摄像头公共配置、每路摄像头 URL、采集偏好，继续兼容旧 key。
-- SQLite `QSQLITE`: 训练业务数据，当前 schema v4，保存运动员/教练档案、教练-运动员关系、动作标准、训练计划任务、训练 session、动作实例、人工复核、标准参考视频和个体基线。
+- Qt `QSettings`: 摄像头公共配置、每路摄像头 URL、采集偏好、训练服务地址和访问令牌，继续兼容旧 key。
+- FastAPI 服务端: `server/app/main.py` 提供训练业务 REST API、基础登录和 seed。
+- PostgreSQL: 训练业务数据，schema 由 Alembic 管理，保存运动员/教练档案、教练-运动员关系、动作标准、训练计划任务、训练 session、动作实例、人工复核、标准参考视频和个体基线。
 
-`TrainingRepository::open()` 在启动时完成建表、增量补列、默认种子数据和旧 `QSettings/trainingHistory` 迁移。动作标准 seed 只初始化缺失项，不覆盖本地编辑后的阈值、权重、提示或参考视频。
+`TrainingRepository::open()` 不再创建本机 SQLite；它读取 `server/baseUrl` 和 `auth/accessToken`，通过 QtNetwork 连接训练服务。旧 `%APPDATA%/iSkating/iSkating Coach/iskating.db` 仅由 `tools/import_sqlite_to_postgres.py` 在切换前一次性导入 PostgreSQL。
 
 相关文件：
 
@@ -79,7 +80,7 @@
 6. `HandAnalysisManager` 订阅参与轨迹的相机活动流，将最新帧转成 RGB。
 7. `TensorRtBodyPoseBackend` 做 YOLOv8n-pose 2D 推理，并尽量追加 RTMW3D 3D 输出。
 8. `MainWindow` 将选中机位结果叠加到主视频并更新骨架；所有机位结果按相机覆盖段进入全场轨迹，评分和动作次数沿用现有实时链路。
-9. 保存训练后，SQLite 记录 AI 原始动作实例和关键帧姿态 JSON；历史页可打开独立复盘校准对话框做本地回放、人工复核、手动新增动作、标准参考视频对比和 Markdown/CSV/PDF 报告导出。
+9. 保存训练后，桌面端通过 FastAPI 写入 PostgreSQL，记录 AI 原始动作实例和关键帧姿态 JSON；历史页可打开独立复盘校准对话框做本地回放、人工复核、手动新增动作、标准参考视频对比和 Markdown/CSV/PDF 报告导出。
 
 相关文件：
 

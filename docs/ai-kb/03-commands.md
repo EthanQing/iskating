@@ -9,7 +9,8 @@
 
 项目没有包管理器脚本。依赖需要本机预先安装：
 
-- Qt 6.7.3 MSVC 2022 x64，默认路径见 `mainwindow.pro`，需要 QtSql 和 SQLite driver。
+- Qt 6.7.3 MSVC 2022 x64，默认路径见 `mainwindow.pro`，需要 QtNetwork。
+- Python 3.11+、PostgreSQL 14+，用于 FastAPI 训练服务。
 - Visual Studio 2022 MSVC x64 工具链，线索见 `.qmake.stash`。
 - FFmpeg shared MSVC x64 开发包，默认路径见 `mainwindow.pro`。
 - TensorRT 10.1.0.27，默认路径见 `mainwindow.pro`。
@@ -63,7 +64,7 @@ Debug 构建产物：
 .\x64\Debug\iskating.exe
 ```
 
-运行时依赖 DLL、`models/`、`plugins/platforms/qwindows(d).dll` 和 `plugins/sqldrivers/qsqlite(d).dll` 会由 `mainwindow.pro` 的 post-link 规则复制到输出目录。
+运行时依赖 DLL、`models/` 和 `plugins/platforms/qwindows(d).dll` 会由 `mainwindow.pro` 的 post-link 规则复制到输出目录。训练业务数据依赖外部 FastAPI/PostgreSQL 服务。
 
 ## 测试
 
@@ -81,11 +82,23 @@ TODO: 未找到单独的静态分析或 clang-tidy 配置。
 
 ## 数据库迁移
 
-没有独立迁移命令。应用启动时 `TrainingRepository::open()` 会创建或升级 `%APPDATA%/iSkating/iSkating Coach/iskating.db`，并迁移旧 `QSettings/trainingHistory`。
+PostgreSQL schema 使用 Alembic：
+
+```powershell
+cd server
+$env:ISKATING_DATABASE_URL="postgresql+psycopg://iskating:password@127.0.0.1:5432/iskating"
+alembic upgrade head
+```
+
+旧 SQLite 数据通过一次性工具导入：
+
+```powershell
+python tools/import_sqlite_to_postgres.py --sqlite "$env:APPDATA/iSkating/iSkating Coach/iskating.db"
+```
 
 ## seed 数据
 
-没有独立 seed 命令。应用启动时会 seed 默认运动员、默认教练、8 个动作类别和 8 条动作标准。
+FastAPI 服务启动时会 seed 默认管理员、默认运动员、默认教练、8 个动作类别和 8 条动作标准。
 
 ## 模型下载
 

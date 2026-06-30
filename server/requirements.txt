@@ -1,0 +1,7 @@
+alembic==1.13.2
+fastapi==0.111.1
+passlib[bcrypt]==1.7.4
+psycopg[binary]==3.2.1
+PyJWT==2.8.0
+SQLAlchemy==2.0.31
+uvicorn[standard]==0.30.3

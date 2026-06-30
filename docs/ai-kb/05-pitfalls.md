@@ -92,7 +92,9 @@
 
 ## 数据库/迁移坑点
 
-项目没有独立迁移命令。`TrainingRepository::open()` 会在启动时执行 schema v4 建表、`ensureColumn()` 补列、seed 和旧 `QSettings/trainingHistory` 迁移。新增字段必须同时更新建表 SQL、补列、读取、写入和旧数据默认值。
+PostgreSQL schema 由 Alembic 管理，桌面端 `TrainingRepository::open()` 不再建表、补列或迁移旧数据。新增字段必须同步 Alembic 迁移、FastAPI 读写、Qt JSON 映射和导入工具。
+
+旧 SQLite 数据不会在桌面端启动时自动迁移；切换前必须执行 `tools/import_sqlite_to_postgres.py` 并核对导入数量。
 
 动作标准 seed 只应插入缺失项，不能覆盖用户本地维护的阈值、权重、提示文案或参考视频路径。`saveActionStandard()` 会递增标准版本，复盘参考视频这类编辑也会形成新版本。
 
@@ -109,7 +111,7 @@
 
 ## 认证/权限坑点
 
-没有用户登录。RTSP 用户名/密码会存入本机 `QSettings`，并通过 `QUrl` 写入 RTSP URL。日志必须继续脱敏。
+训练服务使用 JWT bearer token。桌面端会保存 `auth/accessToken`，开发环境可用 `ISKATING_API_USERNAME`/`ISKATING_API_PASSWORD` 自动登录；生产环境必须修改默认管理员密码和 `ISKATING_JWT_SECRET`。RTSP 用户名/密码仍会存入本机 `QSettings`，并通过 `QUrl` 写入 RTSP URL。日志必须继续脱敏。
 
 相关文件：
 
@@ -119,7 +121,7 @@
 ## 构建或部署坑点
 
 - Release 构建才调用 `windeployqt`，Debug 是否完整部署需要本机验证。
-- `mainwindow.pro` 会复制 FFmpeg/TensorRT/CUDA DLL、Qt SQL driver、`Qt6PrintSupport.dll` 和 `models/` 到输出目录。
+- `mainwindow.pro` 会复制 FFmpeg/TensorRT/CUDA DLL、`Qt6PrintSupport.dll` 和 `models/` 到输出目录；SQLite driver 已移除，训练业务依赖外部 FastAPI/PostgreSQL 服务。
 - `models/body/rtmw3d-x.onnx` 很大且被 `.gitignore` 忽略，缺失时 RTMW3D 会不可用，但 2D 姿态仍可初始化。
 - 如果 `x64/Release/iskating.exe` 正在运行，Release 构建复制 FFmpeg DLL 时会失败并提示文件被占用；先关闭该进程再重新构建。
 - 在普通 PowerShell 中可能没有 `nmake`，Release 构建前需要通过 Visual Studio `vcvars64.bat` 初始化 MSVC 环境。

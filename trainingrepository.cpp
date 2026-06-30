@@ -2,18 +2,19 @@
 
 #include <QCoreApplication>
 #include <QDate>
-#include <QDir>
+#include <QEventLoop>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QProcessEnvironment>
 #include <QSettings>
-#include <QSqlError>
-#include <QSqlQuery>
-#include <QStandardPaths>
-#include <QStringList>
-#include <QVariant>
+#include <QTimer>
+#include <QUrl>
+#include <QUrlQuery>
 #include <QUuid>
 
 #include <algorithm>
-#include <tuple>
-#include <utility>
 
 namespace {
 
@@ -22,210 +23,463 @@ QString newId()
     return QUuid::createUuid().toString(QUuid::WithoutBraces);
 }
 
-QString nowIso()
+QString apiPath(const QString &path)
 {
-    return QDateTime::currentDateTime().toString(Qt::ISODate);
+    return path.startsWith(QLatin1Char('/')) ? path : QStringLiteral("/") + path;
 }
 
-QString dateOnly(const QDate &date)
+QString dateTimeToIso(const QDateTime &value)
 {
-    return date.toString(Qt::ISODate);
+    return value.isValid() ? value.toUTC().toString(Qt::ISODateWithMs) : QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
 }
 
-QString safeText(const QString &value, const QString &fallback)
+QDateTime dateTimeFromJson(const QJsonValue &value)
 {
-    const QString trimmed = value.trimmed();
-    return trimmed.isEmpty() ? fallback : trimmed;
+    const QDateTime parsed = QDateTime::fromString(value.toString(), Qt::ISODate);
+    return parsed.isValid() ? parsed : QDateTime();
 }
 
-void updateWeakestMetric(TrainingTrendWindow *trend)
+int jsonInt(const QJsonObject &object, const QString &key, int fallback = 0)
 {
-    if (!trend) {
-        return;
-    }
+    return object.contains(key) ? object.value(key).toInt(fallback) : fallback;
+}
 
-    const QVector<std::pair<QString, int>> metrics = {
-        {QStringLiteral("关键点"), trend->detectionScore},
-        {QStringLiteral("对称"), trend->symmetryScore},
-        {QStringLiteral("重心"), trend->balanceScore},
-        {QStringLiteral("稳定"), trend->stabilityScore},
-        {QStringLiteral("3D"), trend->depthScore}
+double jsonDouble(const QJsonObject &object, const QString &key, double fallback = 0.0)
+{
+    return object.contains(key) ? object.value(key).toDouble(fallback) : fallback;
+}
+
+QString jsonString(const QJsonObject &object, const QString &key)
+{
+    return object.value(key).toString();
+}
+
+QJsonObject athleteToJson(const AthleteProfile &athlete)
+{
+    return {
+        {QStringLiteral("id"), athlete.id},
+        {QStringLiteral("name"), athlete.name},
+        {QStringLiteral("code"), athlete.code},
+        {QStringLiteral("ageGroup"), athlete.ageGroup},
+        {QStringLiteral("heightCm"), athlete.heightCm},
+        {QStringLiteral("weightKg"), athlete.weightKg},
+        {QStringLiteral("discipline"), athlete.discipline},
+        {QStringLiteral("level"), athlete.level},
+        {QStringLiteral("preferredRotation"), athlete.preferredRotation},
+        {QStringLiteral("preferredTakeoffFoot"), athlete.preferredTakeoffFoot},
+        {QStringLiteral("injuryNotes"), athlete.injuryNotes},
+        {QStringLiteral("goals"), athlete.goals},
+        {QStringLiteral("active"), athlete.active}
     };
+}
 
-    auto weakest = metrics.cbegin();
-    for (auto it = metrics.cbegin(); it != metrics.cend(); ++it) {
-        if (it->second < weakest->second) {
-            weakest = it;
-        }
+AthleteProfile athleteFromJson(const QJsonObject &object)
+{
+    AthleteProfile athlete;
+    athlete.id = jsonString(object, QStringLiteral("id"));
+    athlete.name = jsonString(object, QStringLiteral("name"));
+    athlete.code = jsonString(object, QStringLiteral("code"));
+    athlete.ageGroup = jsonString(object, QStringLiteral("ageGroup"));
+    athlete.heightCm = jsonDouble(object, QStringLiteral("heightCm"));
+    athlete.weightKg = jsonDouble(object, QStringLiteral("weightKg"));
+    athlete.discipline = jsonString(object, QStringLiteral("discipline"));
+    athlete.level = jsonString(object, QStringLiteral("level"));
+    athlete.preferredRotation = jsonString(object, QStringLiteral("preferredRotation"));
+    athlete.preferredTakeoffFoot = jsonString(object, QStringLiteral("preferredTakeoffFoot"));
+    athlete.injuryNotes = jsonString(object, QStringLiteral("injuryNotes"));
+    athlete.goals = jsonString(object, QStringLiteral("goals"));
+    athlete.active = object.value(QStringLiteral("active")).toBool(true);
+    return athlete;
+}
+
+QJsonObject coachToJson(const CoachProfile &coach, const QVector<QString> &athleteIds = {})
+{
+    QJsonArray ids;
+    for (const QString &id : athleteIds) {
+        ids.append(id);
     }
-    trend->weakestMetricName = weakest->first;
-    trend->weakestMetricScore = weakest->second;
+    QJsonObject object{
+        {QStringLiteral("id"), coach.id},
+        {QStringLiteral("name"), coach.name},
+        {QStringLiteral("code"), coach.code},
+        {QStringLiteral("specialty"), coach.specialty},
+        {QStringLiteral("phone"), coach.phone},
+        {QStringLiteral("notes"), coach.notes},
+        {QStringLiteral("active"), coach.active}
+    };
+    object.insert(QStringLiteral("athleteIds"), ids);
+    return object;
 }
 
-bool bindAndExec(QSqlQuery &query, const QVariantList &args)
+CoachProfile coachFromJson(const QJsonObject &object)
 {
-    for (const QVariant &arg : args) {
-        query.addBindValue(arg);
-    }
-    return query.exec();
+    CoachProfile coach;
+    coach.id = jsonString(object, QStringLiteral("id"));
+    coach.name = jsonString(object, QStringLiteral("name"));
+    coach.code = jsonString(object, QStringLiteral("code"));
+    coach.specialty = jsonString(object, QStringLiteral("specialty"));
+    coach.phone = jsonString(object, QStringLiteral("phone"));
+    coach.notes = jsonString(object, QStringLiteral("notes"));
+    coach.active = object.value(QStringLiteral("active")).toBool(true);
+    return coach;
 }
 
-QString sessionHistorySelectColumns()
+QJsonObject standardToJson(const ActionStandard &standard)
 {
-    return QStringLiteral(
-        "ts.id, ts.athlete_id, COALESCE(ts.coach_id, ''), COALESCE(ts.plan_id, ''), COALESCE(ts.task_id, ''),"
-        "ts.action_standard_id, a.name, COALESCE(c.name, ''), s.name, ac.name, ts.standard_version, ts.saved_at,"
-        "ts.duration_sec, ts.total_reps, ts.valid_reps, ts.target_reps, ts.target_score, ts.average_score,"
-        "ts.best_score, ts.camera, ts.model_precision, ts.fps, ts.detection_score, ts.symmetry_score,"
-        "ts.balance_score, ts.stability_score, ts.depth_score, ts.site, ts.training_phase, ts.goal,"
-        "COALESCE(ts.video_source, ''), COALESCE(ts.video_fallback_source, ''), COALESCE(ts.video_camera_name, ''),"
-        "ts.feedback, COALESCE(ts.notes, ''), COALESCE(ts.coach_comment, '') ");
+    return {
+        {QStringLiteral("id"), standard.id},
+        {QStringLiteral("code"), standard.code},
+        {QStringLiteral("name"), standard.name},
+        {QStringLiteral("categoryId"), standard.categoryId},
+        {QStringLiteral("level"), standard.level},
+        {QStringLiteral("purpose"), standard.purpose},
+        {QStringLiteral("version"), standard.version},
+        {QStringLiteral("targetReps"), standard.targetReps},
+        {QStringLiteral("targetScore"), standard.targetScore},
+        {QStringLiteral("setCount"), standard.setCount},
+        {QStringLiteral("restSeconds"), standard.restSeconds},
+        {QStringLiteral("armThreshold"), standard.armThreshold},
+        {QStringLiteral("releaseThreshold"), standard.releaseThreshold},
+        {QStringLiteral("debounceMs"), standard.debounceMs},
+        {QStringLiteral("detectionWeight"), standard.detectionWeight},
+        {QStringLiteral("symmetryWeight"), standard.symmetryWeight},
+        {QStringLiteral("balanceWeight"), standard.balanceWeight},
+        {QStringLiteral("stabilityWeight"), standard.stabilityWeight},
+        {QStringLiteral("depthWeight"), standard.depthWeight},
+        {QStringLiteral("detectionMin"), standard.detectionMin},
+        {QStringLiteral("symmetryMin"), standard.symmetryMin},
+        {QStringLiteral("balanceMin"), standard.balanceMin},
+        {QStringLiteral("stabilityMin"), standard.stabilityMin},
+        {QStringLiteral("depthMin"), standard.depthMin},
+        {QStringLiteral("phases"), standard.phases},
+        {QStringLiteral("keyPoints"), standard.keyPoints},
+        {QStringLiteral("issueTitle"), standard.issueTitle},
+        {QStringLiteral("issueBodyPart"), standard.issueBodyPart},
+        {QStringLiteral("issueCause"), standard.issueCause},
+        {QStringLiteral("issueCorrection"), standard.issueCorrection},
+        {QStringLiteral("issuePriority"), standard.issuePriority},
+        {QStringLiteral("referenceVideoSource"), standard.referenceVideoSource},
+        {QStringLiteral("referenceRepetitionId"), standard.referenceRepetitionId},
+        {QStringLiteral("referenceNotes"), standard.referenceNotes}
+    };
 }
 
-QString sessionHistoryFromClause()
+ActionStandard standardFromJson(const QJsonObject &object)
 {
-    return QStringLiteral(
-        "FROM training_sessions ts "
-        "JOIN athletes a ON a.id = ts.athlete_id "
-        "LEFT JOIN coaches c ON c.id = ts.coach_id "
-        "JOIN action_standards s ON s.id = ts.action_standard_id "
-        "JOIN action_categories ac ON ac.id = s.category_id ");
+    ActionStandard standard;
+    standard.id = jsonString(object, QStringLiteral("id"));
+    standard.code = jsonString(object, QStringLiteral("code"));
+    standard.name = jsonString(object, QStringLiteral("name"));
+    standard.categoryId = jsonString(object, QStringLiteral("categoryId"));
+    standard.categoryName = jsonString(object, QStringLiteral("categoryName"));
+    standard.level = jsonString(object, QStringLiteral("level"));
+    standard.purpose = jsonString(object, QStringLiteral("purpose"));
+    standard.version = jsonInt(object, QStringLiteral("version"), 1);
+    standard.targetReps = jsonInt(object, QStringLiteral("targetReps"), 10);
+    standard.targetScore = jsonInt(object, QStringLiteral("targetScore"), 80);
+    standard.setCount = jsonInt(object, QStringLiteral("setCount"), 1);
+    standard.restSeconds = jsonInt(object, QStringLiteral("restSeconds"), 60);
+    standard.armThreshold = jsonDouble(object, QStringLiteral("armThreshold"), 0.28);
+    standard.releaseThreshold = jsonDouble(object, QStringLiteral("releaseThreshold"), 0.18);
+    standard.debounceMs = jsonInt(object, QStringLiteral("debounceMs"), 900);
+    standard.detectionWeight = jsonDouble(object, QStringLiteral("detectionWeight"), 0.28);
+    standard.symmetryWeight = jsonDouble(object, QStringLiteral("symmetryWeight"), 0.18);
+    standard.balanceWeight = jsonDouble(object, QStringLiteral("balanceWeight"), 0.22);
+    standard.stabilityWeight = jsonDouble(object, QStringLiteral("stabilityWeight"), 0.17);
+    standard.depthWeight = jsonDouble(object, QStringLiteral("depthWeight"), 0.15);
+    standard.detectionMin = jsonInt(object, QStringLiteral("detectionMin"), 55);
+    standard.symmetryMin = jsonInt(object, QStringLiteral("symmetryMin"), 60);
+    standard.balanceMin = jsonInt(object, QStringLiteral("balanceMin"), 60);
+    standard.stabilityMin = jsonInt(object, QStringLiteral("stabilityMin"), 60);
+    standard.depthMin = jsonInt(object, QStringLiteral("depthMin"), 55);
+    standard.phases = jsonString(object, QStringLiteral("phases"));
+    standard.keyPoints = jsonString(object, QStringLiteral("keyPoints"));
+    standard.issueTitle = jsonString(object, QStringLiteral("issueTitle"));
+    standard.issueBodyPart = jsonString(object, QStringLiteral("issueBodyPart"));
+    standard.issueCause = jsonString(object, QStringLiteral("issueCause"));
+    standard.issueCorrection = jsonString(object, QStringLiteral("issueCorrection"));
+    standard.issuePriority = jsonInt(object, QStringLiteral("issuePriority"), 2);
+    standard.referenceVideoSource = jsonString(object, QStringLiteral("referenceVideoSource"));
+    standard.referenceRepetitionId = jsonString(object, QStringLiteral("referenceRepetitionId"));
+    standard.referenceNotes = jsonString(object, QStringLiteral("referenceNotes"));
+    return standard;
 }
 
-SessionHistoryItem readSessionHistoryItem(const QSqlQuery &query)
+QJsonObject sessionToJson(const TrainingSession &session)
+{
+    return {
+        {QStringLiteral("id"), session.id},
+        {QStringLiteral("athleteId"), session.athleteId},
+        {QStringLiteral("coachId"), session.coachId},
+        {QStringLiteral("planId"), session.planId},
+        {QStringLiteral("taskId"), session.taskId},
+        {QStringLiteral("actionStandardId"), session.actionStandardId},
+        {QStringLiteral("standardVersion"), session.standardVersion},
+        {QStringLiteral("legacyQsettingsId"), QString::number(session.legacyQsettingsId)},
+        {QStringLiteral("startedAt"), dateTimeToIso(session.startedAt)},
+        {QStringLiteral("savedAt"), dateTimeToIso(session.savedAt)},
+        {QStringLiteral("durationSec"), session.durationSec},
+        {QStringLiteral("totalReps"), session.totalReps},
+        {QStringLiteral("validReps"), session.validReps},
+        {QStringLiteral("averageScore"), session.averageScore},
+        {QStringLiteral("bestScore"), session.bestScore},
+        {QStringLiteral("camera"), session.camera},
+        {QStringLiteral("modelPrecision"), session.modelPrecision},
+        {QStringLiteral("fps"), session.fps},
+        {QStringLiteral("detectionScore"), session.detectionScore},
+        {QStringLiteral("symmetryScore"), session.symmetryScore},
+        {QStringLiteral("balanceScore"), session.balanceScore},
+        {QStringLiteral("stabilityScore"), session.stabilityScore},
+        {QStringLiteral("depthScore"), session.depthScore},
+        {QStringLiteral("site"), session.site},
+        {QStringLiteral("trainingPhase"), session.trainingPhase},
+        {QStringLiteral("goal"), session.goal},
+        {QStringLiteral("targetReps"), session.targetReps},
+        {QStringLiteral("targetScore"), session.targetScore},
+        {QStringLiteral("setCount"), session.setCount},
+        {QStringLiteral("restSeconds"), session.restSeconds},
+        {QStringLiteral("videoSource"), session.videoSource},
+        {QStringLiteral("videoFallbackSource"), session.videoFallbackSource},
+        {QStringLiteral("videoCameraName"), session.videoCameraName},
+        {QStringLiteral("feedback"), session.feedback},
+        {QStringLiteral("notes"), session.notes},
+        {QStringLiteral("coachComment"), session.coachComment}
+    };
+}
+
+QJsonObject repetitionToJson(const ActionRepetition &repetition)
+{
+    return {
+        {QStringLiteral("id"), repetition.id},
+        {QStringLiteral("sessionId"), repetition.sessionId},
+        {QStringLiteral("actionStandardId"), repetition.actionStandardId},
+        {QStringLiteral("standardVersion"), repetition.standardVersion},
+        {QStringLiteral("startedMs"), repetition.startedMs},
+        {QStringLiteral("endedMs"), repetition.endedMs},
+        {QStringLiteral("valid"), repetition.valid},
+        {QStringLiteral("score"), repetition.score},
+        {QStringLiteral("detectionScore"), repetition.detectionScore},
+        {QStringLiteral("symmetryScore"), repetition.symmetryScore},
+        {QStringLiteral("balanceScore"), repetition.balanceScore},
+        {QStringLiteral("stabilityScore"), repetition.stabilityScore},
+        {QStringLiteral("depthScore"), repetition.depthScore},
+        {QStringLiteral("errorCodes"), repetition.errorCodes},
+        {QStringLiteral("feedback"), repetition.feedback},
+        {QStringLiteral("keyFrameMs"), repetition.keyFrameMs},
+        {QStringLiteral("videoClipStartMs"), repetition.videoClipStartMs},
+        {QStringLiteral("videoClipEndMs"), repetition.videoClipEndMs},
+        {QStringLiteral("source"), repetition.source},
+        {QStringLiteral("reviewStatus"), repetition.reviewStatus},
+        {QStringLiteral("reviewerCoachId"), repetition.reviewerCoachId},
+        {QStringLiteral("reviewedAt"), dateTimeToIso(repetition.reviewedAt)},
+        {QStringLiteral("manualStartedMs"), repetition.manualStartedMs},
+        {QStringLiteral("manualEndedMs"), repetition.manualEndedMs},
+        {QStringLiteral("manualValid"), repetition.manualValid},
+        {QStringLiteral("manualScore"), repetition.manualScore},
+        {QStringLiteral("manualDetectionScore"), repetition.manualDetectionScore},
+        {QStringLiteral("manualSymmetryScore"), repetition.manualSymmetryScore},
+        {QStringLiteral("manualBalanceScore"), repetition.manualBalanceScore},
+        {QStringLiteral("manualStabilityScore"), repetition.manualStabilityScore},
+        {QStringLiteral("manualDepthScore"), repetition.manualDepthScore},
+        {QStringLiteral("manualErrorCodes"), repetition.manualErrorCodes},
+        {QStringLiteral("manualFeedback"), repetition.manualFeedback},
+        {QStringLiteral("coachNote"), repetition.coachNote},
+        {QStringLiteral("keyFramePoseJson"), repetition.keyFramePoseJson}
+    };
+}
+
+ActionRepetition repetitionFromJson(const QJsonObject &object)
+{
+    ActionRepetition repetition;
+    repetition.id = jsonString(object, QStringLiteral("id"));
+    repetition.sessionId = jsonString(object, QStringLiteral("sessionId"));
+    repetition.actionStandardId = jsonString(object, QStringLiteral("actionStandardId"));
+    repetition.standardVersion = jsonInt(object, QStringLiteral("standardVersion"), 1);
+    repetition.startedMs = jsonInt(object, QStringLiteral("startedMs"));
+    repetition.endedMs = jsonInt(object, QStringLiteral("endedMs"));
+    repetition.valid = object.value(QStringLiteral("valid")).toBool(false);
+    repetition.score = jsonInt(object, QStringLiteral("score"));
+    repetition.detectionScore = jsonInt(object, QStringLiteral("detectionScore"));
+    repetition.symmetryScore = jsonInt(object, QStringLiteral("symmetryScore"));
+    repetition.balanceScore = jsonInt(object, QStringLiteral("balanceScore"));
+    repetition.stabilityScore = jsonInt(object, QStringLiteral("stabilityScore"));
+    repetition.depthScore = jsonInt(object, QStringLiteral("depthScore"));
+    repetition.errorCodes = jsonString(object, QStringLiteral("errorCodes"));
+    repetition.feedback = jsonString(object, QStringLiteral("feedback"));
+    repetition.keyFrameMs = jsonInt(object, QStringLiteral("keyFrameMs"));
+    repetition.videoClipStartMs = jsonInt(object, QStringLiteral("videoClipStartMs"));
+    repetition.videoClipEndMs = jsonInt(object, QStringLiteral("videoClipEndMs"));
+    repetition.source = jsonString(object, QStringLiteral("source"));
+    repetition.reviewStatus = jsonString(object, QStringLiteral("reviewStatus"));
+    repetition.reviewerCoachId = jsonString(object, QStringLiteral("reviewerCoachId"));
+    repetition.reviewedAt = dateTimeFromJson(object.value(QStringLiteral("reviewedAt")));
+    repetition.manualStartedMs = jsonInt(object, QStringLiteral("manualStartedMs"), -1);
+    repetition.manualEndedMs = jsonInt(object, QStringLiteral("manualEndedMs"), -1);
+    repetition.manualValid = jsonInt(object, QStringLiteral("manualValid"), -1);
+    repetition.manualScore = jsonInt(object, QStringLiteral("manualScore"), -1);
+    repetition.manualDetectionScore = jsonInt(object, QStringLiteral("manualDetectionScore"), -1);
+    repetition.manualSymmetryScore = jsonInt(object, QStringLiteral("manualSymmetryScore"), -1);
+    repetition.manualBalanceScore = jsonInt(object, QStringLiteral("manualBalanceScore"), -1);
+    repetition.manualStabilityScore = jsonInt(object, QStringLiteral("manualStabilityScore"), -1);
+    repetition.manualDepthScore = jsonInt(object, QStringLiteral("manualDepthScore"), -1);
+    repetition.manualErrorCodes = jsonString(object, QStringLiteral("manualErrorCodes"));
+    repetition.manualFeedback = jsonString(object, QStringLiteral("manualFeedback"));
+    repetition.coachNote = jsonString(object, QStringLiteral("coachNote"));
+    repetition.keyFramePoseJson = jsonString(object, QStringLiteral("keyFramePoseJson"));
+    return repetition;
+}
+
+SessionHistoryItem historyFromJson(const QJsonObject &object)
 {
     SessionHistoryItem item;
-    int col = 0;
-    item.id = query.value(col++).toString();
-    item.athleteId = query.value(col++).toString();
-    item.coachId = query.value(col++).toString();
-    item.planId = query.value(col++).toString();
-    item.taskId = query.value(col++).toString();
-    item.actionStandardId = query.value(col++).toString();
-    item.athleteName = query.value(col++).toString();
-    item.coachName = query.value(col++).toString();
-    item.actionName = query.value(col++).toString();
-    item.actionCategory = query.value(col++).toString();
-    item.standardVersion = query.value(col++).toInt();
-    const QDateTime savedAt = QDateTime::fromString(query.value(col++).toString(), Qt::ISODate);
-    item.time = savedAt.isValid() ? savedAt.toString(QStringLiteral("yyyy-MM-dd hh:mm:ss"))
-                                  : query.value(col - 1).toString();
-    item.duration = query.value(col++).toInt();
-    item.totalReps = query.value(col++).toInt();
-    item.validReps = query.value(col++).toInt();
-    item.targetReps = query.value(col++).toInt();
-    item.targetScore = query.value(col++).toInt();
-    item.score = query.value(col++).toInt();
-    item.bestScore = query.value(col++).toInt();
-    item.camera = query.value(col++).toInt();
-    item.modelPrecision = query.value(col++).toString();
-    item.fps = query.value(col++).toInt();
-    item.detectionScore = query.value(col++).toInt();
-    item.symmetryScore = query.value(col++).toInt();
-    item.balanceScore = query.value(col++).toInt();
-    item.stabilityScore = query.value(col++).toInt();
-    item.depthScore = query.value(col++).toInt();
-    item.site = query.value(col++).toString();
-    item.trainingPhase = query.value(col++).toString();
-    item.goal = query.value(col++).toString();
-    item.videoSource = query.value(col++).toString();
-    item.videoFallbackSource = query.value(col++).toString();
-    item.videoCameraName = query.value(col++).toString();
-    item.feedback = query.value(col++).toString();
-    item.notes = query.value(col++).toString();
-    item.coachComment = query.value(col++).toString();
+    item.id = jsonString(object, QStringLiteral("id"));
+    item.athleteId = jsonString(object, QStringLiteral("athleteId"));
+    item.coachId = jsonString(object, QStringLiteral("coachId"));
+    item.planId = jsonString(object, QStringLiteral("planId"));
+    item.taskId = jsonString(object, QStringLiteral("taskId"));
+    item.actionStandardId = jsonString(object, QStringLiteral("actionStandardId"));
+    item.athleteName = jsonString(object, QStringLiteral("athleteName"));
+    item.coachName = jsonString(object, QStringLiteral("coachName"));
+    item.actionName = jsonString(object, QStringLiteral("actionName"));
+    item.actionCategory = jsonString(object, QStringLiteral("actionCategory"));
+    item.standardVersion = jsonInt(object, QStringLiteral("standardVersion"), 1);
+    item.time = jsonString(object, QStringLiteral("time"));
+    item.duration = jsonInt(object, QStringLiteral("duration"));
+    item.totalReps = jsonInt(object, QStringLiteral("totalReps"));
+    item.validReps = jsonInt(object, QStringLiteral("validReps"));
+    item.targetReps = jsonInt(object, QStringLiteral("targetReps"));
+    item.targetScore = jsonInt(object, QStringLiteral("targetScore"));
+    item.score = jsonInt(object, QStringLiteral("score"));
+    item.bestScore = jsonInt(object, QStringLiteral("bestScore"));
+    item.camera = jsonInt(object, QStringLiteral("camera"), 1);
+    item.modelPrecision = jsonString(object, QStringLiteral("modelPrecision"));
+    item.fps = jsonInt(object, QStringLiteral("fps"), 30);
+    item.detectionScore = jsonInt(object, QStringLiteral("detectionScore"));
+    item.symmetryScore = jsonInt(object, QStringLiteral("symmetryScore"));
+    item.balanceScore = jsonInt(object, QStringLiteral("balanceScore"));
+    item.stabilityScore = jsonInt(object, QStringLiteral("stabilityScore"));
+    item.depthScore = jsonInt(object, QStringLiteral("depthScore"));
+    item.site = jsonString(object, QStringLiteral("site"));
+    item.trainingPhase = jsonString(object, QStringLiteral("trainingPhase"));
+    item.goal = jsonString(object, QStringLiteral("goal"));
+    item.videoSource = jsonString(object, QStringLiteral("videoSource"));
+    item.videoFallbackSource = jsonString(object, QStringLiteral("videoFallbackSource"));
+    item.videoCameraName = jsonString(object, QStringLiteral("videoCameraName"));
+    item.feedback = jsonString(object, QStringLiteral("feedback"));
+    item.notes = jsonString(object, QStringLiteral("notes"));
+    item.coachComment = jsonString(object, QStringLiteral("coachComment"));
     return item;
 }
 
-QString sessionSortColumn(SessionSearchSortField field)
+QString sortFieldToApi(SessionSearchSortField field)
 {
     switch (field) {
     case SessionSearchSortField::AverageScore:
-        return QStringLiteral("ts.average_score");
+        return QStringLiteral("averageScore");
     case SessionSearchSortField::BestScore:
-        return QStringLiteral("ts.best_score");
+        return QStringLiteral("bestScore");
     case SessionSearchSortField::ValidReps:
-        return QStringLiteral("ts.valid_reps");
+        return QStringLiteral("validReps");
     case SessionSearchSortField::DurationSec:
-        return QStringLiteral("ts.duration_sec");
+        return QStringLiteral("durationSec");
     case SessionSearchSortField::SavedAt:
     default:
-        return QStringLiteral("ts.saved_at");
+        return QStringLiteral("savedAt");
     }
 }
 
 } // namespace
 
-TrainingRepository::TrainingRepository()
-    : m_connectionName(QStringLiteral("iskating_training_%1").arg(newId()))
-{
-}
+TrainingRepository::TrainingRepository() = default;
 
-TrainingRepository::~TrainingRepository()
-{
-    if (m_db.isValid()) {
-        const QString connectionName = m_db.connectionName();
-        m_db.close();
-        m_db = QSqlDatabase();
-        QSqlDatabase::removeDatabase(connectionName);
-    }
-}
+TrainingRepository::~TrainingRepository() = default;
 
 bool TrainingRepository::open(QString *errorMessage)
 {
-    if (m_db.isOpen()) {
-        return true;
+    QSettings settings;
+    const QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    m_baseUrl = settings.value(QStringLiteral("server/baseUrl"),
+                               env.value(QStringLiteral("ISKATING_API_BASE_URL"),
+                                         QStringLiteral("http://127.0.0.1:8000")))
+                    .toString()
+                    .trimmed();
+    while (m_baseUrl.endsWith(QLatin1Char('/'))) {
+        m_baseUrl.chop(1);
     }
+    m_accessToken = settings.value(QStringLiteral("auth/accessToken"),
+                                   env.value(QStringLiteral("ISKATING_API_TOKEN")))
+                        .toString()
+                        .trimmed();
 
-    QString appDataPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    if (appDataPath.trimmed().isEmpty()) {
-        appDataPath = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("data"));
-    }
-    QDir dir(appDataPath);
-    if (!dir.exists() && !dir.mkpath(QStringLiteral("."))) {
-        m_lastError = QStringLiteral("无法创建数据目录：%1").arg(appDataPath);
-        if (errorMessage) {
-            *errorMessage = m_lastError;
-        }
+    bool ok = false;
+    requestObject(QStringLiteral("GET"), QStringLiteral("/health"), {}, {}, &ok, errorMessage);
+    if (!ok) {
+        m_open = false;
+        m_lastError = errorMessage ? *errorMessage : QStringLiteral("训练服务不可用。");
         return false;
     }
 
-    m_databasePath = dir.absoluteFilePath(QStringLiteral("iskating.db"));
-    m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), m_connectionName);
-    m_db.setDatabaseName(m_databasePath);
-    if (!m_db.open()) {
-        m_lastError = m_db.lastError().text();
-        if (errorMessage) {
-            *errorMessage = m_lastError;
-        }
+    if (m_accessToken.isEmpty() && !login(errorMessage)) {
+        m_open = false;
+        m_lastError = errorMessage ? *errorMessage : QStringLiteral("训练服务登录失败。");
         return false;
     }
 
-    QSqlQuery pragma(m_db);
-    pragma.exec(QStringLiteral("PRAGMA foreign_keys = ON"));
-
-    if (!migrate(errorMessage)) {
-        return false;
-    }
-    if (!seedDefaults(errorMessage)) {
-        return false;
-    }
-    if (!migrateLegacyTrainingHistory(errorMessage)) {
+    requestArray(QStringLiteral("/athletes"), {}, &ok, errorMessage);
+    m_open = ok;
+    if (!ok) {
+        m_lastError = errorMessage ? *errorMessage : QStringLiteral("训练服务认证失败。");
         return false;
     }
 
+    settings.setValue(QStringLiteral("server/baseUrl"), m_baseUrl);
+    settings.setValue(QStringLiteral("auth/accessToken"), m_accessToken);
     m_lastError.clear();
+    return true;
+}
+
+bool TrainingRepository::login(QString *errorMessage)
+{
+    QSettings settings;
+    const QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    const QString username = settings.value(QStringLiteral("auth/username"),
+                                            env.value(QStringLiteral("ISKATING_API_USERNAME"),
+                                                      QStringLiteral("admin")))
+                                 .toString();
+    const QString password = settings.value(QStringLiteral("auth/password"),
+                                            env.value(QStringLiteral("ISKATING_API_PASSWORD"),
+                                                      QStringLiteral("admin123")))
+                                 .toString();
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("POST"),
+                                               QStringLiteral("/auth/login"),
+                                               {{QStringLiteral("username"), username},
+                                                {QStringLiteral("password"), password}},
+                                               {},
+                                               &ok,
+                                               errorMessage);
+    if (!ok) {
+        return false;
+    }
+    m_accessToken = response.value(QStringLiteral("accessToken")).toString();
+    if (m_accessToken.isEmpty()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("训练服务未返回访问令牌。");
+        }
+        return false;
+    }
+    settings.setValue(QStringLiteral("auth/accessToken"), m_accessToken);
     return true;
 }
 
 bool TrainingRepository::isOpen() const
 {
-    return m_db.isOpen();
+    return m_open;
 }
 
 QString TrainingRepository::databasePath() const
 {
-    return m_databasePath;
+    return m_baseUrl;
 }
 
 QString TrainingRepository::lastError() const
@@ -233,529 +487,169 @@ QString TrainingRepository::lastError() const
     return m_lastError;
 }
 
-bool TrainingRepository::execute(const QString &sql, QString *errorMessage) const
+QJsonObject TrainingRepository::requestObject(const QString &method,
+                                              const QString &path,
+                                              const QJsonObject &body,
+                                              const QVariantMap &query,
+                                              bool *ok,
+                                              QString *errorMessage) const
 {
-    QSqlQuery query(m_db);
-    if (!query.exec(sql)) {
-        const QString error = query.lastError().text();
-        if (errorMessage) {
-            *errorMessage = error;
-        }
-        return false;
+    if (ok) {
+        *ok = false;
     }
-    return true;
+    QUrl url(m_baseUrl + apiPath(path));
+    if (!query.isEmpty()) {
+        QUrlQuery urlQuery;
+        for (auto it = query.cbegin(); it != query.cend(); ++it) {
+            const QString value = it.value().toString();
+            if (!value.isEmpty()) {
+                urlQuery.addQueryItem(it.key(), value);
+            }
+        }
+        url.setQuery(urlQuery);
+    }
+
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    if (!m_accessToken.isEmpty()) {
+        request.setRawHeader("Authorization", QStringLiteral("Bearer %1").arg(m_accessToken).toUtf8());
+    }
+
+    QNetworkReply *reply = nullptr;
+    const QByteArray payload = body.isEmpty() ? QByteArray() : QJsonDocument(body).toJson(QJsonDocument::Compact);
+    if (method == QStringLiteral("GET")) {
+        reply = m_network.get(request);
+    } else if (method == QStringLiteral("PATCH")) {
+        reply = m_network.sendCustomRequest(request, "PATCH", payload);
+    } else {
+        reply = m_network.post(request, payload);
+    }
+
+    QEventLoop loop;
+    QTimer timer;
+    timer.setSingleShot(true);
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    QObject::connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+    timer.start(15000);
+    loop.exec();
+
+    if (!timer.isActive()) {
+        reply->abort();
+        reply->deleteLater();
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("训练服务请求超时：%1").arg(url.toString());
+        }
+        return {};
+    }
+    timer.stop();
+
+    const QByteArray bytes = reply->readAll();
+    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QNetworkReply::NetworkError networkError = reply->error();
+    reply->deleteLater();
+
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(bytes, &parseError);
+    if (networkError != QNetworkReply::NoError || status < 200 || status >= 300) {
+        QString detail = QString::fromUtf8(bytes);
+        if (document.isObject()) {
+            detail = document.object().value(QStringLiteral("detail")).toString(detail);
+        }
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("训练服务请求失败（HTTP %1）：%2").arg(status).arg(detail);
+        }
+        return {};
+    }
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("训练服务返回格式无效：%1").arg(parseError.errorString());
+        }
+        return {};
+    }
+    if (ok) {
+        *ok = true;
+    }
+    return document.object();
 }
 
-bool TrainingRepository::migrate(QString *errorMessage)
+QJsonArray TrainingRepository::requestArray(const QString &path,
+                                            const QVariantMap &query,
+                                            bool *ok,
+                                            QString *errorMessage) const
 {
-    const QStringList statements = {
-        QStringLiteral("CREATE TABLE IF NOT EXISTS schema_meta ("
-                       "key TEXT PRIMARY KEY,"
-                       "value TEXT NOT NULL)"),
-        QStringLiteral("CREATE TABLE IF NOT EXISTS athletes ("
-                       "id TEXT PRIMARY KEY,"
-                       "name TEXT NOT NULL,"
-                       "code TEXT,"
-                       "age_group TEXT,"
-                       "height_cm REAL DEFAULT 0,"
-                       "weight_kg REAL DEFAULT 0,"
-                       "discipline TEXT,"
-                       "level TEXT,"
-                       "preferred_rotation TEXT,"
-                       "preferred_takeoff_foot TEXT,"
-                       "injury_notes TEXT,"
-                       "goals TEXT,"
-                       "active INTEGER NOT NULL DEFAULT 1,"
-                       "created_at TEXT NOT NULL,"
-                       "updated_at TEXT NOT NULL)"),
-        QStringLiteral("CREATE TABLE IF NOT EXISTS coaches ("
-                       "id TEXT PRIMARY KEY,"
-                       "name TEXT NOT NULL,"
-                       "code TEXT,"
-                       "specialty TEXT,"
-                       "phone TEXT,"
-                       "notes TEXT,"
-                       "active INTEGER NOT NULL DEFAULT 1,"
-                       "created_at TEXT NOT NULL,"
-                       "updated_at TEXT NOT NULL)"),
-        QStringLiteral("CREATE TABLE IF NOT EXISTS coach_athletes ("
-                       "coach_id TEXT NOT NULL,"
-                       "athlete_id TEXT NOT NULL,"
-                       "created_at TEXT NOT NULL,"
-                       "PRIMARY KEY (coach_id, athlete_id),"
-                       "FOREIGN KEY (coach_id) REFERENCES coaches(id),"
-                       "FOREIGN KEY (athlete_id) REFERENCES athletes(id))"),
-        QStringLiteral("CREATE TABLE IF NOT EXISTS action_categories ("
-                       "id TEXT PRIMARY KEY,"
-                       "code TEXT NOT NULL UNIQUE,"
-                       "name TEXT NOT NULL,"
-                       "sort_order INTEGER NOT NULL DEFAULT 0)"),
-        QStringLiteral("CREATE TABLE IF NOT EXISTS action_standards ("
-                       "id TEXT PRIMARY KEY,"
-                       "code TEXT NOT NULL UNIQUE,"
-                       "name TEXT NOT NULL,"
-                       "category_id TEXT NOT NULL,"
-                       "level TEXT,"
-                       "purpose TEXT,"
-                       "version INTEGER NOT NULL DEFAULT 1,"
-                       "target_reps INTEGER NOT NULL DEFAULT 10,"
-                       "target_score INTEGER NOT NULL DEFAULT 80,"
-                       "set_count INTEGER NOT NULL DEFAULT 1,"
-                       "rest_seconds INTEGER NOT NULL DEFAULT 60,"
-                       "arm_threshold REAL NOT NULL DEFAULT 0.28,"
-                       "release_threshold REAL NOT NULL DEFAULT 0.18,"
-                       "debounce_ms INTEGER NOT NULL DEFAULT 900,"
-                       "detection_weight REAL NOT NULL DEFAULT 0.28,"
-                       "symmetry_weight REAL NOT NULL DEFAULT 0.18,"
-                       "balance_weight REAL NOT NULL DEFAULT 0.22,"
-                       "stability_weight REAL NOT NULL DEFAULT 0.17,"
-                       "depth_weight REAL NOT NULL DEFAULT 0.15,"
-                       "detection_min INTEGER NOT NULL DEFAULT 55,"
-                       "symmetry_min INTEGER NOT NULL DEFAULT 60,"
-                       "balance_min INTEGER NOT NULL DEFAULT 60,"
-                       "stability_min INTEGER NOT NULL DEFAULT 60,"
-                       "depth_min INTEGER NOT NULL DEFAULT 55,"
-                       "phases TEXT,"
-                       "key_points TEXT,"
-                       "issue_title TEXT,"
-                       "issue_body_part TEXT,"
-                       "issue_cause TEXT,"
-                       "issue_correction TEXT,"
-                       "issue_priority INTEGER NOT NULL DEFAULT 2,"
-                       "reference_video_source TEXT,"
-                       "reference_repetition_id TEXT,"
-                       "reference_notes TEXT,"
-                       "active INTEGER NOT NULL DEFAULT 1,"
-                       "created_at TEXT NOT NULL,"
-                       "updated_at TEXT NOT NULL,"
-                       "FOREIGN KEY (category_id) REFERENCES action_categories(id))"),
-        QStringLiteral("CREATE TABLE IF NOT EXISTS training_plans ("
-                       "id TEXT PRIMARY KEY,"
-                       "athlete_id TEXT NOT NULL,"
-                       "coach_id TEXT,"
-                       "name TEXT NOT NULL,"
-                       "training_date TEXT NOT NULL,"
-                       "site TEXT,"
-                       "training_phase TEXT,"
-                       "goal TEXT,"
-                       "status TEXT NOT NULL DEFAULT 'active',"
-                       "created_at TEXT NOT NULL,"
-                       "updated_at TEXT NOT NULL,"
-                       "FOREIGN KEY (athlete_id) REFERENCES athletes(id),"
-                       "FOREIGN KEY (coach_id) REFERENCES coaches(id))"),
-        QStringLiteral("CREATE TABLE IF NOT EXISTS training_tasks ("
-                       "id TEXT PRIMARY KEY,"
-                       "plan_id TEXT NOT NULL,"
-                       "action_standard_id TEXT NOT NULL,"
-                       "standard_version INTEGER NOT NULL DEFAULT 1,"
-                       "target_reps INTEGER NOT NULL DEFAULT 10,"
-                       "target_score INTEGER NOT NULL DEFAULT 80,"
-                       "set_count INTEGER NOT NULL DEFAULT 1,"
-                       "rest_seconds INTEGER NOT NULL DEFAULT 60,"
-                       "status TEXT NOT NULL DEFAULT 'active',"
-                       "sort_order INTEGER NOT NULL DEFAULT 0,"
-                       "created_at TEXT NOT NULL,"
-                       "updated_at TEXT NOT NULL,"
-                       "FOREIGN KEY (plan_id) REFERENCES training_plans(id),"
-                       "FOREIGN KEY (action_standard_id) REFERENCES action_standards(id))"),
-        QStringLiteral("CREATE TABLE IF NOT EXISTS training_sessions ("
-                       "id TEXT PRIMARY KEY,"
-                       "athlete_id TEXT NOT NULL,"
-                       "coach_id TEXT,"
-                       "plan_id TEXT,"
-                       "task_id TEXT,"
-                       "action_standard_id TEXT NOT NULL,"
-                       "standard_version INTEGER NOT NULL DEFAULT 1,"
-                       "legacy_qsettings_id INTEGER DEFAULT 0,"
-                       "started_at TEXT NOT NULL,"
-                       "saved_at TEXT NOT NULL,"
-                       "duration_sec INTEGER NOT NULL DEFAULT 0,"
-                       "total_reps INTEGER NOT NULL DEFAULT 0,"
-                       "valid_reps INTEGER NOT NULL DEFAULT 0,"
-                       "average_score INTEGER NOT NULL DEFAULT 0,"
-                       "best_score INTEGER NOT NULL DEFAULT 0,"
-                       "camera INTEGER NOT NULL DEFAULT 1,"
-                       "model_precision TEXT,"
-                       "fps INTEGER NOT NULL DEFAULT 30,"
-                       "detection_score INTEGER NOT NULL DEFAULT 0,"
-                       "symmetry_score INTEGER NOT NULL DEFAULT 0,"
-                       "balance_score INTEGER NOT NULL DEFAULT 0,"
-                       "stability_score INTEGER NOT NULL DEFAULT 0,"
-                       "depth_score INTEGER NOT NULL DEFAULT 0,"
-                       "site TEXT,"
-                       "training_phase TEXT,"
-                       "goal TEXT,"
-                       "target_reps INTEGER NOT NULL DEFAULT 0,"
-                       "target_score INTEGER NOT NULL DEFAULT 0,"
-                       "set_count INTEGER NOT NULL DEFAULT 1,"
-                       "rest_seconds INTEGER NOT NULL DEFAULT 60,"
-                       "video_source TEXT,"
-                       "video_fallback_source TEXT,"
-                       "video_camera_name TEXT,"
-                       "feedback TEXT,"
-                       "notes TEXT,"
-                       "coach_comment TEXT,"
-                       "FOREIGN KEY (athlete_id) REFERENCES athletes(id),"
-                       "FOREIGN KEY (coach_id) REFERENCES coaches(id),"
-                       "FOREIGN KEY (plan_id) REFERENCES training_plans(id),"
-                       "FOREIGN KEY (task_id) REFERENCES training_tasks(id),"
-                       "FOREIGN KEY (action_standard_id) REFERENCES action_standards(id))"),
-        QStringLiteral("CREATE TABLE IF NOT EXISTS action_repetitions ("
-                       "id TEXT PRIMARY KEY,"
-                       "session_id TEXT NOT NULL,"
-                       "action_standard_id TEXT NOT NULL,"
-                       "standard_version INTEGER NOT NULL DEFAULT 1,"
-                       "started_ms INTEGER NOT NULL DEFAULT 0,"
-                       "ended_ms INTEGER NOT NULL DEFAULT 0,"
-                       "valid INTEGER NOT NULL DEFAULT 0,"
-                       "score INTEGER NOT NULL DEFAULT 0,"
-                       "detection_score INTEGER NOT NULL DEFAULT 0,"
-                       "symmetry_score INTEGER NOT NULL DEFAULT 0,"
-                       "balance_score INTEGER NOT NULL DEFAULT 0,"
-                       "stability_score INTEGER NOT NULL DEFAULT 0,"
-                       "depth_score INTEGER NOT NULL DEFAULT 0,"
-                       "error_codes TEXT,"
-                       "feedback TEXT,"
-                       "key_frame_ms INTEGER NOT NULL DEFAULT 0,"
-                       "video_clip_start_ms INTEGER NOT NULL DEFAULT 0,"
-                       "video_clip_end_ms INTEGER NOT NULL DEFAULT 0,"
-                       "source TEXT NOT NULL DEFAULT 'ai',"
-                       "review_status TEXT NOT NULL DEFAULT 'unreviewed',"
-                       "reviewer_coach_id TEXT,"
-                       "reviewed_at TEXT,"
-                       "manual_started_ms INTEGER NOT NULL DEFAULT -1,"
-                       "manual_ended_ms INTEGER NOT NULL DEFAULT -1,"
-                       "manual_valid INTEGER NOT NULL DEFAULT -1,"
-                       "manual_score INTEGER NOT NULL DEFAULT -1,"
-                       "manual_detection_score INTEGER NOT NULL DEFAULT -1,"
-                       "manual_symmetry_score INTEGER NOT NULL DEFAULT -1,"
-                       "manual_balance_score INTEGER NOT NULL DEFAULT -1,"
-                       "manual_stability_score INTEGER NOT NULL DEFAULT -1,"
-                       "manual_depth_score INTEGER NOT NULL DEFAULT -1,"
-                       "manual_error_codes TEXT,"
-                       "manual_feedback TEXT,"
-                       "coach_note TEXT,"
-                       "key_frame_pose_json TEXT,"
-                       "FOREIGN KEY (session_id) REFERENCES training_sessions(id),"
-                       "FOREIGN KEY (action_standard_id) REFERENCES action_standards(id))"),
-        QStringLiteral("CREATE TABLE IF NOT EXISTS athlete_action_baselines ("
-                       "athlete_id TEXT NOT NULL,"
-                       "action_standard_id TEXT NOT NULL,"
-                       "session_count INTEGER NOT NULL DEFAULT 0,"
-                       "average_score INTEGER NOT NULL DEFAULT 0,"
-                       "average_valid_reps INTEGER NOT NULL DEFAULT 0,"
-                       "updated_at TEXT NOT NULL,"
-                       "PRIMARY KEY (athlete_id, action_standard_id),"
-                       "FOREIGN KEY (athlete_id) REFERENCES athletes(id),"
-                       "FOREIGN KEY (action_standard_id) REFERENCES action_standards(id))")
-    };
-
-    for (const QString &statement : statements) {
-        if (!execute(statement, errorMessage)) {
-            return false;
+    if (ok) {
+        *ok = false;
+    }
+    QUrl url(m_baseUrl + apiPath(path));
+    if (!query.isEmpty()) {
+        QUrlQuery urlQuery;
+        for (auto it = query.cbegin(); it != query.cend(); ++it) {
+            const QString value = it.value().toString();
+            if (!value.isEmpty()) {
+                urlQuery.addQueryItem(it.key(), value);
+            }
         }
+        url.setQuery(urlQuery);
     }
-    if (!ensureColumn(QStringLiteral("training_sessions"),
-                      QStringLiteral("video_source"),
-                      QStringLiteral("TEXT"),
-                      errorMessage)
-        || !ensureColumn(QStringLiteral("training_sessions"),
-                         QStringLiteral("video_fallback_source"),
-                         QStringLiteral("TEXT"),
-                         errorMessage)
-        || !ensureColumn(QStringLiteral("training_sessions"),
-                         QStringLiteral("video_camera_name"),
-                         QStringLiteral("TEXT"),
-                         errorMessage)
-        || !ensureColumn(QStringLiteral("training_sessions"),
-                         QStringLiteral("coach_comment"),
-                         QStringLiteral("TEXT"),
-                         errorMessage)
-        || !ensureColumn(QStringLiteral("action_repetitions"),
-                         QStringLiteral("video_clip_start_ms"),
-                         QStringLiteral("INTEGER NOT NULL DEFAULT 0"),
-                         errorMessage)
-        || !ensureColumn(QStringLiteral("action_repetitions"),
-                         QStringLiteral("video_clip_end_ms"),
-                         QStringLiteral("INTEGER NOT NULL DEFAULT 0"),
-                         errorMessage)) {
-        return false;
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    if (!m_accessToken.isEmpty()) {
+        request.setRawHeader("Authorization", QStringLiteral("Bearer %1").arg(m_accessToken).toUtf8());
     }
-    const QVector<std::tuple<QString, QString, QString>> reviewColumns = {
-        {QStringLiteral("athletes"), QStringLiteral("active"), QStringLiteral("INTEGER NOT NULL DEFAULT 1")},
-        {QStringLiteral("coaches"), QStringLiteral("specialty"), QStringLiteral("TEXT")},
-        {QStringLiteral("coaches"), QStringLiteral("phone"), QStringLiteral("TEXT")},
-        {QStringLiteral("coaches"), QStringLiteral("notes"), QStringLiteral("TEXT")},
-        {QStringLiteral("coaches"), QStringLiteral("active"), QStringLiteral("INTEGER NOT NULL DEFAULT 1")},
-        {QStringLiteral("action_standards"), QStringLiteral("reference_video_source"), QStringLiteral("TEXT")},
-        {QStringLiteral("action_standards"), QStringLiteral("reference_repetition_id"), QStringLiteral("TEXT")},
-        {QStringLiteral("action_standards"), QStringLiteral("reference_notes"), QStringLiteral("TEXT")},
-        {QStringLiteral("action_repetitions"), QStringLiteral("source"), QStringLiteral("TEXT NOT NULL DEFAULT 'ai'")},
-        {QStringLiteral("action_repetitions"), QStringLiteral("review_status"), QStringLiteral("TEXT NOT NULL DEFAULT 'unreviewed'")},
-        {QStringLiteral("action_repetitions"), QStringLiteral("reviewer_coach_id"), QStringLiteral("TEXT")},
-        {QStringLiteral("action_repetitions"), QStringLiteral("reviewed_at"), QStringLiteral("TEXT")},
-        {QStringLiteral("action_repetitions"), QStringLiteral("manual_started_ms"), QStringLiteral("INTEGER NOT NULL DEFAULT -1")},
-        {QStringLiteral("action_repetitions"), QStringLiteral("manual_ended_ms"), QStringLiteral("INTEGER NOT NULL DEFAULT -1")},
-        {QStringLiteral("action_repetitions"), QStringLiteral("manual_valid"), QStringLiteral("INTEGER NOT NULL DEFAULT -1")},
-        {QStringLiteral("action_repetitions"), QStringLiteral("manual_score"), QStringLiteral("INTEGER NOT NULL DEFAULT -1")},
-        {QStringLiteral("action_repetitions"), QStringLiteral("manual_detection_score"), QStringLiteral("INTEGER NOT NULL DEFAULT -1")},
-        {QStringLiteral("action_repetitions"), QStringLiteral("manual_symmetry_score"), QStringLiteral("INTEGER NOT NULL DEFAULT -1")},
-        {QStringLiteral("action_repetitions"), QStringLiteral("manual_balance_score"), QStringLiteral("INTEGER NOT NULL DEFAULT -1")},
-        {QStringLiteral("action_repetitions"), QStringLiteral("manual_stability_score"), QStringLiteral("INTEGER NOT NULL DEFAULT -1")},
-        {QStringLiteral("action_repetitions"), QStringLiteral("manual_depth_score"), QStringLiteral("INTEGER NOT NULL DEFAULT -1")},
-        {QStringLiteral("action_repetitions"), QStringLiteral("manual_error_codes"), QStringLiteral("TEXT")},
-        {QStringLiteral("action_repetitions"), QStringLiteral("manual_feedback"), QStringLiteral("TEXT")},
-        {QStringLiteral("action_repetitions"), QStringLiteral("coach_note"), QStringLiteral("TEXT")},
-        {QStringLiteral("action_repetitions"), QStringLiteral("key_frame_pose_json"), QStringLiteral("TEXT")}
-    };
-    for (const auto &[tableName, columnName, definition] : reviewColumns) {
-        if (!ensureColumn(tableName, columnName, definition, errorMessage)) {
-            return false;
-        }
-    }
-    return setMetaValue(QStringLiteral("schemaVersion"), QStringLiteral("4"), errorMessage);
-}
 
-bool TrainingRepository::seedDefaults(QString *errorMessage)
-{
-    if (!m_db.transaction()) {
+    QNetworkReply *reply = m_network.get(request);
+    QEventLoop loop;
+    QTimer timer;
+    timer.setSingleShot(true);
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    QObject::connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+    timer.start(15000);
+    loop.exec();
+    if (!timer.isActive()) {
+        reply->abort();
+        reply->deleteLater();
         if (errorMessage) {
-            *errorMessage = m_db.lastError().text();
+            *errorMessage = QStringLiteral("训练服务请求超时：%1").arg(url.toString());
         }
-        return false;
+        return {};
     }
+    timer.stop();
 
-    auto rollback = [this, errorMessage](const QString &message) {
-        m_db.rollback();
+    const QByteArray bytes = reply->readAll();
+    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QNetworkReply::NetworkError networkError = reply->error();
+    reply->deleteLater();
+
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(bytes, &parseError);
+    if (networkError != QNetworkReply::NoError || status < 200 || status >= 300) {
         if (errorMessage) {
-            *errorMessage = message;
+            *errorMessage = QStringLiteral("训练服务请求失败（HTTP %1）：%2").arg(status).arg(QString::fromUtf8(bytes));
         }
-        return false;
-    };
-
-    QSqlQuery query(m_db);
-    query.prepare(QStringLiteral("INSERT OR IGNORE INTO athletes "
-                                 "(id, name, code, age_group, discipline, level, goals, created_at, updated_at) "
-                                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"));
-    if (!bindAndExec(query,
-                     {QStringLiteral("athlete_default"),
-                      QStringLiteral("默认运动员"),
-                      QStringLiteral("ATH-DEFAULT"),
-                      QStringLiteral("青年组"),
-                      QStringLiteral("滑冰"),
-                      QStringLiteral("基础"),
-                      QStringLiteral("建立稳定动作标准闭环"),
-                      nowIso(),
-                      nowIso()})) {
-        return rollback(query.lastError().text());
+        return {};
     }
-
-    query.prepare(QStringLiteral("INSERT OR IGNORE INTO coaches "
-                                 "(id, name, code, created_at, updated_at) VALUES (?, ?, ?, ?, ?)"));
-    if (!bindAndExec(query,
-                     {QStringLiteral("coach_default"),
-                      QStringLiteral("默认教练"),
-                      QStringLiteral("COACH-DEFAULT"),
-                      nowIso(),
-                      nowIso()})) {
-        return rollback(query.lastError().text());
-    }
-
-    query.prepare(QStringLiteral("INSERT OR IGNORE INTO coach_athletes "
-                                 "(coach_id, athlete_id, created_at) VALUES (?, ?, ?)"));
-    if (!bindAndExec(query,
-                     {QStringLiteral("coach_default"),
-                      QStringLiteral("athlete_default"),
-                      nowIso()})) {
-        return rollback(query.lastError().text());
-    }
-
-    struct CategorySeed {
-        QString id;
-        QString code;
-        QString name;
-        int order = 0;
-    };
-    const QVector<CategorySeed> categories = {
-        {QStringLiteral("cat_basic_glide"), QStringLiteral("basic_glide"), QStringLiteral("基础滑行"), 10},
-        {QStringLiteral("cat_push"), QStringLiteral("push"), QStringLiteral("蹬冰"), 20},
-        {QStringLiteral("cat_cross"), QStringLiteral("cross"), QStringLiteral("压步"), 30},
-        {QStringLiteral("cat_turn_prep"), QStringLiteral("turn_prep"), QStringLiteral("转体准备"), 40},
-        {QStringLiteral("cat_jump_prep"), QStringLiteral("jump_prep"), QStringLiteral("跳跃准备"), 50},
-        {QStringLiteral("cat_landing"), QStringLiteral("landing"), QStringLiteral("落冰控制"), 60},
-        {QStringLiteral("cat_spin"), QStringLiteral("spin"), QStringLiteral("旋转姿态"), 70},
-        {QStringLiteral("cat_steps"), QStringLiteral("steps"), QStringLiteral("步法"), 80}
-    };
-
-    for (const CategorySeed &category : categories) {
-        query.prepare(QStringLiteral("INSERT OR IGNORE INTO action_categories "
-                                     "(id, code, name, sort_order) VALUES (?, ?, ?, ?)"));
-        if (!bindAndExec(query, {category.id, category.code, category.name, category.order})) {
-            return rollback(query.lastError().text());
+    if (parseError.error != QJsonParseError::NoError || !document.isArray()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("训练服务返回格式无效：%1").arg(parseError.errorString());
         }
+        return {};
     }
-
-    struct StandardSeed {
-        QString id;
-        QString code;
-        QString name;
-        QString categoryId;
-        QString level;
-        QString purpose;
-        int targetReps;
-        int targetScore;
-        int setCount;
-        int restSeconds;
-        double arm;
-        double release;
-        int debounce;
-        double detectionWeight;
-        double symmetryWeight;
-        double balanceWeight;
-        double stabilityWeight;
-        double depthWeight;
-        int detectionMin;
-        int symmetryMin;
-        int balanceMin;
-        int stabilityMin;
-        int depthMin;
-        QString phases;
-        QString keyPoints;
-        QString issueTitle;
-        QString issueBodyPart;
-        QString issueCause;
-        QString issueCorrection;
-        int priority;
-    };
-
-    const QVector<StandardSeed> standards = {
-        {QStringLiteral("std_basic_edge_glide"), QStringLiteral("basic_edge_glide"), QStringLiteral("基础外刃滑行"),
-         QStringLiteral("cat_basic_glide"), QStringLiteral("基础"), QStringLiteral("建立单脚滑行重心和刃感"), 12, 78, 2, 45,
-         0.26, 0.17, 850, 0.24, 0.20, 0.28, 0.16, 0.12, 58, 62, 66, 58, 45,
-         QStringLiteral("准备|压刃|滑行保持|换刃恢复"), QStringLiteral("髋肩保持同向，膝踝持续柔和，重心落在支撑脚上方"),
-         QStringLiteral("重心偏外"), QStringLiteral("髋-膝-踝"), QStringLiteral("支撑侧髋线与身体中心偏离"),
-         QStringLiteral("降低速度，先做单脚支撑和髋部对齐，再恢复滑行节奏"), 1},
-        {QStringLiteral("std_push_extension"), QStringLiteral("push_extension"), QStringLiteral("蹬冰伸展"),
-         QStringLiteral("cat_push"), QStringLiteral("基础"), QStringLiteral("提升蹬伸完整度和左右发力一致性"), 16, 80, 3, 45,
-         0.30, 0.18, 800, 0.22, 0.24, 0.22, 0.18, 0.14, 58, 65, 62, 60, 45,
-         QStringLiteral("准备|屈膝蓄力|蹬伸|收腿恢复"), QStringLiteral("蹬冰腿充分伸展，肩胯稳定，回收腿不拖沓"),
-         QStringLiteral("蹬伸不完整"), QStringLiteral("膝关节"), QStringLiteral("屈伸幅度不足或左右节奏不一致"),
-         QStringLiteral("放慢节奏，完整做出屈膝蓄力到蹬伸，再逐步提速"), 1},
-        {QStringLiteral("std_cross_under"), QStringLiteral("cross_under"), QStringLiteral("压步重心转换"),
-         QStringLiteral("cat_cross"), QStringLiteral("进阶"), QStringLiteral("强化压步时肩胯同步和内外侧支撑转换"), 12, 82, 3, 60,
-         0.31, 0.19, 950, 0.22, 0.24, 0.26, 0.16, 0.12, 58, 66, 66, 58, 45,
-         QStringLiteral("入弯|交叉压步|重心转移|出弯恢复"), QStringLiteral("肩胯转向一致，交叉腿落点清晰，身体轴线稳定"),
-         QStringLiteral("肩胯不同步"), QStringLiteral("肩胯"), QStringLiteral("上身提前或滞后导致重心转移不稳"),
-         QStringLiteral("先降低入弯速度，盯住肩胯同向后再增加压步频率"), 1},
-        {QStringLiteral("std_turn_preparation"), QStringLiteral("turn_preparation"), QStringLiteral("转体准备姿态"),
-         QStringLiteral("cat_turn_prep"), QStringLiteral("进阶"), QStringLiteral("稳定转体前轴线和上肢预备位置"), 10, 80, 2, 60,
-         0.25, 0.17, 1000, 0.24, 0.24, 0.24, 0.18, 0.10, 58, 66, 64, 60, 45,
-         QStringLiteral("滑入|预备收紧|轴线建立|释放恢复"), QStringLiteral("肩线水平，核心收紧，头肩髋保持轴线"),
-         QStringLiteral("身体轴线偏移"), QStringLiteral("头肩髋"), QStringLiteral("转体准备时上身摆动过大"),
-         QStringLiteral("先做低速轴线保持，再加入转体预备摆臂"), 1},
-        {QStringLiteral("std_jump_takeoff_prep"), QStringLiteral("jump_takeoff_prep"), QStringLiteral("跳跃起跳准备"),
-         QStringLiteral("cat_jump_prep"), QStringLiteral("进阶"), QStringLiteral("建立起跳前屈膝、摆臂和重心组织"), 10, 82, 3, 75,
-         0.32, 0.18, 1000, 0.24, 0.18, 0.28, 0.18, 0.12, 60, 62, 68, 60, 45,
-         QStringLiteral("滑入|屈膝蓄力|摆臂协同|起跳释放"), QStringLiteral("支撑腿屈膝充分，摆臂不过早，重心不过后"),
-         QStringLiteral("摆臂提前"), QStringLiteral("肩臂"), QStringLiteral("上肢先于下肢释放导致起跳重心散"),
-         QStringLiteral("用节拍口令重做屈膝-摆臂-释放顺序"), 1},
-        {QStringLiteral("std_landing_control"), QStringLiteral("landing_control"), QStringLiteral("落冰控制"),
-         QStringLiteral("cat_landing"), QStringLiteral("进阶"), QStringLiteral("提升落冰后单脚支撑和缓冲稳定性"), 8, 84, 3, 75,
-         0.30, 0.19, 1100, 0.24, 0.18, 0.30, 0.18, 0.10, 60, 60, 70, 62, 45,
-         QStringLiteral("落冰前|触冰缓冲|滑出保持|恢复"), QStringLiteral("落冰膝踝缓冲，髋不过度外甩，滑出保持三拍"),
-         QStringLiteral("落冰不稳"), QStringLiteral("支撑腿"), QStringLiteral("落冰后重心漂移或缓冲不足"),
-         QStringLiteral("减少进入速度，先把落冰滑出保持到三拍"), 1},
-        {QStringLiteral("std_spin_axis_hold"), QStringLiteral("spin_axis_hold"), QStringLiteral("旋转轴线保持"),
-         QStringLiteral("cat_spin"), QStringLiteral("进阶"), QStringLiteral("稳定旋转姿态轴线和上肢收紧"), 8, 82, 2, 75,
-         0.24, 0.16, 1200, 0.24, 0.26, 0.22, 0.18, 0.10, 58, 68, 62, 60, 45,
-         QStringLiteral("进入|轴线建立|保持|退出"), QStringLiteral("肩髋垂直对齐，手臂收紧，头部不抢转"),
-         QStringLiteral("轴线晃动"), QStringLiteral("头肩髋"), QStringLiteral("旋转中肩髋宽度变化和身体摆动过大"),
-         QStringLiteral("先做慢速轴线保持，稳定后再增加旋转速度"), 1},
-        {QStringLiteral("std_step_sequence"), QStringLiteral("step_sequence"), QStringLiteral("步法节奏控制"),
-         QStringLiteral("cat_steps"), QStringLiteral("基础"), QStringLiteral("保持步法节奏和左右连接稳定"), 18, 78, 2, 45,
-         0.27, 0.18, 700, 0.24, 0.22, 0.22, 0.20, 0.12, 56, 62, 60, 62, 45,
-         QStringLiteral("准备|换步|连接|恢复"), QStringLiteral("换步落点清晰，节奏均匀，身体不过度摆动"),
-         QStringLiteral("节奏不稳"), QStringLiteral("脚步/躯干"), QStringLiteral("步法连接中稳定分下降"),
-         QStringLiteral("用固定节拍完成同一组步法，再逐步提高速度"), 2}
-    };
-
-    for (const StandardSeed &standard : standards) {
-        query.prepare(QStringLiteral(
-            "INSERT OR IGNORE INTO action_standards ("
-            "id, code, name, category_id, level, purpose, version, target_reps, target_score, set_count, rest_seconds,"
-            "arm_threshold, release_threshold, debounce_ms,"
-            "detection_weight, symmetry_weight, balance_weight, stability_weight, depth_weight,"
-            "detection_min, symmetry_min, balance_min, stability_min, depth_min,"
-            "phases, key_points, issue_title, issue_body_part, issue_cause, issue_correction, issue_priority,"
-            "active, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)"));
-        if (!bindAndExec(query,
-                         {standard.id,
-                          standard.code,
-                          standard.name,
-                          standard.categoryId,
-                          standard.level,
-                          standard.purpose,
-                          standard.targetReps,
-                          standard.targetScore,
-                          standard.setCount,
-                          standard.restSeconds,
-                          standard.arm,
-                          standard.release,
-                          standard.debounce,
-                          standard.detectionWeight,
-                          standard.symmetryWeight,
-                          standard.balanceWeight,
-                          standard.stabilityWeight,
-                          standard.depthWeight,
-                          standard.detectionMin,
-                          standard.symmetryMin,
-                          standard.balanceMin,
-                          standard.stabilityMin,
-                          standard.depthMin,
-                          standard.phases,
-                          standard.keyPoints,
-                          standard.issueTitle,
-                          standard.issueBodyPart,
-                          standard.issueCause,
-                          standard.issueCorrection,
-                          standard.priority,
-                          nowIso(),
-                          nowIso()})) {
-            return rollback(query.lastError().text());
-        }
+    if (ok) {
+        *ok = true;
     }
-
-    if (!m_db.commit()) {
-        return rollback(m_db.lastError().text());
-    }
-
-    return setMetaValue(QStringLiteral("seedVersion"), QStringLiteral("1"), errorMessage);
+    return document.array();
 }
 
 QVector<AthleteProfile> TrainingRepository::athletes() const
 {
     QVector<AthleteProfile> result;
-    QSqlQuery query(m_db);
-    query.exec(QStringLiteral("SELECT id, name, code, age_group, height_cm, weight_kg, discipline, level,"
-                              "preferred_rotation, preferred_takeoff_foot, injury_notes, goals, active "
-                              "FROM athletes WHERE active = 1 ORDER BY name COLLATE NOCASE"));
-    while (query.next()) {
-        AthleteProfile athlete;
-        athlete.id = query.value(0).toString();
-        athlete.name = query.value(1).toString();
-        athlete.code = query.value(2).toString();
-        athlete.ageGroup = query.value(3).toString();
-        athlete.heightCm = query.value(4).toDouble();
-        athlete.weightKg = query.value(5).toDouble();
-        athlete.discipline = query.value(6).toString();
-        athlete.level = query.value(7).toString();
-        athlete.preferredRotation = query.value(8).toString();
-        athlete.preferredTakeoffFoot = query.value(9).toString();
-        athlete.injuryNotes = query.value(10).toString();
-        athlete.goals = query.value(11).toString();
-        athlete.active = query.value(12).toInt() != 0;
-        result.append(athlete);
+    bool ok = false;
+    const QJsonArray array = requestArray(QStringLiteral("/athletes"), {}, &ok, nullptr);
+    if (!ok) {
+        return result;
+    }
+    for (const QJsonValue &value : array) {
+        result.append(athleteFromJson(value.toObject()));
     }
     return result;
 }
@@ -763,38 +657,33 @@ QVector<AthleteProfile> TrainingRepository::athletes() const
 QVector<CoachProfile> TrainingRepository::coaches() const
 {
     QVector<CoachProfile> result;
-    QSqlQuery query(m_db);
-    query.exec(QStringLiteral("SELECT id, name, code, specialty, phone, notes, active "
-                              "FROM coaches WHERE active = 1 ORDER BY name COLLATE NOCASE"));
-    while (query.next()) {
-        CoachProfile coach;
-        coach.id = query.value(0).toString();
-        coach.name = query.value(1).toString();
-        coach.code = query.value(2).toString();
-        coach.specialty = query.value(3).toString();
-        coach.phone = query.value(4).toString();
-        coach.notes = query.value(5).toString();
-        coach.active = query.value(6).toInt() != 0;
-        result.append(coach);
+    bool ok = false;
+    const QJsonArray array = requestArray(QStringLiteral("/coaches"), {}, &ok, nullptr);
+    if (!ok) {
+        return result;
+    }
+    for (const QJsonValue &value : array) {
+        result.append(coachFromJson(value.toObject()));
     }
     return result;
 }
 
 QVector<QString> TrainingRepository::athleteIdsForCoach(const QString &coachId) const
 {
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("GET"),
+                                               QStringLiteral("/coaches/%1/athletes").arg(coachId),
+                                               {},
+                                               {},
+                                               &ok,
+                                               nullptr);
     QVector<QString> result;
-    QSqlQuery query(m_db);
-    query.prepare(QStringLiteral("SELECT ca.athlete_id "
-                                 "FROM coach_athletes ca "
-                                 "JOIN athletes a ON a.id = ca.athlete_id "
-                                 "WHERE ca.coach_id = ? AND a.active = 1 "
-                                 "ORDER BY a.name COLLATE NOCASE"));
-    query.addBindValue(coachId);
-    if (!query.exec()) {
+    if (!ok) {
         return result;
     }
-    while (query.next()) {
-        result.append(query.value(0).toString());
+    const QJsonArray ids = response.value(QStringLiteral("athleteIds")).toArray();
+    for (const QJsonValue &id : ids) {
+        result.append(id.toString());
     }
     return result;
 }
@@ -802,56 +691,13 @@ QVector<QString> TrainingRepository::athleteIdsForCoach(const QString &coachId) 
 QVector<ActionStandard> TrainingRepository::actionStandards() const
 {
     QVector<ActionStandard> result;
-    QSqlQuery query(m_db);
-    query.exec(QStringLiteral(
-        "SELECT s.id, s.code, s.name, s.category_id, c.name, s.level, s.purpose, s.version,"
-        "s.target_reps, s.target_score, s.set_count, s.rest_seconds, s.arm_threshold, s.release_threshold,"
-        "s.debounce_ms, s.detection_weight, s.symmetry_weight, s.balance_weight, s.stability_weight,"
-        "s.depth_weight, s.detection_min, s.symmetry_min, s.balance_min, s.stability_min, s.depth_min,"
-        "s.phases, s.key_points, s.issue_title, s.issue_body_part, s.issue_cause, s.issue_correction,"
-        "s.issue_priority, COALESCE(s.reference_video_source, ''), COALESCE(s.reference_repetition_id, ''),"
-        "COALESCE(s.reference_notes, '') "
-        "FROM action_standards s JOIN action_categories c ON c.id = s.category_id "
-        "WHERE s.active = 1 ORDER BY c.sort_order, s.name COLLATE NOCASE"));
-    while (query.next()) {
-        ActionStandard standard;
-        int col = 0;
-        standard.id = query.value(col++).toString();
-        standard.code = query.value(col++).toString();
-        standard.name = query.value(col++).toString();
-        standard.categoryId = query.value(col++).toString();
-        standard.categoryName = query.value(col++).toString();
-        standard.level = query.value(col++).toString();
-        standard.purpose = query.value(col++).toString();
-        standard.version = query.value(col++).toInt();
-        standard.targetReps = query.value(col++).toInt();
-        standard.targetScore = query.value(col++).toInt();
-        standard.setCount = query.value(col++).toInt();
-        standard.restSeconds = query.value(col++).toInt();
-        standard.armThreshold = query.value(col++).toDouble();
-        standard.releaseThreshold = query.value(col++).toDouble();
-        standard.debounceMs = query.value(col++).toInt();
-        standard.detectionWeight = query.value(col++).toDouble();
-        standard.symmetryWeight = query.value(col++).toDouble();
-        standard.balanceWeight = query.value(col++).toDouble();
-        standard.stabilityWeight = query.value(col++).toDouble();
-        standard.depthWeight = query.value(col++).toDouble();
-        standard.detectionMin = query.value(col++).toInt();
-        standard.symmetryMin = query.value(col++).toInt();
-        standard.balanceMin = query.value(col++).toInt();
-        standard.stabilityMin = query.value(col++).toInt();
-        standard.depthMin = query.value(col++).toInt();
-        standard.phases = query.value(col++).toString();
-        standard.keyPoints = query.value(col++).toString();
-        standard.issueTitle = query.value(col++).toString();
-        standard.issueBodyPart = query.value(col++).toString();
-        standard.issueCause = query.value(col++).toString();
-        standard.issueCorrection = query.value(col++).toString();
-        standard.issuePriority = query.value(col++).toInt();
-        standard.referenceVideoSource = query.value(col++).toString();
-        standard.referenceRepetitionId = query.value(col++).toString();
-        standard.referenceNotes = query.value(col++).toString();
-        result.append(standard);
+    bool ok = false;
+    const QJsonArray array = requestArray(QStringLiteral("/action-standards"), {}, &ok, nullptr);
+    if (!ok) {
+        return result;
+    }
+    for (const QJsonValue &value : array) {
+        result.append(standardFromJson(value.toObject()));
     }
     return result;
 }
@@ -861,90 +707,40 @@ SessionSearchResult TrainingRepository::searchSessions(const SessionSearchFilter
                                                        const SessionSearchSort &sort) const
 {
     SessionSearchResult result;
-    result.pageNumber = std::max(1, page.pageNumber);
-    result.pageSize = std::clamp(page.pageSize, 1, 500);
-
-    if (!m_db.isOpen()) {
-        return result;
-    }
-
-    QStringList where;
-    QVariantList args;
-    const auto addEquals = [&where, &args](const QString &column, const QString &value) {
-        const QString trimmed = value.trimmed();
-        if (!trimmed.isEmpty()) {
-            where.append(QStringLiteral("%1 = ?").arg(column));
-            args.append(trimmed);
-        }
+    QVariantMap query{
+        {QStringLiteral("athleteId"), filters.athleteId},
+        {QStringLiteral("coachId"), filters.coachId},
+        {QStringLiteral("actionStandardId"), filters.actionStandardId},
+        {QStringLiteral("competitionText"), filters.competitionText},
+        {QStringLiteral("pageNumber"), page.pageNumber},
+        {QStringLiteral("pageSize"), page.pageSize},
+        {QStringLiteral("sortField"), sortFieldToApi(sort.field)},
+        {QStringLiteral("descending"), sort.descending ? QStringLiteral("true") : QStringLiteral("false")}
     };
-
-    addEquals(QStringLiteral("ts.athlete_id"), filters.athleteId);
-    addEquals(QStringLiteral("ts.coach_id"), filters.coachId);
-    addEquals(QStringLiteral("ts.action_standard_id"), filters.actionStandardId);
     if (filters.savedFrom.isValid()) {
-        where.append(QStringLiteral("ts.saved_at >= ?"));
-        args.append(filters.savedFrom.toString(Qt::ISODate));
+        query.insert(QStringLiteral("savedFrom"), dateTimeToIso(filters.savedFrom));
     }
     if (filters.savedTo.isValid()) {
-        where.append(QStringLiteral("ts.saved_at <= ?"));
-        args.append(filters.savedTo.toString(Qt::ISODate));
+        query.insert(QStringLiteral("savedTo"), dateTimeToIso(filters.savedTo));
     }
     if (filters.minScore >= 0) {
-        where.append(QStringLiteral("ts.average_score >= ?"));
-        args.append(filters.minScore);
+        query.insert(QStringLiteral("minScore"), filters.minScore);
     }
     if (filters.maxScore >= 0) {
-        where.append(QStringLiteral("ts.average_score <= ?"));
-        args.append(filters.maxScore);
-    }
-    const QString competitionText = filters.competitionText.trimmed();
-    if (!competitionText.isEmpty()) {
-        const QString likeText = QStringLiteral("%") + competitionText + QStringLiteral("%");
-        where.append(QStringLiteral("("
-                                    "COALESCE(ts.site, '') LIKE ? OR "
-                                    "COALESCE(ts.training_phase, '') LIKE ? OR "
-                                    "COALESCE(ts.goal, '') LIKE ? OR "
-                                    "COALESCE(ts.notes, '') LIKE ? OR "
-                                    "COALESCE(ts.feedback, '') LIKE ? OR "
-                                    "COALESCE(ts.coach_comment, '') LIKE ?)"));
-        for (int i = 0; i < 6; ++i) {
-            args.append(likeText);
-        }
+        query.insert(QStringLiteral("maxScore"), filters.maxScore);
     }
 
-    const QString whereSql = where.isEmpty()
-                                 ? QString()
-                                 : QStringLiteral("WHERE %1 ").arg(where.join(QStringLiteral(" AND ")));
-
-    QSqlQuery countQuery(m_db);
-    countQuery.prepare(QStringLiteral("SELECT COUNT(*) ") + sessionHistoryFromClause() + whereSql);
-    if (bindAndExec(countQuery, args) && countQuery.next()) {
-        result.totalCount = countQuery.value(0).toInt();
-    } else {
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("GET"), QStringLiteral("/training/sessions"), {}, query, &ok, nullptr);
+    if (!ok) {
         return result;
     }
-
-    const int maxPage = std::max(1, (result.totalCount + result.pageSize - 1) / result.pageSize);
-    result.pageNumber = std::min(result.pageNumber, maxPage);
-
-    QSqlQuery query(m_db);
-    const QString orderDirection = sort.descending ? QStringLiteral("DESC") : QStringLiteral("ASC");
-    query.prepare(QStringLiteral("SELECT ")
-                  + sessionHistorySelectColumns()
-                  + sessionHistoryFromClause()
-                  + whereSql
-                  + QStringLiteral("ORDER BY %1 %2, ts.id DESC LIMIT ? OFFSET ?")
-                        .arg(sessionSortColumn(sort.field), orderDirection));
-    QVariantList pageArgs = args;
-    pageArgs.append(result.pageSize);
-    pageArgs.append((result.pageNumber - 1) * result.pageSize);
-    if (!bindAndExec(query, pageArgs)) {
-        result.items.clear();
-        result.totalCount = 0;
-        return result;
-    }
-    while (query.next()) {
-        result.items.append(readSessionHistoryItem(query));
+    result.totalCount = jsonInt(response, QStringLiteral("totalCount"));
+    result.pageNumber = jsonInt(response, QStringLiteral("pageNumber"), 1);
+    result.pageSize = jsonInt(response, QStringLiteral("pageSize"), 10);
+    const QJsonArray items = response.value(QStringLiteral("items")).toArray();
+    for (const QJsonValue &value : items) {
+        result.items.append(historyFromJson(value.toObject()));
     }
     return result;
 }
@@ -952,70 +748,20 @@ SessionSearchResult TrainingRepository::searchSessions(const SessionSearchFilter
 QVector<SessionHistoryItem> TrainingRepository::recentSessions(int limit) const
 {
     SessionSearchPage page;
-    page.pageNumber = 1;
     page.pageSize = std::max(1, limit);
-    const SessionSearchResult result = searchSessions({}, page, {});
-    return result.items;
+    return searchSessions({}, page, {}).items;
 }
 
 QVector<ActionRepetition> TrainingRepository::repetitionsForSession(const QString &sessionId) const
 {
     QVector<ActionRepetition> result;
-    QSqlQuery query(m_db);
-    query.prepare(QStringLiteral("SELECT id, session_id, action_standard_id, standard_version, started_ms, ended_ms,"
-                                 "valid, score, detection_score, symmetry_score, balance_score, stability_score,"
-                                 "depth_score, error_codes, feedback, key_frame_ms, video_clip_start_ms, video_clip_end_ms,"
-                                 "source, review_status, COALESCE(reviewer_coach_id, ''), COALESCE(reviewed_at, ''),"
-                                 "manual_started_ms, manual_ended_ms, manual_valid, manual_score, manual_detection_score,"
-                                 "manual_symmetry_score, manual_balance_score, manual_stability_score, manual_depth_score,"
-                                 "COALESCE(manual_error_codes, ''), COALESCE(manual_feedback, ''), COALESCE(coach_note, ''),"
-                                 "COALESCE(key_frame_pose_json, '') "
-                                 "FROM action_repetitions WHERE session_id = ? "
-                                 "ORDER BY CASE WHEN manual_started_ms >= 0 THEN manual_started_ms ELSE started_ms END"));
-    query.addBindValue(sessionId);
-    if (!query.exec()) {
+    bool ok = false;
+    const QJsonArray array = requestArray(QStringLiteral("/training/sessions/%1/repetitions").arg(sessionId), {}, &ok, nullptr);
+    if (!ok) {
         return result;
     }
-    while (query.next()) {
-        ActionRepetition repetition;
-        int col = 0;
-        repetition.id = query.value(col++).toString();
-        repetition.sessionId = query.value(col++).toString();
-        repetition.actionStandardId = query.value(col++).toString();
-        repetition.standardVersion = query.value(col++).toInt();
-        repetition.startedMs = query.value(col++).toInt();
-        repetition.endedMs = query.value(col++).toInt();
-        repetition.valid = query.value(col++).toInt() != 0;
-        repetition.score = query.value(col++).toInt();
-        repetition.detectionScore = query.value(col++).toInt();
-        repetition.symmetryScore = query.value(col++).toInt();
-        repetition.balanceScore = query.value(col++).toInt();
-        repetition.stabilityScore = query.value(col++).toInt();
-        repetition.depthScore = query.value(col++).toInt();
-        repetition.errorCodes = query.value(col++).toString();
-        repetition.feedback = query.value(col++).toString();
-        repetition.keyFrameMs = query.value(col++).toInt();
-        repetition.videoClipStartMs = query.value(col++).toInt();
-        repetition.videoClipEndMs = query.value(col++).toInt();
-        repetition.source = query.value(col++).toString();
-        repetition.reviewStatus = query.value(col++).toString();
-        repetition.reviewerCoachId = query.value(col++).toString();
-        const QString reviewedAtText = query.value(col++).toString();
-        repetition.reviewedAt = QDateTime::fromString(reviewedAtText, Qt::ISODate);
-        repetition.manualStartedMs = query.value(col++).toInt();
-        repetition.manualEndedMs = query.value(col++).toInt();
-        repetition.manualValid = query.value(col++).toInt();
-        repetition.manualScore = query.value(col++).toInt();
-        repetition.manualDetectionScore = query.value(col++).toInt();
-        repetition.manualSymmetryScore = query.value(col++).toInt();
-        repetition.manualBalanceScore = query.value(col++).toInt();
-        repetition.manualStabilityScore = query.value(col++).toInt();
-        repetition.manualDepthScore = query.value(col++).toInt();
-        repetition.manualErrorCodes = query.value(col++).toString();
-        repetition.manualFeedback = query.value(col++).toString();
-        repetition.coachNote = query.value(col++).toString();
-        repetition.keyFramePoseJson = query.value(col++).toString();
-        result.append(repetition);
+    for (const QJsonValue &value : array) {
+        result.append(repetitionFromJson(value.toObject()));
     }
     return result;
 }
@@ -1028,184 +774,73 @@ QVector<ActionRepetition> TrainingRepository::reviewedRepetitionsForSession(cons
 TrainingTrendWindow TrainingRepository::trendForRecentDays(int days) const
 {
     TrainingTrendWindow trend;
-    trend.days = std::max(1, days);
-    if (!m_db.isOpen()) {
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("GET"),
+                                               QStringLiteral("/training/trends"),
+                                               {},
+                                               {{QStringLiteral("days"), days}},
+                                               &ok,
+                                               nullptr);
+    if (!ok) {
         return trend;
     }
-
-    const QString since = QDateTime::currentDateTime()
-                              .addDays(-trend.days)
-                              .toString(Qt::ISODate);
-
-    QSqlQuery sessionQuery(m_db);
-    sessionQuery.prepare(QStringLiteral(
-        "SELECT COUNT(*), COALESCE(ROUND(AVG(average_score)), 0), COALESCE(MAX(best_score), 0), "
-        "COALESCE(SUM(total_reps), 0) "
-        "FROM training_sessions "
-        "WHERE saved_at >= ?"));
-    sessionQuery.addBindValue(since);
-    int sessionTotalReps = 0;
-    if (sessionQuery.exec() && sessionQuery.next()) {
-        trend.sessionCount = sessionQuery.value(0).toInt();
-        trend.averageScore = sessionQuery.value(1).toInt();
-        trend.bestScore = sessionQuery.value(2).toInt();
-        sessionTotalReps = sessionQuery.value(3).toInt();
-    }
-
-    QSqlQuery repetitionQuery(m_db);
-    repetitionQuery.prepare(QStringLiteral(
-        "SELECT COUNT(ar.id), "
-        "COALESCE(ROUND(AVG(CASE WHEN ar.manual_detection_score >= 0 THEN ar.manual_detection_score ELSE ar.detection_score END)), 0), "
-        "COALESCE(ROUND(AVG(CASE WHEN ar.manual_symmetry_score >= 0 THEN ar.manual_symmetry_score ELSE ar.symmetry_score END)), 0), "
-        "COALESCE(ROUND(AVG(CASE WHEN ar.manual_balance_score >= 0 THEN ar.manual_balance_score ELSE ar.balance_score END)), 0), "
-        "COALESCE(ROUND(AVG(CASE WHEN ar.manual_stability_score >= 0 THEN ar.manual_stability_score ELSE ar.stability_score END)), 0), "
-        "COALESCE(ROUND(AVG(CASE WHEN ar.manual_depth_score >= 0 THEN ar.manual_depth_score ELSE ar.depth_score END)), 0) "
-        "FROM action_repetitions ar "
-        "JOIN training_sessions ts ON ts.id = ar.session_id "
-        "WHERE ts.saved_at >= ?"));
-    repetitionQuery.addBindValue(since);
-    if (repetitionQuery.exec() && repetitionQuery.next()) {
-        trend.completedReps = repetitionQuery.value(0).toInt();
-        trend.detectionScore = repetitionQuery.value(1).toInt();
-        trend.symmetryScore = repetitionQuery.value(2).toInt();
-        trend.balanceScore = repetitionQuery.value(3).toInt();
-        trend.stabilityScore = repetitionQuery.value(4).toInt();
-        trend.depthScore = repetitionQuery.value(5).toInt();
-    }
-
-    if (trend.completedReps <= 0) {
-        trend.completedReps = sessionTotalReps;
-    }
-
-    if (trend.completedReps <= 0 || (trend.detectionScore == 0
-                                     && trend.symmetryScore == 0
-                                     && trend.balanceScore == 0
-                                     && trend.stabilityScore == 0
-                                     && trend.depthScore == 0)) {
-        QSqlQuery fallbackMetricQuery(m_db);
-        fallbackMetricQuery.prepare(QStringLiteral(
-            "SELECT "
-            "COALESCE(ROUND(AVG(detection_score)), 0), "
-            "COALESCE(ROUND(AVG(symmetry_score)), 0), "
-            "COALESCE(ROUND(AVG(balance_score)), 0), "
-            "COALESCE(ROUND(AVG(stability_score)), 0), "
-            "COALESCE(ROUND(AVG(depth_score)), 0) "
-            "FROM training_sessions "
-            "WHERE saved_at >= ?"));
-        fallbackMetricQuery.addBindValue(since);
-        if (fallbackMetricQuery.exec() && fallbackMetricQuery.next()) {
-            trend.detectionScore = fallbackMetricQuery.value(0).toInt();
-            trend.symmetryScore = fallbackMetricQuery.value(1).toInt();
-            trend.balanceScore = fallbackMetricQuery.value(2).toInt();
-            trend.stabilityScore = fallbackMetricQuery.value(3).toInt();
-            trend.depthScore = fallbackMetricQuery.value(4).toInt();
-        }
-    }
-
-    updateWeakestMetric(&trend);
+    trend.days = jsonInt(response, QStringLiteral("days"), days);
+    trend.sessionCount = jsonInt(response, QStringLiteral("sessionCount"));
+    trend.averageScore = jsonInt(response, QStringLiteral("averageScore"));
+    trend.bestScore = jsonInt(response, QStringLiteral("bestScore"));
+    trend.completedReps = jsonInt(response, QStringLiteral("completedReps"));
+    trend.detectionScore = jsonInt(response, QStringLiteral("detectionScore"));
+    trend.symmetryScore = jsonInt(response, QStringLiteral("symmetryScore"));
+    trend.balanceScore = jsonInt(response, QStringLiteral("balanceScore"));
+    trend.stabilityScore = jsonInt(response, QStringLiteral("stabilityScore"));
+    trend.depthScore = jsonInt(response, QStringLiteral("depthScore"));
+    trend.weakestMetricName = jsonString(response, QStringLiteral("weakestMetricName"));
+    trend.weakestMetricScore = jsonInt(response, QStringLiteral("weakestMetricScore"));
     return trend;
 }
 
 TrainingBaseline TrainingRepository::baselineFor(const QString &athleteId, const QString &actionStandardId) const
 {
     TrainingBaseline baseline;
-    QSqlQuery query(m_db);
-    query.prepare(QStringLiteral("SELECT session_count, average_score, average_valid_reps "
-                                 "FROM athlete_action_baselines "
-                                 "WHERE athlete_id = ? AND action_standard_id = ?"));
-    query.addBindValue(athleteId);
-    query.addBindValue(actionStandardId);
-    if (query.exec() && query.next()) {
-        baseline.sessionCount = query.value(0).toInt();
-        baseline.averageScore = query.value(1).toInt();
-        baseline.averageValidReps = query.value(2).toInt();
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("GET"),
+                                               QStringLiteral("/training/baselines"),
+                                               {},
+                                               {{QStringLiteral("athleteId"), athleteId},
+                                                {QStringLiteral("actionStandardId"), actionStandardId}},
+                                               &ok,
+                                               nullptr);
+    if (!ok) {
+        return baseline;
     }
+    baseline.sessionCount = jsonInt(response, QStringLiteral("sessionCount"));
+    baseline.averageScore = jsonInt(response, QStringLiteral("averageScore"));
+    baseline.averageValidReps = jsonInt(response, QStringLiteral("averageValidReps"));
     return baseline;
 }
 
-bool TrainingRepository::saveCoachComment(const QString &sessionId,
-                                          const QString &comment,
-                                          QString *errorMessage)
+bool TrainingRepository::saveCoachComment(const QString &sessionId, const QString &comment, QString *errorMessage)
 {
-    if (sessionId.trimmed().isEmpty()) {
-        if (errorMessage) {
-            *errorMessage = QStringLiteral("训练记录不存在。");
-        }
-        return false;
-    }
-
-    QSqlQuery query(m_db);
-    query.prepare(QStringLiteral("UPDATE training_sessions SET coach_comment = ? WHERE id = ?"));
-    if (!bindAndExec(query, {comment.trimmed(), sessionId})) {
-        if (errorMessage) {
-            *errorMessage = query.lastError().text();
-        }
-        return false;
-    }
-    if (query.numRowsAffected() <= 0) {
-        if (errorMessage) {
-            *errorMessage = QStringLiteral("未找到对应训练记录。");
-        }
-        return false;
-    }
-    return true;
+    bool ok = false;
+    requestObject(QStringLiteral("POST"),
+                  QStringLiteral("/training/sessions/%1/coach-comment").arg(sessionId),
+                  {{QStringLiteral("comment"), comment}},
+                  {},
+                  &ok,
+                  errorMessage);
+    return ok;
 }
 
-bool TrainingRepository::saveRepetitionReview(const ActionRepetition &repetition,
-                                              QString *errorMessage)
+bool TrainingRepository::saveRepetitionReview(const ActionRepetition &repetition, QString *errorMessage)
 {
-    if (repetition.id.trimmed().isEmpty()) {
-        if (errorMessage) {
-            *errorMessage = QStringLiteral("动作实例不存在。");
-        }
-        return false;
-    }
-
-    const QString reviewedAt = repetition.reviewedAt.isValid()
-                                   ? repetition.reviewedAt.toString(Qt::ISODate)
-                                   : nowIso();
-    const int effectiveStartMs = std::max(0, repetition.effectiveStartedMs());
-    const int effectiveEndMs = std::max(effectiveStartMs, repetition.effectiveEndedMs());
-    const int clipStartMs = std::max(0, effectiveStartMs - 1500);
-    const int clipEndMs = std::max(effectiveEndMs + 1500, clipStartMs);
-    QSqlQuery query(m_db);
-    query.prepare(QStringLiteral(
-        "UPDATE action_repetitions SET "
-        "review_status = 'reviewed', reviewer_coach_id = ?, reviewed_at = ?,"
-        "manual_started_ms = ?, manual_ended_ms = ?, manual_valid = ?, manual_score = ?,"
-        "manual_detection_score = ?, manual_symmetry_score = ?, manual_balance_score = ?,"
-        "manual_stability_score = ?, manual_depth_score = ?, manual_error_codes = ?, manual_feedback = ?,"
-        "coach_note = ?, video_clip_start_ms = ?, video_clip_end_ms = ? WHERE id = ?"));
-    if (!bindAndExec(query,
-                     {repetition.reviewerCoachId,
-                      reviewedAt,
-                      repetition.manualStartedMs,
-                      repetition.manualEndedMs,
-                      repetition.manualValid,
-                      repetition.manualScore,
-                      repetition.manualDetectionScore,
-                      repetition.manualSymmetryScore,
-                      repetition.manualBalanceScore,
-                      repetition.manualStabilityScore,
-                      repetition.manualDepthScore,
-                      repetition.manualErrorCodes,
-                      repetition.manualFeedback,
-                      repetition.coachNote,
-                      clipStartMs,
-                      clipEndMs,
-                      repetition.id})) {
-        if (errorMessage) {
-            *errorMessage = query.lastError().text();
-        }
-        return false;
-    }
-    if (query.numRowsAffected() <= 0) {
-        if (errorMessage) {
-            *errorMessage = QStringLiteral("未找到对应动作实例。");
-        }
-        return false;
-    }
-    return recalculateSessionSummary(repetition.sessionId, errorMessage);
+    bool ok = false;
+    requestObject(QStringLiteral("POST"),
+                  QStringLiteral("/training/repetitions/%1/review").arg(repetition.id),
+                  repetitionToJson(repetition),
+                  {},
+                  &ok,
+                  errorMessage);
+    return ok;
 }
 
 bool TrainingRepository::createManualRepetition(const QString &sessionId,
@@ -1220,298 +855,76 @@ bool TrainingRepository::createManualRepetition(const QString &sessionId,
         }
         return false;
     }
-
-    QString athleteId;
-    QString sessionActionId;
-    if (!sessionIdentity(sessionId, &athleteId, &sessionActionId, errorMessage)) {
-        return false;
-    }
-
-    const QString effectiveStandardId = actionStandardId.trimmed().isEmpty()
-                                            ? sessionActionId
-                                            : actionStandardId.trimmed();
-    const QString coachId = repetition->reviewerCoachId.trimmed().isEmpty()
-                                ? scalarString(QStringLiteral("SELECT COALESCE(coach_id, '') FROM training_sessions WHERE id = ?"),
-                                               {sessionId})
-                                : repetition->reviewerCoachId.trimmed();
     repetition->id = ensureId(repetition->id);
     repetition->sessionId = sessionId;
-    repetition->actionStandardId = effectiveStandardId;
-    repetition->standardVersion = std::max(1, standardVersion);
-    repetition->source = QStringLiteral("coach");
-    repetition->reviewStatus = QStringLiteral("reviewed");
-    repetition->reviewerCoachId = coachId;
-    repetition->reviewedAt = QDateTime::currentDateTime();
-
-    repetition->startedMs = std::max(0, repetition->effectiveStartedMs());
-    repetition->endedMs = std::max(repetition->startedMs, repetition->effectiveEndedMs());
-    repetition->valid = repetition->effectiveValid();
-    repetition->score = std::clamp(repetition->effectiveScore(), 0, 100);
-    repetition->detectionScore = std::clamp(repetition->effectiveDetectionScore(), 0, 100);
-    repetition->symmetryScore = std::clamp(repetition->effectiveSymmetryScore(), 0, 100);
-    repetition->balanceScore = std::clamp(repetition->effectiveBalanceScore(), 0, 100);
-    repetition->stabilityScore = std::clamp(repetition->effectiveStabilityScore(), 0, 100);
-    repetition->depthScore = std::clamp(repetition->effectiveDepthScore(), 0, 100);
-    repetition->errorCodes = repetition->effectiveErrorCodes();
-    repetition->feedback = repetition->effectiveFeedback();
-    repetition->manualStartedMs = repetition->startedMs;
-    repetition->manualEndedMs = repetition->endedMs;
-    repetition->manualValid = repetition->valid ? 1 : 0;
-    repetition->manualScore = repetition->score;
-    repetition->manualDetectionScore = repetition->detectionScore;
-    repetition->manualSymmetryScore = repetition->symmetryScore;
-    repetition->manualBalanceScore = repetition->balanceScore;
-    repetition->manualStabilityScore = repetition->stabilityScore;
-    repetition->manualDepthScore = repetition->depthScore;
-    repetition->manualErrorCodes = repetition->errorCodes;
-    repetition->manualFeedback = repetition->feedback;
-    repetition->keyFrameMs = repetition->keyFrameMs > 0 ? repetition->keyFrameMs : repetition->startedMs;
-    repetition->videoClipStartMs = std::max(0, repetition->startedMs - 1500);
-    repetition->videoClipEndMs = std::max(repetition->endedMs + 1500, repetition->videoClipStartMs);
-
-    QSqlQuery insertRep(m_db);
-    insertRep.prepare(QStringLiteral(
-        "INSERT INTO action_repetitions ("
-        "id, session_id, action_standard_id, standard_version, started_ms, ended_ms, valid, score,"
-        "detection_score, symmetry_score, balance_score, stability_score, depth_score, error_codes, feedback, key_frame_ms,"
-        "video_clip_start_ms, video_clip_end_ms, source, review_status, reviewer_coach_id, reviewed_at,"
-        "manual_started_ms, manual_ended_ms, manual_valid, manual_score, manual_detection_score, manual_symmetry_score,"
-        "manual_balance_score, manual_stability_score, manual_depth_score, manual_error_codes, manual_feedback, coach_note,"
-        "key_frame_pose_json) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
-    if (!bindAndExec(insertRep,
-                     {repetition->id,
-                      repetition->sessionId,
-                      repetition->actionStandardId,
-                      repetition->standardVersion,
-                      repetition->startedMs,
-                      repetition->endedMs,
-                      repetition->valid ? 1 : 0,
-                      repetition->score,
-                      repetition->detectionScore,
-                      repetition->symmetryScore,
-                      repetition->balanceScore,
-                      repetition->stabilityScore,
-                      repetition->depthScore,
-                      repetition->errorCodes,
-                      repetition->feedback,
-                      repetition->keyFrameMs,
-                      repetition->videoClipStartMs,
-                      repetition->videoClipEndMs,
-                      repetition->source,
-                      repetition->reviewStatus,
-                      repetition->reviewerCoachId,
-                      repetition->reviewedAt.toString(Qt::ISODate),
-                      repetition->manualStartedMs,
-                      repetition->manualEndedMs,
-                      repetition->manualValid,
-                      repetition->manualScore,
-                      repetition->manualDetectionScore,
-                      repetition->manualSymmetryScore,
-                      repetition->manualBalanceScore,
-                      repetition->manualStabilityScore,
-                      repetition->manualDepthScore,
-                      repetition->manualErrorCodes,
-                      repetition->manualFeedback,
-                      repetition->coachNote,
-                      repetition->keyFramePoseJson})) {
-        if (errorMessage) {
-            *errorMessage = insertRep.lastError().text();
-        }
-        return false;
+    repetition->actionStandardId = actionStandardId;
+    repetition->standardVersion = standardVersion;
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("POST"),
+                                               QStringLiteral("/training/sessions/%1/manual-repetitions").arg(sessionId),
+                                               repetitionToJson(*repetition),
+                                               {},
+                                               &ok,
+                                               errorMessage);
+    if (ok) {
+        repetition->id = response.value(QStringLiteral("id")).toString(repetition->id);
     }
-
-    return recalculateSessionSummary(sessionId, errorMessage);
+    return ok;
 }
 
-bool TrainingRepository::saveActionStandard(ActionStandard *standard,
-                                            QString *errorMessage)
+bool TrainingRepository::saveActionStandard(ActionStandard *standard, QString *errorMessage)
 {
-    if (!standard || standard->id.trimmed().isEmpty()) {
+    if (!standard) {
         if (errorMessage) {
-            *errorMessage = QStringLiteral("动作标准不存在。");
+            *errorMessage = QStringLiteral("动作标准为空。");
         }
         return false;
     }
-
-    const int nextVersion = std::max(1, standard->version + 1);
-    QSqlQuery query(m_db);
-    query.prepare(QStringLiteral(
-        "UPDATE action_standards SET "
-        "name = ?, level = ?, purpose = ?, version = ?, target_reps = ?, target_score = ?,"
-        "set_count = ?, rest_seconds = ?, arm_threshold = ?, release_threshold = ?, debounce_ms = ?,"
-        "detection_weight = ?, symmetry_weight = ?, balance_weight = ?, stability_weight = ?, depth_weight = ?,"
-        "detection_min = ?, symmetry_min = ?, balance_min = ?, stability_min = ?, depth_min = ?,"
-        "phases = ?, key_points = ?, issue_title = ?, issue_body_part = ?, issue_cause = ?,"
-        "issue_correction = ?, issue_priority = ?, reference_video_source = ?, reference_repetition_id = ?,"
-        "reference_notes = ?, updated_at = ? WHERE id = ?"));
-    if (!bindAndExec(query,
-                     {standard->name,
-                      standard->level,
-                      standard->purpose,
-                      nextVersion,
-                      standard->targetReps,
-                      standard->targetScore,
-                      standard->setCount,
-                      standard->restSeconds,
-                      standard->armThreshold,
-                      standard->releaseThreshold,
-                      standard->debounceMs,
-                      standard->detectionWeight,
-                      standard->symmetryWeight,
-                      standard->balanceWeight,
-                      standard->stabilityWeight,
-                      standard->depthWeight,
-                      standard->detectionMin,
-                      standard->symmetryMin,
-                      standard->balanceMin,
-                      standard->stabilityMin,
-                      standard->depthMin,
-                      standard->phases,
-                      standard->keyPoints,
-                      standard->issueTitle,
-                      standard->issueBodyPart,
-                      standard->issueCause,
-                      standard->issueCorrection,
-                      standard->issuePriority,
-                      standard->referenceVideoSource,
-                      standard->referenceRepetitionId,
-                      standard->referenceNotes,
-                      nowIso(),
-                      standard->id})) {
-        if (errorMessage) {
-            *errorMessage = query.lastError().text();
-        }
-        return false;
+    standard->id = ensureId(standard->id);
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("POST"),
+                                               QStringLiteral("/action-standards"),
+                                               standardToJson(*standard),
+                                               {},
+                                               &ok,
+                                               errorMessage);
+    if (ok) {
+        *standard = standardFromJson(response);
     }
-    if (query.numRowsAffected() <= 0) {
-        if (errorMessage) {
-            *errorMessage = QStringLiteral("未找到对应动作标准。");
-        }
-        return false;
-    }
-    standard->version = nextVersion;
-    return true;
+    return ok;
 }
 
-bool TrainingRepository::recalculateSessionSummary(const QString &sessionId,
-                                                   QString *errorMessage)
+bool TrainingRepository::recalculateSessionSummary(const QString &sessionId, QString *errorMessage)
 {
-    QString athleteId;
-    QString actionStandardId;
-    if (!sessionIdentity(sessionId, &athleteId, &actionStandardId, errorMessage)) {
-        return false;
-    }
-
-    const QVector<ActionRepetition> repetitions = repetitionsForSession(sessionId);
-    const int total = repetitions.size();
-    int valid = 0;
-    int scoreSum = 0;
-    int best = 0;
-    int detectionSum = 0;
-    int symmetrySum = 0;
-    int balanceSum = 0;
-    int stabilitySum = 0;
-    int depthSum = 0;
-    for (const ActionRepetition &repetition : repetitions) {
-        if (repetition.effectiveValid()) {
-            ++valid;
-        }
-        const int score = std::clamp(repetition.effectiveScore(), 0, 100);
-        scoreSum += score;
-        best = std::max(best, score);
-        detectionSum += std::clamp(repetition.effectiveDetectionScore(), 0, 100);
-        symmetrySum += std::clamp(repetition.effectiveSymmetryScore(), 0, 100);
-        balanceSum += std::clamp(repetition.effectiveBalanceScore(), 0, 100);
-        stabilitySum += std::clamp(repetition.effectiveStabilityScore(), 0, 100);
-        depthSum += std::clamp(repetition.effectiveDepthScore(), 0, 100);
-    }
-
-    const int denominator = std::max(1, total);
-    QSqlQuery query(m_db);
-    query.prepare(QStringLiteral(
-        "UPDATE training_sessions SET total_reps = ?, valid_reps = ?, average_score = ?, best_score = ?,"
-        "detection_score = ?, symmetry_score = ?, balance_score = ?, stability_score = ?, depth_score = ? "
-        "WHERE id = ?"));
-    if (!bindAndExec(query,
-                     {total,
-                      valid,
-                      total > 0 ? (scoreSum + denominator / 2) / denominator : 0,
-                      best,
-                      total > 0 ? (detectionSum + denominator / 2) / denominator : 0,
-                      total > 0 ? (symmetrySum + denominator / 2) / denominator : 0,
-                      total > 0 ? (balanceSum + denominator / 2) / denominator : 0,
-                      total > 0 ? (stabilitySum + denominator / 2) / denominator : 0,
-                      total > 0 ? (depthSum + denominator / 2) / denominator : 0,
-                      sessionId})) {
-        if (errorMessage) {
-            *errorMessage = query.lastError().text();
-        }
-        return false;
-    }
-
-    refreshBaseline(athleteId, actionStandardId);
+    Q_UNUSED(sessionId)
+    Q_UNUSED(errorMessage)
     return true;
 }
 
 bool TrainingRepository::createAthlete(const QString &name, QString *athleteId, QString *errorMessage)
 {
-    const QString id = newId();
-    QSqlQuery query(m_db);
-    query.prepare(QStringLiteral("INSERT INTO athletes "
-                                 "(id, name, code, age_group, discipline, level, goals, active, created_at, updated_at) "
-                                 "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)"));
-    if (!bindAndExec(query,
-                     {id,
-                      safeText(name, QStringLiteral("新运动员")),
-                      QStringLiteral("ATH-%1").arg(QDateTime::currentMSecsSinceEpoch()),
-                      QStringLiteral("未分组"),
-                      QStringLiteral("滑冰"),
-                      QStringLiteral("基础"),
-                      QStringLiteral("动作标准训练"),
-                      nowIso(),
-                      nowIso()})) {
-        if (errorMessage) {
-            *errorMessage = query.lastError().text();
-        }
-        return false;
+    AthleteProfile athlete;
+    athlete.id = newId();
+    athlete.name = name;
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("POST"), QStringLiteral("/athletes"), athleteToJson(athlete), {}, &ok, errorMessage);
+    if (ok && athleteId) {
+        *athleteId = response.value(QStringLiteral("id")).toString(athlete.id);
     }
-
-    const QString coachId = scalarString(QStringLiteral("SELECT id FROM coaches WHERE active = 1 ORDER BY created_at LIMIT 1"));
-    if (!coachId.isEmpty()) {
-        QSqlQuery relation(m_db);
-        relation.prepare(QStringLiteral("INSERT OR IGNORE INTO coach_athletes "
-                                        "(coach_id, athlete_id, created_at) VALUES (?, ?, ?)"));
-        bindAndExec(relation, {coachId, id, nowIso()});
-    }
-
-    if (athleteId) {
-        *athleteId = id;
-    }
-    return true;
+    return ok;
 }
 
 bool TrainingRepository::createCoach(const QString &name, QString *coachId, QString *errorMessage)
 {
-    const QString id = newId();
-    QSqlQuery query(m_db);
-    query.prepare(QStringLiteral("INSERT INTO coaches (id, name, code, active, created_at, updated_at) "
-                                 "VALUES (?, ?, ?, 1, ?, ?)"));
-    if (!bindAndExec(query,
-                     {id,
-                      safeText(name, QStringLiteral("新教练")),
-                      QStringLiteral("COACH-%1").arg(QDateTime::currentMSecsSinceEpoch()),
-                      nowIso(),
-                      nowIso()})) {
-        if (errorMessage) {
-            *errorMessage = query.lastError().text();
-        }
-        return false;
+    CoachProfile coach;
+    coach.id = newId();
+    coach.name = name;
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("POST"), QStringLiteral("/coaches"), coachToJson(coach), {}, &ok, errorMessage);
+    if (ok && coachId) {
+        *coachId = response.value(QStringLiteral("id")).toString(coach.id);
     }
-    if (coachId) {
-        *coachId = id;
-    }
-    return true;
+    return ok;
 }
 
 bool TrainingRepository::saveAthleteProfile(AthleteProfile *athlete, QString *errorMessage)
@@ -1522,123 +935,28 @@ bool TrainingRepository::saveAthleteProfile(AthleteProfile *athlete, QString *er
         }
         return false;
     }
-    if (athlete->name.trimmed().isEmpty()) {
-        if (errorMessage) {
-            *errorMessage = QStringLiteral("运动员姓名不能为空。");
-        }
-        return false;
-    }
-
-    const bool isNew = athlete->id.trimmed().isEmpty()
-                       || scalarInt(QStringLiteral("SELECT COUNT(*) FROM athletes WHERE id = ?"),
-                                    {athlete->id.trimmed()},
-                                    0) <= 0;
     athlete->id = ensureId(athlete->id);
-    athlete->name = athlete->name.trimmed();
-    athlete->code = safeText(athlete->code, QStringLiteral("ATH-%1").arg(QDateTime::currentMSecsSinceEpoch()));
-    athlete->active = true;
-
-    QSqlQuery query(m_db);
-    if (isNew) {
-        query.prepare(QStringLiteral(
-            "INSERT INTO athletes ("
-            "id, name, code, age_group, height_cm, weight_kg, discipline, level,"
-            "preferred_rotation, preferred_takeoff_foot, injury_notes, goals, active, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)"));
-        if (!bindAndExec(query,
-                         {athlete->id,
-                          athlete->name,
-                          athlete->code,
-                          athlete->ageGroup.trimmed(),
-                          athlete->heightCm,
-                          athlete->weightKg,
-                          athlete->discipline.trimmed(),
-                          athlete->level.trimmed(),
-                          athlete->preferredRotation.trimmed(),
-                          athlete->preferredTakeoffFoot.trimmed(),
-                          athlete->injuryNotes.trimmed(),
-                          athlete->goals.trimmed(),
-                          nowIso(),
-                          nowIso()})) {
-            if (errorMessage) {
-                *errorMessage = query.lastError().text();
-            }
-            return false;
-        }
-
-        const QString coachId = scalarString(QStringLiteral("SELECT id FROM coaches WHERE active = 1 ORDER BY created_at LIMIT 1"));
-        if (!coachId.isEmpty()) {
-            QSqlQuery relation(m_db);
-            relation.prepare(QStringLiteral("INSERT OR IGNORE INTO coach_athletes "
-                                            "(coach_id, athlete_id, created_at) VALUES (?, ?, ?)"));
-            bindAndExec(relation, {coachId, athlete->id, nowIso()});
-        }
-        return true;
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("POST"), QStringLiteral("/athletes"), athleteToJson(*athlete), {}, &ok, errorMessage);
+    if (ok) {
+        *athlete = athleteFromJson(response);
     }
-
-    query.prepare(QStringLiteral(
-        "UPDATE athletes SET "
-        "name = ?, code = ?, age_group = ?, height_cm = ?, weight_kg = ?, discipline = ?, level = ?,"
-        "preferred_rotation = ?, preferred_takeoff_foot = ?, injury_notes = ?, goals = ?, active = 1, updated_at = ? "
-        "WHERE id = ?"));
-    if (!bindAndExec(query,
-                     {athlete->name,
-                      athlete->code,
-                      athlete->ageGroup.trimmed(),
-                      athlete->heightCm,
-                      athlete->weightKg,
-                      athlete->discipline.trimmed(),
-                      athlete->level.trimmed(),
-                      athlete->preferredRotation.trimmed(),
-                      athlete->preferredTakeoffFoot.trimmed(),
-                      athlete->injuryNotes.trimmed(),
-                      athlete->goals.trimmed(),
-                      nowIso(),
-                      athlete->id})) {
-        if (errorMessage) {
-            *errorMessage = query.lastError().text();
-        }
-        return false;
-    }
-    return true;
+    return ok;
 }
 
 bool TrainingRepository::archiveAthlete(const QString &athleteId, QString *errorMessage)
 {
-    const QString id = athleteId.trimmed();
-    if (id.isEmpty()) {
-        if (errorMessage) {
-            *errorMessage = QStringLiteral("运动员不存在。");
-        }
-        return false;
-    }
-    if (scalarInt(QStringLiteral("SELECT COUNT(*) FROM athletes WHERE active = 1"), {}, 0) <= 1) {
-        if (errorMessage) {
-            *errorMessage = QStringLiteral("至少需要保留一名可用运动员。");
-        }
-        return false;
-    }
-
-    QSqlQuery query(m_db);
-    query.prepare(QStringLiteral("UPDATE athletes SET active = 0, updated_at = ? WHERE id = ? AND active = 1"));
-    if (!bindAndExec(query, {nowIso(), id})) {
-        if (errorMessage) {
-            *errorMessage = query.lastError().text();
-        }
-        return false;
-    }
-    if (query.numRowsAffected() <= 0) {
-        if (errorMessage) {
-            *errorMessage = QStringLiteral("未找到可删除的运动员。");
-        }
-        return false;
-    }
-    return true;
+    bool ok = false;
+    requestObject(QStringLiteral("PATCH"),
+                  QStringLiteral("/athletes/%1").arg(athleteId),
+                  {{QStringLiteral("active"), false}},
+                  {},
+                  &ok,
+                  errorMessage);
+    return ok;
 }
 
-bool TrainingRepository::saveCoachProfile(CoachProfile *coach,
-                                          const QVector<QString> &athleteIds,
-                                          QString *errorMessage)
+bool TrainingRepository::saveCoachProfile(CoachProfile *coach, const QVector<QString> &athleteIds, QString *errorMessage)
 {
     if (!coach) {
         if (errorMessage) {
@@ -1646,126 +964,25 @@ bool TrainingRepository::saveCoachProfile(CoachProfile *coach,
         }
         return false;
     }
-    if (coach->name.trimmed().isEmpty()) {
-        if (errorMessage) {
-            *errorMessage = QStringLiteral("教练姓名不能为空。");
-        }
-        return false;
-    }
-
-    const bool isNew = coach->id.trimmed().isEmpty()
-                       || scalarInt(QStringLiteral("SELECT COUNT(*) FROM coaches WHERE id = ?"),
-                                    {coach->id.trimmed()},
-                                    0) <= 0;
     coach->id = ensureId(coach->id);
-    coach->name = coach->name.trimmed();
-    coach->code = safeText(coach->code, QStringLiteral("COACH-%1").arg(QDateTime::currentMSecsSinceEpoch()));
-    coach->active = true;
-
-    if (!m_db.transaction()) {
-        if (errorMessage) {
-            *errorMessage = m_db.lastError().text();
-        }
-        return false;
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("POST"), QStringLiteral("/coaches"), coachToJson(*coach, athleteIds), {}, &ok, errorMessage);
+    if (ok) {
+        *coach = coachFromJson(response);
     }
-
-    auto rollback = [this, errorMessage](const QString &message) {
-        m_db.rollback();
-        if (errorMessage) {
-            *errorMessage = message;
-        }
-        return false;
-    };
-
-    QSqlQuery query(m_db);
-    if (isNew) {
-        query.prepare(QStringLiteral(
-            "INSERT INTO coaches (id, name, code, specialty, phone, notes, active, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)"));
-        if (!bindAndExec(query,
-                         {coach->id,
-                          coach->name,
-                          coach->code,
-                          coach->specialty.trimmed(),
-                          coach->phone.trimmed(),
-                          coach->notes.trimmed(),
-                          nowIso(),
-                          nowIso()})) {
-            return rollback(query.lastError().text());
-        }
-    } else {
-        query.prepare(QStringLiteral(
-            "UPDATE coaches SET name = ?, code = ?, specialty = ?, phone = ?, notes = ?, active = 1, updated_at = ? "
-            "WHERE id = ?"));
-        if (!bindAndExec(query,
-                         {coach->name,
-                          coach->code,
-                          coach->specialty.trimmed(),
-                          coach->phone.trimmed(),
-                          coach->notes.trimmed(),
-                          nowIso(),
-                          coach->id})) {
-            return rollback(query.lastError().text());
-        }
-    }
-
-    QSqlQuery deleteRelations(m_db);
-    deleteRelations.prepare(QStringLiteral("DELETE FROM coach_athletes WHERE coach_id = ?"));
-    if (!bindAndExec(deleteRelations, {coach->id})) {
-        return rollback(deleteRelations.lastError().text());
-    }
-
-    for (const QString &athleteId : athleteIds) {
-        const QString trimmedAthleteId = athleteId.trimmed();
-        if (trimmedAthleteId.isEmpty()) {
-            continue;
-        }
-        QSqlQuery relation(m_db);
-        relation.prepare(QStringLiteral(
-            "INSERT OR IGNORE INTO coach_athletes (coach_id, athlete_id, created_at) "
-            "SELECT ?, id, ? FROM athletes WHERE id = ? AND active = 1"));
-        if (!bindAndExec(relation, {coach->id, nowIso(), trimmedAthleteId})) {
-            return rollback(relation.lastError().text());
-        }
-    }
-
-    if (!m_db.commit()) {
-        return rollback(m_db.lastError().text());
-    }
-    return true;
+    return ok;
 }
 
 bool TrainingRepository::archiveCoach(const QString &coachId, QString *errorMessage)
 {
-    const QString id = coachId.trimmed();
-    if (id.isEmpty()) {
-        if (errorMessage) {
-            *errorMessage = QStringLiteral("教练不存在。");
-        }
-        return false;
-    }
-    if (scalarInt(QStringLiteral("SELECT COUNT(*) FROM coaches WHERE active = 1"), {}, 0) <= 1) {
-        if (errorMessage) {
-            *errorMessage = QStringLiteral("至少需要保留一名可用教练。");
-        }
-        return false;
-    }
-
-    QSqlQuery query(m_db);
-    query.prepare(QStringLiteral("UPDATE coaches SET active = 0, updated_at = ? WHERE id = ? AND active = 1"));
-    if (!bindAndExec(query, {nowIso(), id})) {
-        if (errorMessage) {
-            *errorMessage = query.lastError().text();
-        }
-        return false;
-    }
-    if (query.numRowsAffected() <= 0) {
-        if (errorMessage) {
-            *errorMessage = QStringLiteral("未找到可删除的教练。");
-        }
-        return false;
-    }
-    return true;
+    bool ok = false;
+    requestObject(QStringLiteral("PATCH"),
+                  QStringLiteral("/coaches/%1").arg(coachId),
+                  {{QStringLiteral("active"), false}},
+                  {},
+                  &ok,
+                  errorMessage);
+    return ok;
 }
 
 bool TrainingRepository::ensureDailyTask(const QString &athleteId,
@@ -1783,91 +1000,30 @@ bool TrainingRepository::ensureDailyTask(const QString &athleteId,
                                          QString *taskId,
                                          QString *errorMessage)
 {
-    const QString today = dateOnly(QDate::currentDate());
-    const QString planKeySql = QStringLiteral("SELECT id FROM training_plans "
-                                             "WHERE athlete_id = ? AND training_date = ? AND status = 'active' "
-                                             "ORDER BY created_at DESC LIMIT 1");
-    QString existingPlanId = scalarString(planKeySql, {athleteId, today});
-    if (existingPlanId.isEmpty()) {
-        existingPlanId = newId();
-        QSqlQuery insertPlan(m_db);
-        insertPlan.prepare(QStringLiteral("INSERT INTO training_plans "
-                                          "(id, athlete_id, coach_id, name, training_date, site, training_phase, goal, status, created_at, updated_at) "
-                                          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)"));
-        if (!bindAndExec(insertPlan,
-                         {existingPlanId,
-                          athleteId,
-                          coachId,
-                          QStringLiteral("今日训练计划"),
-                          today,
-                          site,
-                          trainingPhase,
-                          goal,
-                          nowIso(),
-                          nowIso()})) {
-            if (errorMessage) {
-                *errorMessage = insertPlan.lastError().text();
-            }
-            return false;
-        }
-    } else {
-        QSqlQuery updatePlan(m_db);
-        updatePlan.prepare(QStringLiteral("UPDATE training_plans SET coach_id = ?, site = ?, training_phase = ?, goal = ?, updated_at = ? "
-                                          "WHERE id = ?"));
-        bindAndExec(updatePlan, {coachId, site, trainingPhase, goal, nowIso(), existingPlanId});
+    const QJsonObject body{
+        {QStringLiteral("athleteId"), athleteId},
+        {QStringLiteral("coachId"), coachId},
+        {QStringLiteral("actionStandardId"), actionStandardId},
+        {QStringLiteral("standardVersion"), standardVersion},
+        {QStringLiteral("targetReps"), targetReps},
+        {QStringLiteral("targetScore"), targetScore},
+        {QStringLiteral("setCount"), setCount},
+        {QStringLiteral("restSeconds"), restSeconds},
+        {QStringLiteral("site"), site},
+        {QStringLiteral("trainingPhase"), trainingPhase},
+        {QStringLiteral("goal"), goal},
+        {QStringLiteral("date"), QDate::currentDate().toString(Qt::ISODate)}
+    };
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("POST"), QStringLiteral("/training/tasks/ensure-daily"), body, {}, &ok, errorMessage);
+    if (!ok) {
+        return false;
     }
-
-    QString existingTaskId = scalarString(QStringLiteral("SELECT id FROM training_tasks "
-                                                        "WHERE plan_id = ? AND action_standard_id = ? "
-                                                        "ORDER BY created_at DESC LIMIT 1"),
-                                          {existingPlanId, actionStandardId});
-    if (existingTaskId.isEmpty()) {
-        existingTaskId = newId();
-        QSqlQuery insertTask(m_db);
-        insertTask.prepare(QStringLiteral("INSERT INTO training_tasks "
-                                          "(id, plan_id, action_standard_id, standard_version, target_reps, target_score,"
-                                          "set_count, rest_seconds, status, sort_order, created_at, updated_at) "
-                                          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', 0, ?, ?)"));
-        if (!bindAndExec(insertTask,
-                         {existingTaskId,
-                          existingPlanId,
-                          actionStandardId,
-                          standardVersion,
-                          targetReps,
-                          targetScore,
-                          setCount,
-                          restSeconds,
-                          nowIso(),
-                          nowIso()})) {
-            if (errorMessage) {
-                *errorMessage = insertTask.lastError().text();
-            }
-            return false;
-        }
-    } else {
-        QSqlQuery updateTask(m_db);
-        updateTask.prepare(QStringLiteral("UPDATE training_tasks SET standard_version = ?, target_reps = ?, target_score = ?,"
-                                          "set_count = ?, rest_seconds = ?, status = 'active', updated_at = ? WHERE id = ?"));
-        if (!bindAndExec(updateTask,
-                         {standardVersion,
-                          targetReps,
-                          targetScore,
-                          setCount,
-                          restSeconds,
-                          nowIso(),
-                          existingTaskId})) {
-            if (errorMessage) {
-                *errorMessage = updateTask.lastError().text();
-            }
-            return false;
-        }
-    }
-
     if (planId) {
-        *planId = existingPlanId;
+        *planId = jsonString(response, QStringLiteral("planId"));
     }
     if (taskId) {
-        *taskId = existingTaskId;
+        *taskId = jsonString(response, QStringLiteral("taskId"));
     }
     return true;
 }
@@ -1882,324 +1038,24 @@ bool TrainingRepository::saveTrainingSession(TrainingSession *session,
         }
         return false;
     }
-
     session->id = ensureId(session->id);
-    if (!m_db.transaction()) {
-        if (errorMessage) {
-            *errorMessage = m_db.lastError().text();
-        }
-        return false;
-    }
-
-    auto rollback = [this, errorMessage](const QString &message) {
-        m_db.rollback();
-        if (errorMessage) {
-            *errorMessage = message;
-        }
-        return false;
-    };
-
-    QSqlQuery query(m_db);
-    query.prepare(QStringLiteral(
-        "INSERT INTO training_sessions ("
-        "id, athlete_id, coach_id, plan_id, task_id, action_standard_id, standard_version, legacy_qsettings_id,"
-        "started_at, saved_at, duration_sec, total_reps, valid_reps, average_score, best_score, camera,"
-        "model_precision, fps, detection_score, symmetry_score, balance_score, stability_score, depth_score,"
-        "site, training_phase, goal, target_reps, target_score, set_count, rest_seconds,"
-        "video_source, video_fallback_source, video_camera_name, feedback, notes, coach_comment) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
-    if (!bindAndExec(query,
-                     {session->id,
-                      session->athleteId,
-                      session->coachId,
-                      session->planId,
-                      session->taskId,
-                      session->actionStandardId,
-                      session->standardVersion,
-                      session->legacyQsettingsId,
-                      session->startedAt.toString(Qt::ISODate),
-                      session->savedAt.toString(Qt::ISODate),
-                      session->durationSec,
-                      session->totalReps,
-                      session->validReps,
-                      session->averageScore,
-                      session->bestScore,
-                      session->camera,
-                      session->modelPrecision,
-                      session->fps,
-                      session->detectionScore,
-                      session->symmetryScore,
-                      session->balanceScore,
-                      session->stabilityScore,
-                      session->depthScore,
-                      session->site,
-                      session->trainingPhase,
-                      session->goal,
-                      session->targetReps,
-                      session->targetScore,
-                      session->setCount,
-                      session->restSeconds,
-                      session->videoSource,
-                      session->videoFallbackSource,
-                      session->videoCameraName,
-                      session->feedback,
-                      session->notes,
-                      session->coachComment})) {
-        return rollback(query.lastError().text());
-    }
-
+    QJsonArray reps;
     for (ActionRepetition repetition : repetitions) {
         repetition.id = ensureId(repetition.id);
-        QSqlQuery insertRep(m_db);
-        insertRep.prepare(QStringLiteral(
-            "INSERT INTO action_repetitions ("
-            "id, session_id, action_standard_id, standard_version, started_ms, ended_ms, valid, score,"
-            "detection_score, symmetry_score, balance_score, stability_score, depth_score, error_codes, feedback, key_frame_ms,"
-            "video_clip_start_ms, video_clip_end_ms, source, review_status, key_frame_pose_json) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
-        if (!bindAndExec(insertRep,
-                         {repetition.id,
-                          session->id,
-                          repetition.actionStandardId,
-                          repetition.standardVersion,
-                          repetition.startedMs,
-                          repetition.endedMs,
-                          repetition.valid ? 1 : 0,
-                          repetition.score,
-                          repetition.detectionScore,
-                          repetition.symmetryScore,
-                          repetition.balanceScore,
-                          repetition.stabilityScore,
-                          repetition.depthScore,
-                          repetition.errorCodes,
-                          repetition.feedback,
-                          repetition.keyFrameMs,
-                          repetition.videoClipStartMs,
-                          repetition.videoClipEndMs,
-                          repetition.source.trimmed().isEmpty() ? QStringLiteral("ai") : repetition.source,
-                          repetition.reviewStatus.trimmed().isEmpty() ? QStringLiteral("unreviewed") : repetition.reviewStatus,
-                          repetition.keyFramePoseJson})) {
-            return rollback(insertRep.lastError().text());
-        }
+        repetition.sessionId = session->id;
+        reps.append(repetitionToJson(repetition));
     }
-
-    if (!session->taskId.isEmpty()) {
-        QSqlQuery updateTask(m_db);
-        updateTask.prepare(QStringLiteral("UPDATE training_tasks SET status = ?, updated_at = ? WHERE id = ?"));
-        const QString status = session->targetReps > 0 && session->validReps >= session->targetReps
-                                   ? QStringLiteral("done")
-                                   : QStringLiteral("active");
-        if (!bindAndExec(updateTask, {status, nowIso(), session->taskId})) {
-            return rollback(updateTask.lastError().text());
-        }
+    const QJsonObject body{{QStringLiteral("session"), sessionToJson(*session)}, {QStringLiteral("repetitions"), reps}};
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("POST"), QStringLiteral("/training/sessions"), body, {}, &ok, errorMessage);
+    if (ok) {
+        session->id = response.value(QStringLiteral("id")).toString(session->id);
     }
-
-    if (!m_db.commit()) {
-        return rollback(m_db.lastError().text());
-    }
-
-    refreshBaseline(session->athleteId, session->actionStandardId);
-    return true;
-}
-
-bool TrainingRepository::migrateLegacyTrainingHistory(QString *errorMessage)
-{
-    if (hasMetaValue(QStringLiteral("legacyTrainingHistoryMigrated"))) {
-        return true;
-    }
-
-    const QString defaultAthleteId = scalarString(QStringLiteral("SELECT id FROM athletes ORDER BY created_at LIMIT 1"));
-    const QString defaultCoachId = scalarString(QStringLiteral("SELECT id FROM coaches ORDER BY created_at LIMIT 1"));
-    const QString defaultStandardId = scalarString(QStringLiteral("SELECT id FROM action_standards ORDER BY rowid LIMIT 1"));
-    const int defaultStandardVersion = scalarInt(QStringLiteral("SELECT version FROM action_standards WHERE id = ?"),
-                                                 {defaultStandardId},
-                                                 1);
-    if (defaultAthleteId.isEmpty() || defaultStandardId.isEmpty()) {
-        return setMetaValue(QStringLiteral("legacyTrainingHistoryMigrated"), QStringLiteral("1"), errorMessage);
-    }
-
-    QSettings settings;
-    const int recordCount = settings.beginReadArray(QStringLiteral("trainingHistory"));
-    QVector<TrainingSession> legacySessions;
-    legacySessions.reserve(recordCount);
-    for (int i = 0; i < recordCount; ++i) {
-        settings.setArrayIndex(i);
-        TrainingSession session;
-        session.id = newId();
-        session.athleteId = defaultAthleteId;
-        session.coachId = defaultCoachId;
-        session.actionStandardId = defaultStandardId;
-        session.standardVersion = defaultStandardVersion;
-        session.legacyQsettingsId = settings.value(QStringLiteral("id")).toLongLong();
-        const QString timeText = settings.value(QStringLiteral("time")).toString();
-        QDateTime savedAt = QDateTime::fromString(timeText, QStringLiteral("yyyy-MM-dd hh:mm:ss"));
-        if (!savedAt.isValid() && session.legacyQsettingsId > 0) {
-            savedAt = QDateTime::fromMSecsSinceEpoch(session.legacyQsettingsId);
-        }
-        if (!savedAt.isValid()) {
-            savedAt = QDateTime::currentDateTime();
-        }
-        session.savedAt = savedAt;
-        session.startedAt = savedAt.addSecs(-settings.value(QStringLiteral("duration")).toInt());
-        session.durationSec = settings.value(QStringLiteral("duration")).toInt();
-        session.totalReps = settings.value(QStringLiteral("actions")).toInt();
-        session.validReps = session.totalReps;
-        session.averageScore = settings.value(QStringLiteral("score")).toInt();
-        session.bestScore = session.averageScore;
-        session.camera = settings.value(QStringLiteral("camera"), 1).toInt();
-        session.modelPrecision = settings.value(QStringLiteral("modelPrecision"), QStringLiteral("balanced")).toString();
-        session.fps = settings.value(QStringLiteral("fps"), 30).toInt();
-        session.detectionScore = settings.value(QStringLiteral("detectionScore")).toInt();
-        session.symmetryScore = settings.value(QStringLiteral("symmetryScore")).toInt();
-        session.balanceScore = settings.value(QStringLiteral("balanceScore")).toInt();
-        session.stabilityScore = settings.value(QStringLiteral("stabilityScore")).toInt();
-        session.depthScore = settings.value(QStringLiteral("depthScore")).toInt();
-        session.site = QStringLiteral("旧记录");
-        session.trainingPhase = QStringLiteral("历史迁移");
-        session.goal = QStringLiteral("兼容旧 trainingHistory");
-        session.targetReps = 0;
-        session.targetScore = 0;
-        session.feedback = settings.value(QStringLiteral("feedback"), QStringLiteral("等待姿态")).toString();
-        legacySessions.append(session);
-    }
-    settings.endArray();
-
-    for (TrainingSession &session : legacySessions) {
-        const bool exists = scalarInt(QStringLiteral("SELECT COUNT(*) FROM training_sessions WHERE legacy_qsettings_id = ?"),
-                                      {session.legacyQsettingsId},
-                                      0) > 0;
-        if (!exists && !saveTrainingSession(&session, {}, errorMessage)) {
-            return false;
-        }
-    }
-
-    return setMetaValue(QStringLiteral("legacyTrainingHistoryMigrated"), QStringLiteral("1"), errorMessage);
-}
-
-bool TrainingRepository::hasMetaValue(const QString &key) const
-{
-    return scalarInt(QStringLiteral("SELECT COUNT(*) FROM schema_meta WHERE key = ?"), {key}, 0) > 0;
-}
-
-bool TrainingRepository::setMetaValue(const QString &key, const QString &value, QString *errorMessage) const
-{
-    QSqlQuery query(m_db);
-    query.prepare(QStringLiteral("INSERT INTO schema_meta (key, value) VALUES (?, ?) "
-                                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value"));
-    if (!bindAndExec(query, {key, value})) {
-        if (errorMessage) {
-            *errorMessage = query.lastError().text();
-        }
-        return false;
-    }
-    return true;
-}
-
-bool TrainingRepository::ensureColumn(const QString &tableName,
-                                      const QString &columnName,
-                                      const QString &definition,
-                                      QString *errorMessage) const
-{
-    QSqlQuery pragma(m_db);
-    if (!pragma.exec(QStringLiteral("PRAGMA table_info(%1)").arg(tableName))) {
-        if (errorMessage) {
-            *errorMessage = pragma.lastError().text();
-        }
-        return false;
-    }
-
-    while (pragma.next()) {
-        if (pragma.value(1).toString().compare(columnName, Qt::CaseInsensitive) == 0) {
-            return true;
-        }
-    }
-
-    return execute(QStringLiteral("ALTER TABLE %1 ADD COLUMN %2 %3")
-                       .arg(tableName, columnName, definition),
-                   errorMessage);
+    return ok;
 }
 
 QString TrainingRepository::ensureId(const QString &id) const
 {
     const QString trimmed = id.trimmed();
     return trimmed.isEmpty() ? newId() : trimmed;
-}
-
-QString TrainingRepository::scalarString(const QString &sql, const QVariantList &args) const
-{
-    QSqlQuery query(m_db);
-    query.prepare(sql);
-    if (!bindAndExec(query, args) || !query.next()) {
-        return QString();
-    }
-    return query.value(0).toString();
-}
-
-int TrainingRepository::scalarInt(const QString &sql, const QVariantList &args, int defaultValue) const
-{
-    QSqlQuery query(m_db);
-    query.prepare(sql);
-    if (!bindAndExec(query, args) || !query.next()) {
-        return defaultValue;
-    }
-    return query.value(0).toInt();
-}
-
-bool TrainingRepository::sessionIdentity(const QString &sessionId,
-                                         QString *athleteId,
-                                         QString *actionStandardId,
-                                         QString *errorMessage) const
-{
-    if (sessionId.trimmed().isEmpty()) {
-        if (errorMessage) {
-            *errorMessage = QStringLiteral("训练记录不存在。");
-        }
-        return false;
-    }
-
-    QSqlQuery query(m_db);
-    query.prepare(QStringLiteral("SELECT athlete_id, action_standard_id FROM training_sessions WHERE id = ?"));
-    if (!bindAndExec(query, {sessionId}) || !query.next()) {
-        if (errorMessage) {
-            *errorMessage = query.lastError().isValid()
-                                ? query.lastError().text()
-                                : QStringLiteral("未找到对应训练记录。");
-        }
-        return false;
-    }
-
-    if (athleteId) {
-        *athleteId = query.value(0).toString();
-    }
-    if (actionStandardId) {
-        *actionStandardId = query.value(1).toString();
-    }
-    return true;
-}
-
-void TrainingRepository::refreshBaseline(const QString &athleteId, const QString &actionStandardId)
-{
-    QSqlQuery aggregate(m_db);
-    aggregate.prepare(QStringLiteral("SELECT COUNT(*), COALESCE(ROUND(AVG(average_score)), 0), COALESCE(ROUND(AVG(valid_reps)), 0) "
-                                     "FROM training_sessions WHERE athlete_id = ? AND action_standard_id = ?"));
-    aggregate.addBindValue(athleteId);
-    aggregate.addBindValue(actionStandardId);
-    if (!aggregate.exec() || !aggregate.next()) {
-        return;
-    }
-
-    QSqlQuery upsert(m_db);
-    upsert.prepare(QStringLiteral("INSERT INTO athlete_action_baselines "
-                                  "(athlete_id, action_standard_id, session_count, average_score, average_valid_reps, updated_at) "
-                                  "VALUES (?, ?, ?, ?, ?, ?) "
-                                  "ON CONFLICT(athlete_id, action_standard_id) DO UPDATE SET "
-                                  "session_count=excluded.session_count, average_score=excluded.average_score,"
-                                  "average_valid_reps=excluded.average_valid_reps, updated_at=excluded.updated_at"));
-    bindAndExec(upsert,
-                {athleteId,
-                 actionStandardId,
-                 aggregate.value(0).toInt(),
-                 aggregate.value(1).toInt(),
-                 aggregate.value(2).toInt(),
-                 nowIso()});
 }

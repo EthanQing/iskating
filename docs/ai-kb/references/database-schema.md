@@ -7,10 +7,10 @@
 
 ## 使用的数据库
 
-项目使用两类本地持久化：
+项目使用两类持久化：
 
 - Qt `QSettings`: 保存摄像头配置和采集偏好。
-- SQLite: 保存训练动作标准闭环与训练复盘校准的运动员/教练档案、教练-运动员关系、动作标准、计划任务、训练记录、动作明细、视频引用、人工复核、标准参考视频和教练批注。
+- PostgreSQL: 保存训练动作标准闭环与训练复盘校准的运动员/教练档案、教练-运动员关系、动作标准、计划任务、训练记录、动作明细、视频引用、人工复核、标准参考视频、教练批注、个体基线和应用用户。
 
 相关文件：
 
@@ -18,6 +18,9 @@
 - `personmanagementdialog.cpp`
 - `trainingdomain.h`
 - `trainingrepository.cpp`
+- `server/app/main.py`
+- `server/alembic/versions/20260630_0001_initial_postgresql.py`
+- `tools/import_sqlite_to_postgres.py`
 - `main.cpp`
 
 ## schema 位置
@@ -26,7 +29,7 @@ QSettings schema 仍分散在读写代码中：
 
 - `MainWindow::loadCameraSettings()`
 - `MainWindow::persistSystemSettings()`
-SQLite schema 在 `TrainingRepository::migrate()` 中创建，当前版本为 v4。seed 数据在 `TrainingRepository::seedDefaults()` 中维护。新增列通过 `TrainingRepository::ensureColumn()` 兼容已有本地数据库。
+PostgreSQL schema 由 Alembic 管理，当前初始迁移为 `20260630_0001_initial_postgresql.py`。seed 数据在 FastAPI 启动时由 `seed_defaults()` 维护。旧 SQLite 数据通过一次性导入工具迁入，不再由桌面端启动时自动补列或迁移。
 
 ## 主要数据结构
 
@@ -71,19 +74,17 @@ SQLite schema 在 `TrainingRepository::migrate()` 中创建，当前版本为 v4
 
 P1 轨迹拼接默认把 12 路相机按 5m 一段初始化为 CAM 01: 0-5m 至 CAM 12: 55-60m。`fieldStartM/fieldEndM/lateralOffsetM` 会传给 `TrajectoryWidget` 做全场轨迹线性映射；`mountHeightM/yawDeg/pitchDeg` 先作为机位标定信息保存。
 
-### SQLite 路径
+### PostgreSQL 连接
 
-- `QStandardPaths::AppDataLocation/iskating.db`
-- Windows 当前为 `%APPDATA%/iSkating/iSkating Coach/iskating.db`
+- 服务端通过 `ISKATING_DATABASE_URL` 连接 PostgreSQL。
+- 桌面端通过 `server/baseUrl` 连接 FastAPI 服务。
+- 旧 SQLite 路径 `%APPDATA%/iSkating/iSkating Coach/iskating.db` 仅用于一次性导入。
 
-### SQLite 表
+### PostgreSQL 表
 
-#### `schema_meta`
+#### `users`
 
-- `key`
-- `value`
-
-用于记录 `schemaVersion`, `seedVersion`, `legacyTrainingHistoryMigrated`。
+应用登录用户，保存用户名、密码哈希、角色、启用状态和时间戳。当前基础角色为 `admin` 和 `coach`。
 
 #### `athletes`
 
@@ -166,16 +167,29 @@ P1 轨迹拼接默认把 12 路相机按 5m 一段初始化为 CAM 01: 0-5m 至 
 - `depthScore`
 - `feedback`
 
-新版本不再写入该数组。首次打开 SQLite 时，如果发现旧数组，会迁移到 `training_sessions` 并保留旧数据。
+新版本不再写入该数组，也不会在桌面端启动时自动读取该数组。需要保留旧训练数据时，先使用旧版本或旧 SQLite 库作为来源，再通过一次性导入流程进入 PostgreSQL。
 
 ## 迁移方式
 
-没有独立迁移命令。应用启动时 `TrainingRepository::open()` 会执行建表、schema v4 字段补列、seed 和旧 `trainingHistory` 迁移。
+服务端 schema 使用 Alembic：
+
+```powershell
+cd server
+$env:ISKATING_DATABASE_URL="postgresql+psycopg://iskating:password@127.0.0.1:5432/iskating"
+alembic upgrade head
+```
+
+旧 SQLite 数据使用一次性导入工具：
+
+```powershell
+python tools/import_sqlite_to_postgres.py --sqlite "$env:APPDATA/iSkating/iSkating Coach/iskating.db"
+```
 
 相关文件：
 
 - `mainwindow.cpp`
-- `trainingrepository.cpp`
+- `server/alembic/versions/20260630_0001_initial_postgresql.py`
+- `tools/import_sqlite_to_postgres.py`
 - `personmanagementdialog.cpp`
 
 ## seed 方式

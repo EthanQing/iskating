@@ -3,9 +3,12 @@
 
 #include "trainingdomain.h"
 
-#include <QSqlDatabase>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QNetworkAccessManager>
 #include <QString>
 #include <QVariant>
+#include <QVariantMap>
 #include <QVector>
 
 class TrainingRepository
@@ -76,28 +79,23 @@ public:
                              QString *errorMessage = nullptr);
 
 private:
-    bool migrate(QString *errorMessage);
-    bool seedDefaults(QString *errorMessage);
-    bool migrateLegacyTrainingHistory(QString *errorMessage);
-    bool execute(const QString &sql, QString *errorMessage) const;
-    bool hasMetaValue(const QString &key) const;
-    bool setMetaValue(const QString &key, const QString &value, QString *errorMessage) const;
-    bool ensureColumn(const QString &tableName,
-                      const QString &columnName,
-                      const QString &definition,
-                      QString *errorMessage) const;
+    bool login(QString *errorMessage);
+    QJsonObject requestObject(const QString &method,
+                              const QString &path,
+                              const QJsonObject &body = {},
+                              const QVariantMap &query = {},
+                              bool *ok = nullptr,
+                              QString *errorMessage = nullptr) const;
+    QJsonArray requestArray(const QString &path,
+                            const QVariantMap &query = {},
+                            bool *ok = nullptr,
+                            QString *errorMessage = nullptr) const;
     QString ensureId(const QString &id = QString()) const;
-    QString scalarString(const QString &sql, const QVariantList &args = {}) const;
-    int scalarInt(const QString &sql, const QVariantList &args = {}, int defaultValue = 0) const;
-    void refreshBaseline(const QString &athleteId, const QString &actionStandardId);
-    bool sessionIdentity(const QString &sessionId,
-                         QString *athleteId,
-                         QString *actionStandardId,
-                         QString *errorMessage = nullptr) const;
 
-    QSqlDatabase m_db;
-    QString m_connectionName;
-    QString m_databasePath;
+    mutable QNetworkAccessManager m_network;
+    QString m_baseUrl;
+    QString m_accessToken;
+    bool m_open = false;
     QString m_lastError;
 };
 

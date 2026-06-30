@@ -26,7 +26,7 @@
 - 按页面维护实时采集、历史分析、纠正建议三个主页面。
 - 训练上下文区通过 `openPersonManagement()` 打开人员管理对话框，保存后重新加载人员下拉、历史和建议。
 - 使用 `QTimer` 每秒累计训练时长。
-- 使用成员变量保存当前机位、采集状态、分数、最近训练 session 摘要和 UI 控件集合；训练业务数据通过 `TrainingRepository` 读写 SQLite。
+- 使用成员变量保存当前机位、采集状态、分数、最近训练 session 摘要和 UI 控件集合；训练业务数据通过 `TrainingRepository` 调用 FastAPI/PostgreSQL 服务。
 
 ## 对外接口
 

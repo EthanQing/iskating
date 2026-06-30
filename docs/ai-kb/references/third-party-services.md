@@ -7,15 +7,17 @@
 
 ## 数据库服务
 
-未发现外部数据库服务。当前使用本机 `QSettings`。
+训练业务数据使用 PostgreSQL，由 FastAPI 服务端通过 `ISKATING_DATABASE_URL` 访问。桌面端不直连 PostgreSQL。
 
 相关文件：
 
-- `mainwindow.cpp`
+- `server/app/main.py`
+- `server/alembic/versions/20260630_0001_initial_postgresql.py`
+- `trainingrepository.cpp`
 
 ## 认证服务
 
-未发现应用级认证服务。RTSP 摄像头可能需要用户名/密码。
+FastAPI 训练服务提供基础登录，使用 JWT bearer token。桌面端保存 `auth/accessToken`，也可通过 `ISKATING_API_USERNAME`/`ISKATING_API_PASSWORD` 自动登录。RTSP 摄像头仍可能需要用户名/密码。
 
 相关文件：
 
