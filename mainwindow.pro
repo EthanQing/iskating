@@ -121,6 +121,7 @@ SOURCES += \
     iconutils.cpp \
     main.cpp \
     mainwindow.cpp \
+    nvrplayback.cpp \
     personmanagementdialog.cpp \
     poseresult.cpp \
     posestandardnessscorer.cpp \
@@ -146,6 +147,7 @@ HEADERS += \
     handanalysismanager.h \
     iconutils.h \
     mainwindow.h \
+    nvrplayback.h \
     personmanagementdialog.h \
     poseresult.h \
     posestandardnessscorer.h \

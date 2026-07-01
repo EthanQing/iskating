@@ -21,6 +21,7 @@
 - `d3dframe.h`: D3D11 硬件帧封装。
 - `d3dvideosurface.cpp`: D3D11 swap chain、shader、视频渲染和骨架叠加。
 - `d3dframeextractor.cpp`: 将 D3D 帧复制/转换为 RGB，供 AI 推理使用。
+- `nvrplayback.h/.cpp`: 根据系统设置中的 NVR 回放模板、session 开始时间、机位 IP 和动作片段窗口生成 RTSP 回放 URL。
 
 ## 当前设计
 
@@ -35,6 +36,7 @@
 - RTSP 训练时，选中机位优先使用主视图主码流，其他参与轨迹机位使用小窗预览流；离线视频仍只分析主视图单路本地文件。
 - 本地文件回放使用独立 `RtspStream`，不经过 `StreamRegistry` 共享；RTSP/网络源继续走共享低延迟流。
 - `D3DFrame::mediaTimeMs` 保存媒体时间戳，供 UI 查询当前位置、片段定位和逐帧回放使用。
+- 系统设置可配置 `cameraDefaults/nvrPlaybackTemplate`，支持 `{user}`、`{password}`、`{ip}`、`{port}`、`{channel}`、`{start}`、`{end}` 占位符。历史回看和复盘校准会优先按训练开始时间、训练时长和动作片段窗口生成 NVR RTSP 回放 URL；模板不可用时回退到保存的实时主码流/预览码流或离线文件。
 
 ## 对外接口
 
@@ -95,12 +97,18 @@
 2. 新增控制前先判断 `isSeekable()`，避免把 RTSP 当作可随机访问媒体。
 3. 片段定位应使用动作的有效起止时间或 `video_clip_start_ms/end_ms`，旧记录缺失时回退到动作开始时间。
 
+### 调整 NVR 回放模板
+
+1. 修改 `nvrplayback.cpp` 中的占位符替换和时间格式；当前 `{start}`/`{end}` 固定为 UTC `yyyyMMddTHHmmssZ`。
+2. 修改 `SystemSettingsDialog` 时保持模板至少包含 `{ip}`、`{start}`、`{end}` 的校验。
+3. 历史页和复盘校准都复用 `buildNvrPlaybackUrl()`，不要在 UI 层重复拼接厂商 URL。
+
 ## 注意事项
 
 - ⚠️ 高风险区域：当前没有通用软件解码 fallback。
 - 离线视频仍要求解码器支持 D3D11VA；不兼容编码会像 RTSP 一样进入视频错误状态。
 - 离线训练记录只保存本地文件引用，不复制视频文件；后续回看依赖原文件仍在本机可访问。
-- 历史复盘的精确 seek、慢放和逐帧仅对本地离线视频可用；RTSP/网络视频按实时源打开并提示片段时间，保持低延迟播放路径不变。
+- 历史复盘的精确 seek、慢放和逐帧仅对本地离线视频可用；NVR/RTSP 网络回放按模板生成对应时间窗口的 RTSP 源，是否可 seek 取决于 NVR 能力。
 - ⚠️ 高风险区域：D3D11 设备是全局共享的，修改线程/生命周期要谨慎。
 - 不要在日志中直接打印未脱敏 RTSP URL。
 - `RtspStream::stop()` 等待 8 秒后会 terminate 线程，这是最后手段，修改时要考虑 FFmpeg 阻塞。

@@ -34,6 +34,7 @@
 - `cameraDefaults/previewFps`
 - `cameraDefaults/mainPath`
 - `cameraDefaults/mainFps`
+- `cameraDefaults/nvrPlaybackTemplate`
 - `capture/modelPrecision`
 - `capture/fps`
 - `cameras/camera01` 到 `cameras/camera12`
@@ -49,7 +50,7 @@ PostgreSQL 主要表：
 - `training_sessions`, `action_repetitions`
 - `athlete_action_baselines`
 
-`athletes` 保存运动员档案并用 `active` 做归档；`coaches` 保存教练档案、专项、电话、备注并用 `active` 做归档；`coach_athletes` 保存教练可带训运动员关系。人员删除不会硬删历史外键，只从训练选择与人员管理列表中隐藏。`training_sessions` 记录训练上下文、任务/计划归属、分项分、视频源引用、回退视频源、机位名称、反馈、备注和单次训练教练批注。`action_repetitions` 保留 AI 原始起止时间、有效性、总分/分项分、错误项、反馈、关键帧时间和视频片段，同时保存人工复核字段：来源、复核状态、复核教练、复核时间、人工起止时间、人工有效性、人工总分/分项分、人工错误项、人工反馈、教练备注和关键帧姿态 JSON。`action_standards` 保存本地标准参考视频路径、参考动作实例和参考说明，用于复盘中的标准动作对比。
+`athletes` 保存运动员档案并用 `active` 做归档；`coaches` 保存教练档案、专项、电话、备注并用 `active` 做归档；`coach_athletes` 保存教练可带训运动员关系。人员删除不会硬删历史外键，只从训练选择与人员管理列表中隐藏。`training_sessions` 记录训练上下文、任务/计划归属、分项分、视频源引用、回退视频源、机位名称、反馈、备注和单次训练教练批注；历史回放可结合 `started_at`、`duration_sec`、`camera` 和 QSettings 中的 NVR 模板生成回放 URL，不新增数据库字段。`action_repetitions` 保留 AI 原始起止时间、有效性、总分/分项分、错误项、反馈、关键帧时间和视频片段，同时保存人工复核字段：来源、复核状态、复核教练、复核时间、人工起止时间、人工有效性、人工总分/分项分、人工错误项、人工反馈、教练备注和关键帧姿态 JSON。`action_standards` 保存本地标准参考视频路径、参考动作实例和参考说明，用于复盘中的标准动作对比。
 
 复盘、趋势和报告默认使用“人工优先”的有效值：动作有人工复核时使用人工字段，否则使用 AI 原始字段。保存复核或新增手动动作后，`TrainingRepository::recalculateSessionSummary()` 会重算 `training_sessions` 汇总分、动作数和个体基线。
 
@@ -116,7 +117,7 @@ PostgreSQL 主要表：
 - RTSP 密码会被持久化到本机设置。
 - 删除或重命名 key 会影响旧用户配置；应保留兼容读取。
 - 不再向 `trainingHistory` 写入新训练记录。
-- 复盘校准保存的是主码流/回退码流引用、动作片段时间窗口和关键帧姿态 JSON，不会录制、剪辑或复制视频文件；离线回看依赖原文件仍在本机，RTSP 回看仍依赖原视频源可访问且不支持通用自动 seek。
+- 复盘校准保存的是主码流/回退码流引用、动作片段时间窗口和关键帧姿态 JSON，不会录制、剪辑或复制视频文件；离线回看依赖原文件仍在本机，NVR 回看依赖 `cameraDefaults/nvrPlaybackTemplate` 能按机位和时间生成可访问 RTSP 回放 URL。
 - 默认动作标准 seed 只插入缺失项，不应覆盖用户本地编辑的阈值、权重、提示文案或参考视频。
 - 人员“删除”是归档：`active=0` 后不再出现在选择列表，但历史训练记录仍保留原外键和姓名联查能力；不要硬删被训练记录引用的人员。
 

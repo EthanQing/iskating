@@ -1,5 +1,6 @@
 #include "trainingreviewdialog.h"
 
+#include "nvrplayback.h"
 #include "poseresult.h"
 #include "trainingrepository.h"
 #include "videoopenglwidget.h"
@@ -23,6 +24,7 @@
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QSettings>
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -133,6 +135,42 @@ QTableWidgetItem *readOnlyItem(const QString &text)
     auto *item = new QTableWidgetItem(text);
     item->setFlags(item->flags() & ~Qt::ItemIsEditable);
     return item;
+}
+
+QString cameraSettingsGroup(int cameraIndex)
+{
+    return QStringLiteral("cameras/camera%1").arg(cameraIndex + 1, 2, 10, QLatin1Char('0'));
+}
+
+SharedCameraSettings loadSharedCameraSettings()
+{
+    SharedCameraSettings settings;
+    QSettings qsettings;
+    qsettings.beginGroup(QStringLiteral("cameraDefaults"));
+    settings.username = qsettings.value(QStringLiteral("username")).toString().trimmed();
+    settings.password = qsettings.value(QStringLiteral("password")).toString();
+    settings.port = qsettings.value(QStringLiteral("port"), QStringLiteral("554")).toString().trimmed();
+    if (settings.port.isEmpty()) {
+        settings.port = QStringLiteral("554");
+    }
+    settings.nvrPlaybackTemplate = qsettings.value(QStringLiteral("nvrPlaybackTemplate")).toString().trimmed();
+    qsettings.endGroup();
+    return settings;
+}
+
+QVector<CameraSlotSettings> loadCameraSlotSettings(int cameraCount)
+{
+    QVector<CameraSlotSettings> cameraSlots;
+    cameraSlots.reserve(cameraCount);
+    QSettings qsettings;
+    for (int i = 0; i < cameraCount; ++i) {
+        CameraSlotSettings slot;
+        qsettings.beginGroup(cameraSettingsGroup(i));
+        slot.ip = qsettings.value(QStringLiteral("ip")).toString().trimmed();
+        qsettings.endGroup();
+        cameraSlots.append(slot);
+    }
+    return cameraSlots;
 }
 
 } // namespace
@@ -405,8 +443,20 @@ void TrainingReviewDialog::seekToRepetition(const ActionRepetition &repetition, 
     } else if (hasLocalVideo()) {
         loadMainVideo(std::max(0, target));
     } else {
-        m_statusLabel->setText(QStringLiteral("RTSP/网络记录无法精确定位，片段起点：%1。")
-                                   .arg(formatMilliseconds(target)));
+        const NvrPlaybackResult nvr = buildNvrPlaybackUrl(loadSharedCameraSettings(),
+                                                          loadCameraSlotSettings(12),
+                                                          m_record,
+                                                          std::max(0, target),
+                                                          repetition.videoClipEndMs);
+        if (!nvr.url.trimmed().isEmpty()) {
+            m_mainVideo->playMainUrlWithFallback(nvr.url.trimmed(), m_record.videoFallbackSource);
+            m_statusLabel->setText(QStringLiteral("已打开 NVR 片段窗口：%1-%2。")
+                                       .arg(formatMilliseconds(nvr.startOffsetMs),
+                                            formatMilliseconds(nvr.endOffsetMs)));
+        } else {
+            m_statusLabel->setText(QStringLiteral("RTSP/网络记录无法精确定位，片段起点：%1。")
+                                       .arg(formatMilliseconds(target)));
+        }
     }
     if (m_overlayCheckBox->isChecked()) {
         applyPoseOverlay(repetition);
@@ -569,6 +619,12 @@ ActionRepetition TrainingReviewDialog::formRepetition() const
 
 QString TrainingReviewDialog::videoSource() const
 {
+    const NvrPlaybackResult nvr = buildNvrPlaybackUrl(loadSharedCameraSettings(),
+                                                      loadCameraSlotSettings(12),
+                                                      m_record);
+    if (!nvr.url.trimmed().isEmpty()) {
+        return nvr.url.trimmed();
+    }
     return !m_record.videoSource.trimmed().isEmpty()
                ? m_record.videoSource.trimmed()
                : m_record.videoFallbackSource.trimmed();

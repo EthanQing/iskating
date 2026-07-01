@@ -821,6 +821,7 @@ def history_row(row: dict[str, Any]) -> dict[str, Any]:
         "actionCategory": row["action_category"] or "",
         "standardVersion": row["standard_version"],
         "time": row["saved_at"].strftime("%Y-%m-%d %H:%M:%S") if row["saved_at"] else "",
+        "startedAt": row["started_at"].isoformat() if row["started_at"] else "",
         "duration": row["duration_sec"],
         "totalReps": row["total_reps"],
         "validReps": row["valid_reps"],

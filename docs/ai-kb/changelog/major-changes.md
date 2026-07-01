@@ -21,3 +21,8 @@
 - 新增 `tools/import_sqlite_to_postgres.py`，用于切换前一次性导入旧 SQLite 训练数据。
 - `mainwindow.pro` 移除 QtSql/SQLite driver 部署，改用 QtNetwork。
 - 增强 RTSP 断流重连诊断：记录 UDP/TCP fallback、连续/总重连次数、断流/恢复时间、长时间断流状态和脱敏日志。
+
+## 2026-07-01
+
+- 新增 F-08 NVR 回放 MVR：系统设置支持 NVR RTSP 回放模板，历史页和复盘校准可按训练开始时间、机位 IP 与动作片段窗口生成 NVR 回放 URL。
+- 训练历史 API 返回已有 `started_at`，桌面端不新增数据库字段即可生成训练时间段回放。

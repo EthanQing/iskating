@@ -15,6 +15,7 @@ struct SharedCameraSettings
     int previewFps = 30;
     QString mainPath;
     int mainFps = 120;
+    QString nvrPlaybackTemplate;
 };
 
 struct CameraSlotSettings
@@ -67,6 +68,7 @@ private:
     QComboBox *m_previewFpsComboBox = nullptr;
     QLineEdit *m_mainPathEdit = nullptr;
     QComboBox *m_mainFpsComboBox = nullptr;
+    QLineEdit *m_nvrPlaybackTemplateEdit = nullptr;
     QComboBox *m_precisionComboBox = nullptr;
     QComboBox *m_fpsComboBox = nullptr;
     QVector<QLineEdit *> m_ipEdits;

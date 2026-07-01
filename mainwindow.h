@@ -113,7 +113,7 @@ private:
     void refreshStats();
     void refreshHistory();
     void refreshSuggestions();
-    void openSessionVideo(const SessionHistoryItem &record, int offsetMs = 0);
+    void openSessionVideo(const SessionHistoryItem &record, int offsetMs = 0, int endOffsetMs = -1);
     void openTrainingReview(const SessionHistoryItem &record);
     void editActionStandard();
     void editCoachComment(const QString &sessionId);

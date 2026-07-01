@@ -2,6 +2,7 @@
 #include "actionstandardscorer.h"
 #include "handanalysismanager.h"
 #include "iconutils.h"
+#include "nvrplayback.h"
 #include "personmanagementdialog.h"
 #include "posestandardnessscorer.h"
 #include "skeletonviewwidget.h"
@@ -276,7 +277,8 @@ bool hasStructuredCameraDefaults(QSettings &settings)
            || settings.contains(QStringLiteral("cameraDefaults/password"))
            || settings.contains(QStringLiteral("cameraDefaults/port"))
            || settings.contains(QStringLiteral("cameraDefaults/previewPath"))
-           || settings.contains(QStringLiteral("cameraDefaults/mainPath"));
+           || settings.contains(QStringLiteral("cameraDefaults/mainPath"))
+           || settings.contains(QStringLiteral("cameraDefaults/nvrPlaybackTemplate"));
 }
 
 QString safeUrlForLog(const QString &source)
@@ -1372,6 +1374,7 @@ void MainWindow::loadCameraSettings()
                                                         legacyCaptureFps > kDefaultPreviewStreamFps
                                                             ? legacyCaptureFps
                                                             : kDefaultMainStreamFps).toInt();
+        m_sharedCameraSettings.nvrPlaybackTemplate = settings.value(QStringLiteral("nvrPlaybackTemplate")).toString().trimmed();
         settings.endGroup();
 
         for (int i = 0; i < m_cameraButtons.size(); ++i) {
@@ -1504,6 +1507,7 @@ void MainWindow::persistSystemSettings() const
     settings.setValue(QStringLiteral("mainFps"), m_sharedCameraSettings.mainFps > 0
                                                    ? m_sharedCameraSettings.mainFps
                                                    : kDefaultMainStreamFps);
+    settings.setValue(QStringLiteral("nvrPlaybackTemplate"), m_sharedCameraSettings.nvrPlaybackTemplate.trimmed());
     settings.endGroup();
 
     settings.beginGroup(QStringLiteral("capture"));
@@ -2995,11 +2999,15 @@ void MainWindow::refreshHistory()
         headerActionsLayout->setContentsMargins(0, 0, 0, 0);
         headerActionsLayout->setSpacing(6);
         headerActions->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+        const bool hasNvrPlayback = !buildNvrPlaybackUrl(m_sharedCameraSettings,
+                                                         m_cameraSlotSettings,
+                                                         record).url.trimmed().isEmpty();
 
         auto *playButton = new QPushButton(QStringLiteral("回看视频"), card);
         playButton->setProperty("role", "secondaryButton");
         configureStableButton(playButton, kHistoryActionButtonWidth, 32, QSize(0, 0));
-        playButton->setEnabled(!record.videoSource.trimmed().isEmpty()
+        playButton->setEnabled(hasNvrPlayback
+                               || !record.videoSource.trimmed().isEmpty()
                                || !record.videoFallbackSource.trimmed().isEmpty());
         connect(playButton, &QPushButton::clicked, this, [this, record]() {
             openSessionVideo(record);
@@ -3072,7 +3080,9 @@ void MainWindow::refreshHistory()
                                              .arg(record.trainingPhase.isEmpty() ? QStringLiteral("未填写") : record.trainingPhase)
                                              .arg(record.goal.isEmpty() ? QStringLiteral("未填写") : record.goal)
                                              .arg(record.notes.isEmpty() ? QStringLiteral("未填写") : record.notes)
-                                             .arg(displayMediaSource(record.videoSource))
+                                             .arg(hasNvrPlayback
+                                                      ? QStringLiteral("NVR 回放已配置")
+                                                      : displayMediaSource(record.videoSource))
                                              .arg(record.feedback),
                                          card);
         feedbackLabel->setWordWrap(true);
@@ -3164,10 +3174,11 @@ void MainWindow::refreshHistory()
                 auto *clipButton = new QPushButton(QStringLiteral("定位片段"), row);
                 clipButton->setProperty("role", "secondaryButton");
                 configureStableButton(clipButton, kHistoryActionButtonWidth, 32, QSize(0, 0));
-                clipButton->setEnabled(!record.videoSource.trimmed().isEmpty()
+                clipButton->setEnabled(hasNvrPlayback
+                                       || !record.videoSource.trimmed().isEmpty()
                                        || !record.videoFallbackSource.trimmed().isEmpty());
                 connect(clipButton, &QPushButton::clicked, this, [this, record, repetition]() {
-                    openSessionVideo(record, repetition.videoClipStartMs);
+                    openSessionVideo(record, repetition.videoClipStartMs, repetition.videoClipEndMs);
                 });
 
                 rowLayout->addWidget(detailLabel, 1);
@@ -3331,11 +3342,19 @@ void MainWindow::refreshSuggestions()
                       nextTrainingText);
 }
 
-void MainWindow::openSessionVideo(const SessionHistoryItem &record, int offsetMs)
+void MainWindow::openSessionVideo(const SessionHistoryItem &record, int offsetMs, int endOffsetMs)
 {
-    const QString source = !record.videoSource.trimmed().isEmpty()
-                               ? record.videoSource.trimmed()
-                               : record.videoFallbackSource.trimmed();
+    const NvrPlaybackResult nvr = buildNvrPlaybackUrl(m_sharedCameraSettings,
+                                                      m_cameraSlotSettings,
+                                                      record,
+                                                      offsetMs > 0 ? offsetMs : -1,
+                                                      endOffsetMs);
+    const bool useNvr = !nvr.url.trimmed().isEmpty();
+    const QString source = useNvr
+                               ? nvr.url.trimmed()
+                               : (!record.videoSource.trimmed().isEmpty()
+                                      ? record.videoSource.trimmed()
+                                      : record.videoFallbackSource.trimmed());
     if (source.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("暂无视频引用"), QStringLiteral("这条训练记录没有保存可回看的视频引用。"));
         return;
@@ -3385,14 +3404,19 @@ void MainWindow::openSessionVideo(const SessionHistoryItem &record, int offsetMs
 
     QString offsetTip;
     if (offsetMs > 0) {
-        if (sourceIsUrl) {
+        if (useNvr) {
+            offsetTip = QStringLiteral("。已打开 NVR 片段窗口 %1-%2。")
+                            .arg(formatMilliseconds(nvr.startOffsetMs),
+                                 formatMilliseconds(nvr.endOffsetMs));
+        } else if (sourceIsUrl) {
             offsetTip = QStringLiteral("。RTSP/网络视频暂不支持自动定位，已打开视频源；片段起点 %1 可作为人工回看参考。")
                             .arg(formatMilliseconds(offsetMs));
         } else {
             offsetTip = QStringLiteral("。已请求定位到片段起点 %1。").arg(formatMilliseconds(offsetMs));
         }
     }
-    ui->saveTipLabel->setText(QStringLiteral("正在回看：%1%2").arg(displayMediaSource(source), offsetTip));
+    const QString sourceKind = useNvr ? QStringLiteral("NVR 回放") : displayMediaSource(source);
+    ui->saveTipLabel->setText(QStringLiteral("正在回看：%1%2").arg(sourceKind, offsetTip));
     ui->saveTipLabel->show();
 }
 

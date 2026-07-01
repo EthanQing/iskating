@@ -42,6 +42,7 @@ PostgreSQL schema 由 Alembic 管理，当前初始迁移为 `20260630_0001_init
 - `previewFps`
 - `mainPath`
 - `mainFps`
+- `nvrPlaybackTemplate`: NVR RTSP 回放 URL 模板，支持 `{user}`、`{password}`、`{ip}`、`{port}`、`{channel}`、`{start}`、`{end}`。
 
 ### `capture`
 
@@ -119,6 +120,7 @@ P1 轨迹拼接默认把 12 路相机按 5m 一段初始化为 CAM 01: 0-5m 至 
 - `video_source`: 保存时所选主分析机位的主码流或离线视频绝对路径。
 - `video_fallback_source`: 保存时所选机位的预览/回退码流引用。
 - `video_camera_name`: 保存时的机位显示名；离线模式为“离线视频 · 文件名”。
+- NVR 回放不新增字段；历史页和复盘校准使用 `started_at`、`duration_sec`、`camera` 以及 QSettings 中的 `cameraDefaults/nvrPlaybackTemplate` 生成回放 URL，模板不可用时回退到 `video_source`/`video_fallback_source`。
 - `coach_comment`: 单次训练教练批注。
 - `notes`: 训练备注；当前 UI 的训练情境面板、历史卡片和 Markdown/CSV/PDF 报告都会展示。
 

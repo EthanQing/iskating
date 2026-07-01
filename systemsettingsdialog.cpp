@@ -157,6 +157,12 @@ SystemSettingsDialog::SystemSettingsDialog(int cameraCount, QWidget *parent)
     populateFpsOptions(m_mainFpsComboBox);
     sharedForm->addRow(QStringLiteral("主码流 FPS"), m_mainFpsComboBox);
 
+    m_nvrPlaybackTemplateEdit = new QLineEdit(this);
+    m_nvrPlaybackTemplateEdit->setClearButtonEnabled(true);
+    m_nvrPlaybackTemplateEdit->setPlaceholderText(
+        QStringLiteral("rtsp://{user}:{password}@{ip}:{port}/Streaming/tracks/{channel}?starttime={start}&endtime={end}"));
+    sharedForm->addRow(QStringLiteral("NVR 回放模板"), m_nvrPlaybackTemplateEdit);
+
     layout->addLayout(sharedForm);
 
     auto *cameraTitle = new QLabel(QStringLiteral("12 路相机 IP"), this);
@@ -296,6 +302,9 @@ void SystemSettingsDialog::setSharedCameraSettings(const SharedCameraSettings &s
         const int mainFpsIndex = m_mainFpsComboBox->findData(settings.mainFps);
         m_mainFpsComboBox->setCurrentIndex(mainFpsIndex >= 0 ? mainFpsIndex : m_mainFpsComboBox->findData(120));
     }
+    if (m_nvrPlaybackTemplateEdit) {
+        m_nvrPlaybackTemplateEdit->setText(settings.nvrPlaybackTemplate.trimmed());
+    }
     if (m_fpsComboBox && m_mainFpsComboBox) {
         const int recordFps = m_mainFpsComboBox->currentData().toInt();
         const int recordFpsIndex = m_fpsComboBox->findData(recordFps);
@@ -322,6 +331,9 @@ SharedCameraSettings SystemSettingsDialog::sharedCameraSettings() const
     if (settings.mainFps <= 0) {
         settings.mainFps = 120;
     }
+    settings.nvrPlaybackTemplate = m_nvrPlaybackTemplateEdit
+                                       ? m_nvrPlaybackTemplateEdit->text().trimmed()
+                                       : QString();
     return settings;
 }
 
@@ -480,6 +492,20 @@ bool SystemSettingsDialog::validateAndAccept()
     }
     if (m_mainPathEdit) {
         m_mainPathEdit->setText(normalizeStoredPath(m_mainPathEdit->text()));
+    }
+    if (m_nvrPlaybackTemplateEdit) {
+        const QString templ = m_nvrPlaybackTemplateEdit->text().trimmed();
+        if (!templ.isEmpty()
+            && (!templ.contains(QStringLiteral("{ip}"))
+                || !templ.contains(QStringLiteral("{start}"))
+                || !templ.contains(QStringLiteral("{end}")))) {
+            QMessageBox::warning(this,
+                                 QStringLiteral("NVR 模板无效"),
+                                 QStringLiteral("NVR 回放模板至少需要包含 {ip}、{start} 和 {end} 占位符。"));
+            m_nvrPlaybackTemplateEdit->setFocus();
+            return false;
+        }
+        m_nvrPlaybackTemplateEdit->setText(templ);
     }
     return true;
 }

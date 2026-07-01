@@ -269,6 +269,7 @@ struct SessionHistoryItem
     QString actionCategory;
     int standardVersion = 1;
     QString time;
+    QDateTime startedAt;
     int duration = 0;
     int totalReps = 0;
     int validReps = 0;

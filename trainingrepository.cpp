@@ -344,6 +344,7 @@ SessionHistoryItem historyFromJson(const QJsonObject &object)
     item.actionCategory = jsonString(object, QStringLiteral("actionCategory"));
     item.standardVersion = jsonInt(object, QStringLiteral("standardVersion"), 1);
     item.time = jsonString(object, QStringLiteral("time"));
+    item.startedAt = dateTimeFromJson(object.value(QStringLiteral("startedAt")));
     item.duration = jsonInt(object, QStringLiteral("duration"));
     item.totalReps = jsonInt(object, QStringLiteral("totalReps"));
     item.validReps = jsonInt(object, QStringLiteral("validReps"));
