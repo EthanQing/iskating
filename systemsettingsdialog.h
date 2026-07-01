@@ -40,7 +40,9 @@ struct CapturePreferenceSettings
 };
 
 class QComboBox;
+class QLabel;
 class QLineEdit;
+class QPushButton;
 class QTableWidget;
 
 class SystemSettingsDialog : public FramelessDialog
@@ -61,6 +63,7 @@ private:
     bool validateAndAccept();
     void importCameraTemplate();
     void exportCameraTemplate();
+    void testCameraConnectivity();
 
     int m_cameraCount = 0;
     QLineEdit *m_usernameEdit = nullptr;
@@ -73,6 +76,7 @@ private:
     QLineEdit *m_nvrPlaybackTemplateEdit = nullptr;
     QComboBox *m_precisionComboBox = nullptr;
     QComboBox *m_fpsComboBox = nullptr;
+    QPushButton *m_connectivityTestButton = nullptr;
     QVector<QLineEdit *> m_ipEdits;
     QTableWidget *m_cameraFieldTable = nullptr;
 };

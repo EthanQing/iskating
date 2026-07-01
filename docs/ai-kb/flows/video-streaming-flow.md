@@ -11,11 +11,19 @@
 
 ## 触发条件
 
+- 用户在系统设置中点击“连通测试”。
 - 用户点击开始采集。
 - 用户在主视频标题栏点击“导入视频”并选择本地文件。
 - 用户双击某个摄像头小窗切换主视图。
 - 用户在训练历史复盘卡点击“回看视频”或“定位片段”。
 - `applyCameraSettingsToWidgets(true)` 恢复播放。
+
+配置阶段连通测试：
+
+1. `SystemSettingsDialog::testCameraConnectivity()` 读取当前表单的公共 RTSP 参数和 12 路 IP。
+2. `CameraConnectivityTester` 对每路非空 IP 生成预览流 RTSP URL，空 IP 直接标记未配置。
+3. 探测按 UDP 打开，失败后切换 TCP；成功后读取视频流信息和首帧。
+4. 结果表展示每路成功/失败、协议、分辨率、帧率和错误原因；结果不会保存到 QSettings，也不会影响正在播放的视频控件。
 
 ## 流程步骤
 

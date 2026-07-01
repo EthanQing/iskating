@@ -1,6 +1,7 @@
 #include "systemsettingsdialog.h"
 
 #include "cameraconfigtemplate.h"
+#include "cameraconnectivitytester.h"
 
 #include <QComboBox>
 #include <QAbstractItemView>
@@ -17,6 +18,7 @@
 #include <QPushButton>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QThread>
 #include <QVBoxLayout>
 
 namespace {
@@ -121,10 +123,13 @@ SystemSettingsDialog::SystemSettingsDialog(int cameraCount, QWidget *parent)
     templateButtonLayout->addStretch();
     auto *importTemplateButton = new QPushButton(QStringLiteral("导入模板"), this);
     auto *exportTemplateButton = new QPushButton(QStringLiteral("导出模板"), this);
+    m_connectivityTestButton = new QPushButton(QStringLiteral("连通测试"), this);
     importTemplateButton->setToolTip(QStringLiteral("从 JSON 文件导入公共 RTSP 参数和 12 路相机配置。"));
     exportTemplateButton->setToolTip(QStringLiteral("把当前公共 RTSP 参数和 12 路相机配置导出为 JSON 模板。"));
+    m_connectivityTestButton->setToolTip(QStringLiteral("按当前表单配置逐路测试 RTSP 预览流，结果不会自动保存。"));
     templateButtonLayout->addWidget(importTemplateButton);
     templateButtonLayout->addWidget(exportTemplateButton);
+    templateButtonLayout->addWidget(m_connectivityTestButton);
     layout->addLayout(templateButtonLayout);
 
     auto *sharedTitle = new QLabel(QStringLiteral("公共 RTSP 配置"), this);
@@ -266,6 +271,9 @@ SystemSettingsDialog::SystemSettingsDialog(int cameraCount, QWidget *parent)
     });
     connect(exportTemplateButton, &QPushButton::clicked, this, [this]() {
         exportCameraTemplate();
+    });
+    connect(m_connectivityTestButton, &QPushButton::clicked, this, [this]() {
+        testCameraConnectivity();
     });
     connect(m_mainFpsComboBox,
             &QComboBox::currentIndexChanged,
@@ -588,4 +596,142 @@ void SystemSettingsDialog::exportCameraTemplate()
     QMessageBox::information(this,
                              QStringLiteral("导出完成"),
                              QStringLiteral("摄像头配置模板已导出。"));
+}
+
+void SystemSettingsDialog::testCameraConnectivity()
+{
+    SharedCameraSettings shared = sharedCameraSettings();
+    QVector<CameraSlotSettings> cameras = cameraSlotSettings();
+
+    if (shared.previewPath.trimmed().isEmpty()) {
+        QMessageBox::warning(this,
+                             QStringLiteral("预览路径不能为空"),
+                             QStringLiteral("请先填写预览路径，再执行连通测试。"));
+        if (m_previewPathEdit) {
+            m_previewPathEdit->setFocus();
+        }
+        return;
+    }
+
+    auto *dialog = new QDialog(this);
+    dialog->setWindowTitle(QStringLiteral("批量连通测试"));
+    dialog->setMinimumSize(820, 460);
+    dialog->setWindowFlag(Qt::WindowCloseButtonHint, false);
+
+    auto *dialogLayout = new QVBoxLayout(dialog);
+    auto *summaryLabel = new QLabel(QStringLiteral("正在测试 0/%1 路相机...").arg(cameras.size()), dialog);
+    summaryLabel->setWordWrap(true);
+    dialogLayout->addWidget(summaryLabel);
+
+    auto *resultTable = new QTableWidget(cameras.size(), 7, dialog);
+    resultTable->setHorizontalHeaderLabels({
+        QStringLiteral("机位"),
+        QStringLiteral("IP"),
+        QStringLiteral("状态"),
+        QStringLiteral("协议"),
+        QStringLiteral("分辨率"),
+        QStringLiteral("帧率"),
+        QStringLiteral("结果")
+    });
+    resultTable->horizontalHeader()->setStretchLastSection(true);
+    resultTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    resultTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    resultTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    resultTable->setAlternatingRowColors(true);
+    for (int i = 0; i < cameras.size(); ++i) {
+        resultTable->setItem(i, 0, makeTableItem(QStringLiteral("CAM %1").arg(i + 1, 2, 10, QLatin1Char('0'))));
+        resultTable->setItem(i, 1, makeTableItem(cameras.at(i).ip.trimmed()));
+        resultTable->setItem(i, 2, makeTableItem(QStringLiteral("等待")));
+        resultTable->setItem(i, 3, makeTableItem(QStringLiteral("-")));
+        resultTable->setItem(i, 4, makeTableItem(QStringLiteral("-")));
+        resultTable->setItem(i, 5, makeTableItem(QStringLiteral("-")));
+        resultTable->setItem(i, 6, makeTableItem(QStringLiteral("-")));
+    }
+    dialogLayout->addWidget(resultTable);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, dialog);
+    buttons->button(QDialogButtonBox::Close)->setText(QStringLiteral("关闭"));
+    buttons->button(QDialogButtonBox::Close)->setEnabled(false);
+    dialogLayout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+
+    auto *thread = new QThread(dialog);
+    auto *tester = new CameraConnectivityTester(shared, cameras);
+    tester->moveToThread(thread);
+
+    if (m_connectivityTestButton) {
+        m_connectivityTestButton->setEnabled(false);
+    }
+
+    auto *successCount = new int(0);
+    auto *failedCount = new int(0);
+    auto *skippedCount = new int(0);
+    auto *threadRunning = new bool(true);
+
+    connect(thread, &QThread::started, tester, &CameraConnectivityTester::run);
+    connect(tester,
+            &CameraConnectivityTester::progress,
+            dialog,
+            [=](int completed, int total, const CameraConnectivityResult &result) {
+                if (result.cameraIndex < 0 || result.cameraIndex >= resultTable->rowCount()) {
+                    return;
+                }
+                if (result.success) {
+                    ++(*successCount);
+                } else if (result.skipped) {
+                    ++(*skippedCount);
+                } else {
+                    ++(*failedCount);
+                }
+
+                resultTable->setItem(result.cameraIndex, 1, makeTableItem(result.ip));
+                resultTable->setItem(result.cameraIndex, 2, makeTableItem(result.status));
+                resultTable->setItem(result.cameraIndex, 3, makeTableItem(result.transport));
+                resultTable->setItem(result.cameraIndex, 4, makeTableItem(result.resolution));
+                resultTable->setItem(result.cameraIndex, 5, makeTableItem(result.frameRate));
+                resultTable->setItem(result.cameraIndex, 6, makeTableItem(result.message));
+                summaryLabel->setText(QStringLiteral("正在测试 %1/%2 路相机；成功 %3，失败 %4，跳过 %5。")
+                                          .arg(completed)
+                                          .arg(total)
+                                          .arg(*successCount)
+                                          .arg(*failedCount)
+                                          .arg(*skippedCount));
+            });
+    connect(tester,
+            &CameraConnectivityTester::finished,
+            dialog,
+            [=](const QVector<CameraConnectivityResult> &) {
+                summaryLabel->setText(QStringLiteral("测试完成：成功 %1，失败 %2，跳过 %3。结果仅本次显示，不会自动写入配置。")
+                                          .arg(*successCount)
+                                          .arg(*failedCount)
+                                          .arg(*skippedCount));
+                buttons->button(QDialogButtonBox::Close)->setEnabled(true);
+                dialog->setWindowFlag(Qt::WindowCloseButtonHint, true);
+                dialog->show();
+                if (m_connectivityTestButton) {
+                    m_connectivityTestButton->setEnabled(true);
+                }
+                thread->quit();
+            });
+    connect(tester, &CameraConnectivityTester::finished, tester, &QObject::deleteLater);
+    connect(thread, &QThread::finished, dialog, [=]() {
+        *threadRunning = false;
+        thread->deleteLater();
+    });
+    connect(dialog, &QDialog::finished, dialog, [=]() {
+        if (m_connectivityTestButton) {
+            m_connectivityTestButton->setEnabled(true);
+        }
+        if (*threadRunning) {
+            thread->quit();
+            thread->wait(5000);
+        }
+        delete successCount;
+        delete failedCount;
+        delete skippedCount;
+        delete threadRunning;
+    });
+
+    thread->start();
+    dialog->exec();
 }
