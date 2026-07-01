@@ -1,11 +1,15 @@
 #include "systemsettingsdialog.h"
 
+#include "cameraconfigtemplate.h"
+
 #include <QComboBox>
 #include <QAbstractItemView>
 #include <QDialogButtonBox>
+#include <QFileDialog>
 #include <QFormLayout>
 #include <QGridLayout>
 #include <QHeaderView>
+#include <QHBoxLayout>
 #include <QIntValidator>
 #include <QLabel>
 #include <QLineEdit>
@@ -112,6 +116,16 @@ SystemSettingsDialog::SystemSettingsDialog(int cameraCount, QWidget *parent)
     auto *tipLabel = new QLabel(QStringLiteral("统一设置公共 RTSP 参数；每一路相机仅需填写 IP。"), this);
     tipLabel->setWordWrap(true);
     layout->addWidget(tipLabel);
+
+    auto *templateButtonLayout = new QHBoxLayout();
+    templateButtonLayout->addStretch();
+    auto *importTemplateButton = new QPushButton(QStringLiteral("导入模板"), this);
+    auto *exportTemplateButton = new QPushButton(QStringLiteral("导出模板"), this);
+    importTemplateButton->setToolTip(QStringLiteral("从 JSON 文件导入公共 RTSP 参数和 12 路相机配置。"));
+    exportTemplateButton->setToolTip(QStringLiteral("把当前公共 RTSP 参数和 12 路相机配置导出为 JSON 模板。"));
+    templateButtonLayout->addWidget(importTemplateButton);
+    templateButtonLayout->addWidget(exportTemplateButton);
+    layout->addLayout(templateButtonLayout);
 
     auto *sharedTitle = new QLabel(QStringLiteral("公共 RTSP 配置"), this);
     layout->addWidget(sharedTitle);
@@ -247,6 +261,12 @@ SystemSettingsDialog::SystemSettingsDialog(int cameraCount, QWidget *parent)
         }
     });
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    connect(importTemplateButton, &QPushButton::clicked, this, [this]() {
+        importCameraTemplate();
+    });
+    connect(exportTemplateButton, &QPushButton::clicked, this, [this]() {
+        exportCameraTemplate();
+    });
     connect(m_mainFpsComboBox,
             &QComboBox::currentIndexChanged,
             this,
@@ -508,4 +528,64 @@ bool SystemSettingsDialog::validateAndAccept()
         m_nvrPlaybackTemplateEdit->setText(templ);
     }
     return true;
+}
+
+void SystemSettingsDialog::importCameraTemplate()
+{
+    const QString filePath = QFileDialog::getOpenFileName(this,
+                                                          QStringLiteral("导入摄像头配置模板"),
+                                                          QString(),
+                                                          cameraConfigTemplateFileFilter());
+    if (filePath.trimmed().isEmpty()) {
+        return;
+    }
+
+    const CameraConfigTemplateResult result = loadCameraConfigTemplate(filePath, m_cameraCount);
+    if (!result.ok) {
+        QMessageBox::warning(this,
+                             QStringLiteral("导入失败"),
+                             result.error);
+        return;
+    }
+
+    const int answer = QMessageBox::question(this,
+                                             QStringLiteral("确认导入模板"),
+                                             QStringLiteral("将用模板内容覆盖当前系统设置表单，点击“保存”后才会写入本机配置。\n\n%1")
+                                                 .arg(cameraConfigTemplateSummary(result.data)),
+                                             QMessageBox::Yes | QMessageBox::No,
+                                             QMessageBox::No);
+    if (answer != QMessageBox::Yes) {
+        return;
+    }
+
+    setSharedCameraSettings(result.data.shared);
+    setCameraSlotSettings(result.data.cameras);
+    setCapturePreferenceSettings(result.data.capture);
+}
+
+void SystemSettingsDialog::exportCameraTemplate()
+{
+    const QString filePath = QFileDialog::getSaveFileName(this,
+                                                          QStringLiteral("导出摄像头配置模板"),
+                                                          QStringLiteral("camera-config-template.json"),
+                                                          cameraConfigTemplateFileFilter());
+    if (filePath.trimmed().isEmpty()) {
+        return;
+    }
+
+    QString errorMessage;
+    if (!saveCameraConfigTemplate(filePath,
+                                  sharedCameraSettings(),
+                                  capturePreferenceSettings(),
+                                  cameraSlotSettings(),
+                                  &errorMessage)) {
+        QMessageBox::warning(this,
+                             QStringLiteral("导出失败"),
+                             errorMessage);
+        return;
+    }
+
+    QMessageBox::information(this,
+                             QStringLiteral("导出完成"),
+                             QStringLiteral("摄像头配置模板已导出。"));
 }

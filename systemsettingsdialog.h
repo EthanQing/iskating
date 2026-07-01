@@ -59,6 +59,8 @@ public:
 
 private:
     bool validateAndAccept();
+    void importCameraTemplate();
+    void exportCameraTemplate();
 
     int m_cameraCount = 0;
     QLineEdit *m_usernameEdit = nullptr;

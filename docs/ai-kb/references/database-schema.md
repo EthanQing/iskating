@@ -29,6 +29,7 @@ QSettings schema 仍分散在读写代码中：
 
 - `MainWindow::loadCameraSettings()`
 - `MainWindow::persistSystemSettings()`
+摄像头 JSON 模板 schema 位于 `cameraconfigtemplate.cpp`，作为现场导入/导出交换格式；模板导入后仍写回 QSettings，不新增数据库表或字段。
 PostgreSQL schema 由 Alembic 管理，当前初始迁移为 `20260630_0001_initial_postgresql.py`。seed 数据在 FastAPI 启动时由 `seed_defaults()` 维护。旧 SQLite 数据通过一次性导入工具迁入，不再由桌面端启动时自动补列或迁移。
 
 ## 主要数据结构
@@ -74,6 +75,17 @@ PostgreSQL schema 由 Alembic 管理，当前初始迁移为 `20260630_0001_init
 - `compatibilityNote`
 
 P1 轨迹拼接默认把 12 路相机按 5m 一段初始化为 CAM 01: 0-5m 至 CAM 12: 55-60m。`fieldStartM/fieldEndM/lateralOffsetM` 会传给 `TrajectoryWidget` 做全场轨迹线性映射；`mountHeightM/yawDeg/pitchDeg` 先作为机位标定信息保存。
+
+### 摄像头 JSON 模板
+
+模板根对象字段：
+
+- `version`: 当前为 `1`。
+- `cameraDefaults`: 对应 `cameraDefaults` 中的公共 RTSP 参数。
+- `capture`: 对应 `capture` 中的分析偏好。
+- `cameras`: 相机数组，字段对应 `cameras/cameraXX` 的 IP、场地标定和备注。
+
+导入时少于 12 路会按默认场地段补齐，多于 12 路只导入前 12 路。模板可包含 `password`，应作为现场配置文件保护。
 
 ### PostgreSQL 连接
 

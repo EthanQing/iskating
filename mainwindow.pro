@@ -113,6 +113,7 @@ win32:msvc {
 
 SOURCES += \
     actionstandardscorer.cpp \
+    cameraconfigtemplate.cpp \
     d3d11videodevice.cpp \
     d3dframeextractor.cpp \
     d3dvideosurface.cpp \
@@ -139,6 +140,7 @@ SOURCES += \
 
 HEADERS += \
     actionstandardscorer.h \
+    cameraconfigtemplate.h \
     d3d11videodevice.h \
     d3dframe.h \
     d3dframeextractor.h \

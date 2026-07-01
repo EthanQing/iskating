@@ -37,6 +37,7 @@
 - 本地文件回放使用独立 `RtspStream`，不经过 `StreamRegistry` 共享；RTSP/网络源继续走共享低延迟流。
 - `D3DFrame::mediaTimeMs` 保存媒体时间戳，供 UI 查询当前位置、片段定位和逐帧回放使用。
 - 系统设置可配置 `cameraDefaults/nvrPlaybackTemplate`，支持 `{user}`、`{password}`、`{ip}`、`{port}`、`{channel}`、`{start}`、`{end}` 占位符。历史回看和复盘校准会优先按训练开始时间、训练时长和动作片段窗口生成 NVR RTSP 回放 URL；模板不可用时回退到保存的实时主码流/预览码流或离线文件。
+- 系统设置可导入/导出 JSON 摄像头配置模板，批量交换公共 RTSP 参数、预览/主码流路径、NVR 回放模板、12 路 IP 和场地标定。导入只更新设置表单，点击“保存”后才写入 QSettings 并刷新视频控件。
 
 ## 对外接口
 
@@ -103,6 +104,12 @@
 2. 修改 `SystemSettingsDialog` 时保持模板至少包含 `{ip}`、`{start}`、`{end}` 的校验。
 3. 历史页和复盘校准都复用 `buildNvrPlaybackUrl()`，不要在 UI 层重复拼接厂商 URL。
 
+### 调整摄像头配置模板
+
+1. 修改 `cameraconfigtemplate.cpp` 的 JSON 字段映射、默认值和校验。
+2. 修改 `SystemSettingsDialog::importCameraTemplate()` / `exportCameraTemplate()` 的交互入口。
+3. 保持模板作为交换格式，应用内部仍通过 `MainWindow::persistSystemSettings()` 写 QSettings。
+
 ## 注意事项
 
 - ⚠️ 高风险区域：当前没有通用软件解码 fallback。
@@ -111,6 +118,7 @@
 - 历史复盘的精确 seek、慢放和逐帧仅对本地离线视频可用；NVR/RTSP 网络回放按模板生成对应时间窗口的 RTSP 源，是否可 seek 取决于 NVR 能力。
 - ⚠️ 高风险区域：D3D11 设备是全局共享的，修改线程/生命周期要谨慎。
 - 不要在日志中直接打印未脱敏 RTSP URL。
+- 摄像头配置模板可写出 RTSP 密码；导入摘要和日志必须避免展示完整明文 URL。
 - `RtspStream::stop()` 等待 8 秒后会 terminate 线程，这是最后手段，修改时要考虑 FFmpeg 阻塞。
 - RTSP 断流状态依赖真实摄像头或可控 RTSP 服务验证；本地文件回放不能覆盖 UDP/TCP fallback 和长时间断流路径。
 

@@ -22,6 +22,7 @@
 - `trainingreviewdialog.cpp`: 复盘校准对话框，读写动作复核字段和动作标准参考视频。
 - `systemsettingsdialog.h`: `SharedCameraSettings`, `CameraSlotSettings`, `CapturePreferenceSettings`。
 - `systemsettingsdialog.cpp`: 系统设置对话框读写 settings struct。
+- `cameraconfigtemplate.h/.cpp`: 摄像头配置 JSON 模板导入/导出、校验和摘要。
 
 ## 当前设计
 
@@ -39,6 +40,8 @@
 - `capture/fps`
 - `cameras/camera01` 到 `cameras/camera12`
 - `trainingHistory` 数组
+
+系统设置支持把当前摄像头配置导出为 JSON 模板，也支持从 JSON 模板导入并预览摘要后覆盖设置对话框表单。模板只是现场批量配置交换格式，不替代 QSettings；用户点击“保存”后仍由 `persistSystemSettings()` 写入上述 key。
 
 `trainingHistory` 仅作为旧数据兼容来源。新版本启动时不会自动迁移本机 SQLite；切换前使用 `tools/import_sqlite_to_postgres.py` 将旧 `%APPDATA%/iSkating/iSkating Coach/iskating.db` 导入 PostgreSQL。
 
@@ -64,6 +67,12 @@ PostgreSQL 主要表：
 - `saveCameraSettings()`
 - `persistSystemSettings()`
 - `loadTrainingRecords()`
+
+摄像头模板通过独立 helper 使用：
+
+- `loadCameraConfigTemplate(filePath, cameraCount)`
+- `saveCameraConfigTemplate(filePath, shared, capture, cameras, errorMessage)`
+- `cameraConfigTemplateSummary(data)`
 
 训练业务数据通过 `TrainingRepository` 使用：
 
@@ -106,8 +115,9 @@ PostgreSQL 主要表：
 
 1. 修改 `SharedCameraSettings` 或 `CameraSlotSettings`。
 2. 修改 `SystemSettingsDialog` UI 和校验。
-3. 修改 `persistSystemSettings()` 和 `loadCameraSettings()`。
-4. 兼容已有 QSettings。
+3. 修改 `cameraconfigtemplate.cpp` 的 JSON 导入/导出映射和校验。
+4. 修改 `persistSystemSettings()` 和 `loadCameraSettings()`。
+5. 兼容已有 QSettings。
 
 ## 注意事项
 
@@ -116,6 +126,7 @@ PostgreSQL 主要表：
 - 默认服务地址来自 `QSettings server/baseUrl`，没有设置时为 `http://127.0.0.1:8000`；访问令牌保存到 `auth/accessToken`。
 - RTSP 密码会被持久化到本机设置。
 - 删除或重命名 key 会影响旧用户配置；应保留兼容读取。
+- 摄像头配置模板会包含 RTSP 密码，导入确认摘要和日志不得展示明文完整 RTSP URL。
 - 不再向 `trainingHistory` 写入新训练记录。
 - 复盘校准保存的是主码流/回退码流引用、动作片段时间窗口和关键帧姿态 JSON，不会录制、剪辑或复制视频文件；离线回看依赖原文件仍在本机，NVR 回看依赖 `cameraDefaults/nvrPlaybackTemplate` 能按机位和时间生成可访问 RTSP 回放 URL。
 - 默认动作标准 seed 只插入缺失项，不应覆盖用户本地编辑的阈值、权重、提示文案或参考视频。
