@@ -32,6 +32,28 @@ nmake release
 
 - `mainwindow.pro`
 
+## Release 发布目录清单
+
+默认可交付目录为 `x64/Release`。完成 Release 构建后，交付包至少应包含：
+
+- `iskating.exe`
+- Qt 运行时 DLL：至少包括 `Qt6Core.dll`, `Qt6Gui.dll`, `Qt6Widgets.dll`, `Qt6Network.dll`, `Qt6PrintSupport.dll`
+- Qt 插件目录：至少包括 `plugins/platforms/qwindows.dll`，以及 `windeployqt` 复制出的 `imageformats/`, `iconengines/`, `networkinformation/`, `styles/`, `tls/` 等运行时目录
+- FFmpeg DLL：`avcodec-62.dll`, `avformat-62.dll`, `avutil-60.dll`, `swresample-6.dll`, `swscale-9.dll`
+- TensorRT DLL：`nvinfer_10.dll`, `nvinfer_plugin_10.dll`, `nvinfer_vc_plugin_10.dll`, `nvinfer_dispatch_10.dll`, `nvinfer_lean_10.dll`, `nvonnxparser_10.dll`, `nvinfer_builder_resource_10.dll`
+- CUDA DLL：`cudart64_110.dll`, `cublas64_11.dll`, `cublasLt64_11.dll`, `cufft64_10.dll`, `cufftw64_10.dll`, `curand64_10.dll`, `cusolver64_11.dll`, `cusolverMg64_11.dll`, `cusparse64_11.dll`, `nvrtc64_112_0.dll`, `nvrtc-builtins64_118.dll`
+- `models/`：至少包括 `models/body` 与 `models/hand`；`models/body/rtmw3d-x.onnx` 如果未随源码仓库提供，需要在发布前补齐或明确 3D 姿态不可用
+- `vc_redist.x64.exe` 或目标机已安装匹配的 Microsoft Visual C++ Redistributable
+
+以下内容不应作为正式发布包的必要内容：
+
+- `obj/`, `moc/`, `rcc/`, `ui/` 等构建中间目录
+- `*.pdb`，除非本次交付明确包含调试符号
+- 本机临时日志，例如 `uia-enum-*.log`
+- TensorRT 生成的 `.engine` 缓存，除非已确认目标 GPU、驱动、TensorRT/CUDA 版本与构建机器一致
+
+交付前应在目标机或等效干净环境中复制 `x64/Release` 并启动 `iskating.exe`，确认 Qt 插件、FFmpeg、TensorRT/CUDA、模型目录和训练服务连接均可用。
+
 ## CI/CD 线索
 
 TODO: 未找到 `.github/workflows/`、其他 CI 配置、安装器脚本或发布脚本。
@@ -47,6 +69,7 @@ TODO: 未找到 `.github/workflows/`、其他 CI 配置、安装器脚本或发�
 - 确认 FFmpeg DLL 存在，例如 `avcodec-62.dll`, `avformat-62.dll`。
 - 确认 TensorRT/CUDA DLL 存在，例如 `nvinfer_10.dll`, `cudart64_110.dll`。
 - 确认 `models/body` 和 `models/hand` 已复制。
+- 确认未把构建中间目录、临时日志或未验证可跨机复用的 TensorRT engine 当作必要交付物。
 - 确认目标机器 GPU/驱动支持 TensorRT/CUDA/D3D11VA。
 - 确认 VC Redistributable 需求。
 
