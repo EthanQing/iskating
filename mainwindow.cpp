@@ -30,6 +30,7 @@
 #include <QFormLayout>
 #include <QFrame>
 #include <QGridLayout>
+#include <QHeaderView>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QInputDialog>
@@ -63,14 +64,20 @@
 #include <QTextDocument>
 #include <QTextStream>
 #include <QTime>
+#include <QTableWidget>
+#include <QTableWidgetItem>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
+#include <QAbstractItemView>
 
 #include <algorithm>
 #include <cmath>
 #include <functional>
 #include <utility>
+
+#include "xlsxdocument.h"
+#include "xlsxformat.h"
 
 namespace {
 
@@ -522,6 +529,72 @@ QString htmlParagraph(const QString &text)
                                 ? QStringLiteral("未填写")
                                 : text.toHtmlEscaped().replace(QLatin1Char('\n'), QStringLiteral("<br>"));
     return QStringLiteral("<p>%1</p>").arg(escaped);
+}
+
+QStringList repetitionExportHeaders()
+{
+    return {
+        QStringLiteral("session_id"),
+        QStringLiteral("repetition_id"),
+        QStringLiteral("time"),
+        QStringLiteral("athlete"),
+        QStringLiteral("coach"),
+        QStringLiteral("competition"),
+        QStringLiteral("race_name"),
+        QStringLiteral("event_name"),
+        QStringLiteral("heat_name"),
+        QStringLiteral("group_name"),
+        QStringLiteral("bib_number"),
+        QStringLiteral("lane_number"),
+        QStringLiteral("action"),
+        QStringLiteral("clip_start_ms"),
+        QStringLiteral("clip_end_ms"),
+        QStringLiteral("effective_start_ms"),
+        QStringLiteral("effective_end_ms"),
+        QStringLiteral("effective_valid"),
+        QStringLiteral("effective_score"),
+        QStringLiteral("ai_score"),
+        QStringLiteral("manual_score"),
+        QStringLiteral("review_status"),
+        QStringLiteral("source"),
+        QStringLiteral("effective_errors"),
+        QStringLiteral("effective_feedback"),
+        QStringLiteral("coach_note"),
+        QStringLiteral("video_source")
+    };
+}
+
+QStringList repetitionExportRow(const RepetitionSearchItem &item)
+{
+    return {
+        item.sessionId,
+        item.id,
+        item.time,
+        item.athleteName,
+        item.coachName.isEmpty() ? QStringLiteral("未指定") : item.coachName,
+        item.competitionName,
+        item.raceName,
+        item.eventName,
+        item.heatName,
+        item.groupName,
+        item.bibNumber,
+        item.laneNumber,
+        QStringLiteral("%1/%2").arg(item.actionCategory, item.actionName),
+        QString::number(item.videoClipStartMs),
+        QString::number(item.videoClipEndMs),
+        QString::number(item.effectiveStartedMsValue),
+        QString::number(item.effectiveEndedMsValue),
+        boolText(item.effectiveValidValue),
+        QString::number(item.effectiveScoreValue),
+        QString::number(item.score),
+        item.manualScore >= 0 ? QString::number(item.manualScore) : QString(),
+        reviewStatusLabel(item),
+        sourceLabel(item),
+        issueSummary(item.effectiveErrorCodesValue),
+        item.effectiveFeedbackValue,
+        item.coachNote,
+        displayMediaSource(item.videoSource)
+    };
 }
 
 void configureStableButton(QPushButton *button,
@@ -1317,10 +1390,11 @@ void MainWindow::installHistorySearchPanel()
 
     auto *searchButton = new QPushButton(QStringLiteral("查询"), m_historySearchPanel);
     auto *resetButton = new QPushButton(QStringLiteral("重置"), m_historySearchPanel);
+    auto *repetitionSearchButton = new QPushButton(QStringLiteral("动作检索"), m_historySearchPanel);
     auto *manageCompetitionsButton = new QPushButton(QStringLiteral("比赛管理"), m_historySearchPanel);
     m_historyPreviousPageButton = new QPushButton(QStringLiteral("上一页"), m_historySearchPanel);
     m_historyNextPageButton = new QPushButton(QStringLiteral("下一页"), m_historySearchPanel);
-    for (QPushButton *button : {searchButton, resetButton, manageCompetitionsButton, m_historyPreviousPageButton, m_historyNextPageButton}) {
+    for (QPushButton *button : {searchButton, resetButton, repetitionSearchButton, manageCompetitionsButton, m_historyPreviousPageButton, m_historyNextPageButton}) {
         button->setProperty("role", "secondaryButton");
         configureStableButton(button, kHistoryActionButtonWidth, 32, QSize(0, 0));
     }
@@ -1352,9 +1426,10 @@ void MainWindow::installHistorySearchPanel()
     grid->addWidget(m_historySortComboBox, 2, 10, 1, 2);
     grid->addWidget(searchButton, 2, 12);
     grid->addWidget(resetButton, 2, 13);
-    grid->addWidget(manageCompetitionsButton, 2, 14);
-    grid->addWidget(m_historyPreviousPageButton, 2, 15);
-    grid->addWidget(m_historyNextPageButton, 2, 16);
+    grid->addWidget(repetitionSearchButton, 2, 14);
+    grid->addWidget(manageCompetitionsButton, 2, 15);
+    grid->addWidget(m_historyPreviousPageButton, 2, 16);
+    grid->addWidget(m_historyNextPageButton, 2, 17);
 
     panelLayout->addLayout(grid);
     ui->historyPageLayout->insertWidget(1, m_historySearchPanel);
@@ -1368,6 +1443,7 @@ void MainWindow::installHistorySearchPanel()
         refreshSuggestions();
     });
     connect(resetButton, &QPushButton::clicked, this, [this]() { resetHistorySearch(); });
+    connect(repetitionSearchButton, &QPushButton::clicked, this, [this]() { openRepetitionSearchDialog(); });
     connect(manageCompetitionsButton, &QPushButton::clicked, this, [this]() { openCompetitionManagement(); });
     connect(m_historyCompetitionComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
         reloadHistorySearchOptions();
@@ -3292,6 +3368,366 @@ void MainWindow::stopCapture()
         videoWidget->stopPlayback();
     }
     refreshCameraButtons();
+}
+
+void MainWindow::openRepetitionSearchDialog()
+{
+    if (!m_trainingRepository || !m_trainingRepository->isOpen()) {
+        QMessageBox::warning(this, QStringLiteral("动作检索"), QStringLiteral("训练数据库未就绪。"));
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("动作明细检索"));
+    dialog.resize(1180, 720);
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *grid = new QGridLayout();
+    grid->setHorizontalSpacing(8);
+    grid->setVerticalSpacing(6);
+
+    auto *athleteCombo = new QComboBox(&dialog);
+    auto *coachCombo = new QComboBox(&dialog);
+    auto *actionCombo = new QComboBox(&dialog);
+    auto *competitionCombo = new QComboBox(&dialog);
+    auto *eventCombo = new QComboBox(&dialog);
+    auto *sourceTypeCombo = new QComboBox(&dialog);
+    auto *validCombo = new QComboBox(&dialog);
+    auto *reviewCombo = new QComboBox(&dialog);
+    auto *repSourceCombo = new QComboBox(&dialog);
+    auto *errorEdit = new QLineEdit(&dialog);
+    auto *minScore = new QSpinBox(&dialog);
+    auto *maxScore = new QSpinBox(&dialog);
+    auto *clipFrom = new QSpinBox(&dialog);
+    auto *clipTo = new QSpinBox(&dialog);
+    auto *fromCheck = new QCheckBox(QStringLiteral("开始"), &dialog);
+    auto *toCheck = new QCheckBox(QStringLiteral("结束"), &dialog);
+    auto *fromDate = new QDateEdit(QDate::currentDate().addMonths(-1), &dialog);
+    auto *toDate = new QDateEdit(QDate::currentDate(), &dialog);
+    auto *statusLabel = new QLabel(QStringLiteral("共 0 条"), &dialog);
+    auto *table = new QTableWidget(&dialog);
+    auto *queryButton = new QPushButton(QStringLiteral("查询"), &dialog);
+    auto *resetButton = new QPushButton(QStringLiteral("重置"), &dialog);
+    auto *exportCsvButton = new QPushButton(QStringLiteral("导出 CSV"), &dialog);
+    auto *exportXlsxButton = new QPushButton(QStringLiteral("导出 XLSX"), &dialog);
+
+    athleteCombo->addItem(QStringLiteral("全部运动员"), QString());
+    for (const AthleteProfile &athlete : std::as_const(m_athletes)) {
+        athleteCombo->addItem(athlete.name, athlete.id);
+    }
+    coachCombo->addItem(QStringLiteral("全部教练"), QString());
+    for (const CoachProfile &coach : std::as_const(m_coaches)) {
+        coachCombo->addItem(coach.name, coach.id);
+    }
+    actionCombo->addItem(QStringLiteral("全部动作"), QString());
+    for (const ActionStandard &standard : std::as_const(m_actionStandards)) {
+        actionCombo->addItem(QStringLiteral("%1 · %2").arg(standard.categoryName, standard.name), standard.id);
+    }
+    competitionCombo->addItem(QStringLiteral("全部比赛"), QString());
+    for (const Competition &competition : std::as_const(m_competitions)) {
+        competitionCombo->addItem(competition.name, competition.id);
+    }
+    sourceTypeCombo->addItem(QStringLiteral("全部来源"), QString());
+    sourceTypeCombo->addItem(QStringLiteral("训练"), QStringLiteral("training"));
+    sourceTypeCombo->addItem(QStringLiteral("比赛"), QStringLiteral("competition"));
+    sourceTypeCombo->addItem(QStringLiteral("导入视频"), QStringLiteral("offline_import"));
+    validCombo->addItem(QStringLiteral("全部有效性"), QStringLiteral("all"));
+    validCombo->addItem(QStringLiteral("有效"), QStringLiteral("valid"));
+    validCombo->addItem(QStringLiteral("无效"), QStringLiteral("invalid"));
+    reviewCombo->addItem(QStringLiteral("全部复核"), QString());
+    reviewCombo->addItem(QStringLiteral("未复核"), QStringLiteral("unreviewed"));
+    reviewCombo->addItem(QStringLiteral("已复核"), QStringLiteral("reviewed"));
+    reviewCombo->addItem(QStringLiteral("已调整"), QStringLiteral("adjusted"));
+    repSourceCombo->addItem(QStringLiteral("全部动作来源"), QString());
+    repSourceCombo->addItem(QStringLiteral("AI"), QStringLiteral("ai"));
+    repSourceCombo->addItem(QStringLiteral("教练手动"), QStringLiteral("coach"));
+    errorEdit->setPlaceholderText(QStringLiteral("错误项/反馈/教练备注关键词"));
+    for (QSpinBox *spin : {minScore, maxScore}) {
+        spin->setRange(-1, 100);
+        spin->setSpecialValueText(QStringLiteral("不限"));
+        spin->setValue(-1);
+    }
+    for (QSpinBox *spin : {clipFrom, clipTo}) {
+        spin->setRange(-1, 24 * 60 * 60 * 1000);
+        spin->setSpecialValueText(QStringLiteral("不限"));
+        spin->setValue(-1);
+        spin->setSuffix(QStringLiteral(" ms"));
+    }
+    for (QDateEdit *dateEdit : {fromDate, toDate}) {
+        dateEdit->setCalendarPopup(true);
+        dateEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd"));
+        dateEdit->setEnabled(false);
+    }
+
+    auto reloadEvents = [&]() {
+        const QString previous = eventCombo->currentData().toString();
+        eventCombo->clear();
+        eventCombo->addItem(QStringLiteral("全部场次"), QString());
+        const QString competitionId = competitionCombo->currentData().toString();
+        for (const CompetitionEvent &event : std::as_const(m_competitionEvents)) {
+            if (!competitionId.isEmpty() && event.competitionId != competitionId) {
+                continue;
+            }
+            eventCombo->addItem(QStringLiteral("%1 / %2 / %3 / %4")
+                                    .arg(event.raceName.isEmpty() ? QStringLiteral("未填场次") : event.raceName,
+                                         event.eventName.isEmpty() ? QStringLiteral("未填项目") : event.eventName,
+                                         event.heatName.isEmpty() ? QStringLiteral("未填轮次") : event.heatName,
+                                         event.groupName.isEmpty() ? QStringLiteral("未填分组") : event.groupName),
+                                event.id);
+        }
+        const int index = eventCombo->findData(previous);
+        eventCombo->setCurrentIndex(index >= 0 ? index : 0);
+    };
+    reloadEvents();
+
+    grid->addWidget(new QLabel(QStringLiteral("运动员"), &dialog), 0, 0);
+    grid->addWidget(athleteCombo, 0, 1);
+    grid->addWidget(new QLabel(QStringLiteral("教练"), &dialog), 0, 2);
+    grid->addWidget(coachCombo, 0, 3);
+    grid->addWidget(new QLabel(QStringLiteral("动作"), &dialog), 0, 4);
+    grid->addWidget(actionCombo, 0, 5);
+    grid->addWidget(new QLabel(QStringLiteral("比赛"), &dialog), 1, 0);
+    grid->addWidget(competitionCombo, 1, 1);
+    grid->addWidget(new QLabel(QStringLiteral("场次"), &dialog), 1, 2);
+    grid->addWidget(eventCombo, 1, 3);
+    grid->addWidget(new QLabel(QStringLiteral("来源"), &dialog), 1, 4);
+    grid->addWidget(sourceTypeCombo, 1, 5);
+    grid->addWidget(new QLabel(QStringLiteral("有效性"), &dialog), 2, 0);
+    grid->addWidget(validCombo, 2, 1);
+    grid->addWidget(new QLabel(QStringLiteral("复核"), &dialog), 2, 2);
+    grid->addWidget(reviewCombo, 2, 3);
+    grid->addWidget(new QLabel(QStringLiteral("动作来源"), &dialog), 2, 4);
+    grid->addWidget(repSourceCombo, 2, 5);
+    grid->addWidget(new QLabel(QStringLiteral("分数"), &dialog), 3, 0);
+    grid->addWidget(minScore, 3, 1);
+    grid->addWidget(maxScore, 3, 2);
+    grid->addWidget(new QLabel(QStringLiteral("片段"), &dialog), 3, 3);
+    grid->addWidget(clipFrom, 3, 4);
+    grid->addWidget(clipTo, 3, 5);
+    grid->addWidget(fromCheck, 4, 0);
+    grid->addWidget(fromDate, 4, 1);
+    grid->addWidget(toCheck, 4, 2);
+    grid->addWidget(toDate, 4, 3);
+    grid->addWidget(new QLabel(QStringLiteral("关键词"), &dialog), 4, 4);
+    grid->addWidget(errorEdit, 4, 5);
+    layout->addLayout(grid);
+
+    auto *buttonRow = new QHBoxLayout();
+    buttonRow->addWidget(statusLabel, 1);
+    buttonRow->addWidget(queryButton);
+    buttonRow->addWidget(resetButton);
+    buttonRow->addWidget(exportCsvButton);
+    buttonRow->addWidget(exportXlsxButton);
+    layout->addLayout(buttonRow);
+
+    table->setColumnCount(10);
+    table->setHorizontalHeaderLabels({QStringLiteral("时间"),
+                                      QStringLiteral("运动员"),
+                                      QStringLiteral("动作"),
+                                      QStringLiteral("比赛/场次"),
+                                      QStringLiteral("片段"),
+                                      QStringLiteral("有效分"),
+                                      QStringLiteral("有效性"),
+                                      QStringLiteral("错误项"),
+                                      QStringLiteral("反馈"),
+                                      QStringLiteral("视频")});
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setAlternatingRowColors(true);
+    table->horizontalHeader()->setStretchLastSection(true);
+    layout->addWidget(table, 1);
+
+    QVector<RepetitionSearchItem> currentItems;
+    RepetitionSearchFilters currentFilters;
+    const int pageSize = 200;
+
+    auto filtersFromUi = [&]() {
+        RepetitionSearchFilters filters;
+        filters.athleteId = athleteCombo->currentData().toString();
+        filters.coachId = coachCombo->currentData().toString();
+        filters.actionStandardId = actionCombo->currentData().toString();
+        filters.competitionId = competitionCombo->currentData().toString();
+        filters.competitionEventId = eventCombo->currentData().toString();
+        filters.sourceType = sourceTypeCombo->currentData().toString();
+        filters.validState = validCombo->currentData().toString();
+        filters.reviewStatus = reviewCombo->currentData().toString();
+        filters.repetitionSource = repSourceCombo->currentData().toString();
+        filters.errorText = errorEdit->text();
+        if (fromCheck->isChecked()) {
+            filters.savedFrom = QDateTime(fromDate->date(), QTime(0, 0, 0));
+        }
+        if (toCheck->isChecked()) {
+            filters.savedTo = QDateTime(toDate->date(), QTime(23, 59, 59, 999));
+        }
+        filters.minScore = minScore->value();
+        filters.maxScore = maxScore->value();
+        filters.clipFromMs = clipFrom->value();
+        filters.clipToMs = clipTo->value();
+        if (filters.minScore >= 0 && filters.maxScore >= 0 && filters.minScore > filters.maxScore) {
+            std::swap(filters.minScore, filters.maxScore);
+        }
+        if (filters.clipFromMs >= 0 && filters.clipToMs >= 0 && filters.clipFromMs > filters.clipToMs) {
+            std::swap(filters.clipFromMs, filters.clipToMs);
+        }
+        return filters;
+    };
+
+    auto fillTable = [&]() {
+        table->setRowCount(currentItems.size());
+        for (int row = 0; row < currentItems.size(); ++row) {
+            const RepetitionSearchItem &item = currentItems.at(row);
+            const QString competition = QStringLiteral("%1 / %2")
+                                            .arg(item.competitionName.trimmed().isEmpty() ? QStringLiteral("未关联比赛") : item.competitionName.trimmed(),
+                                                 item.raceName.trimmed().isEmpty() ? QStringLiteral("未关联场次") : item.raceName.trimmed());
+            const QString clip = QStringLiteral("%1-%2")
+                                     .arg(formatMilliseconds(item.effectiveStartedMsValue),
+                                          formatMilliseconds(item.effectiveEndedMsValue));
+            const QStringList values = {item.time,
+                                        item.athleteName,
+                                        QStringLiteral("%1/%2").arg(item.actionCategory, item.actionName),
+                                        competition,
+                                        clip,
+                                        QString::number(item.effectiveScoreValue),
+                                        boolText(item.effectiveValidValue),
+                                        issueSummary(item.effectiveErrorCodesValue),
+                                        item.effectiveFeedbackValue,
+                                        displayMediaSource(item.videoSource)};
+            for (int col = 0; col < values.size(); ++col) {
+                auto *cell = new QTableWidgetItem(values.at(col));
+                if (col == 5) {
+                    cell->setTextAlignment(Qt::AlignCenter);
+                }
+                table->setItem(row, col, cell);
+            }
+        }
+        table->resizeColumnsToContents();
+    };
+
+    auto runQuery = [&]() {
+        currentFilters = filtersFromUi();
+        SessionSearchPage page;
+        page.pageNumber = 1;
+        page.pageSize = pageSize;
+        const RepetitionSearchResult result = m_trainingRepository->searchRepetitions(currentFilters, page);
+        currentItems = result.items;
+        statusLabel->setText(QStringLiteral("显示 %1 条 · 共 %2 条").arg(currentItems.size()).arg(result.totalCount));
+        fillTable();
+    };
+
+    auto fetchAll = [&]() {
+        QVector<RepetitionSearchItem> all;
+        SessionSearchPage page;
+        page.pageSize = 1000;
+        for (page.pageNumber = 1; page.pageNumber <= 1000; ++page.pageNumber) {
+            const RepetitionSearchResult result = m_trainingRepository->searchRepetitions(currentFilters, page);
+            all += result.items;
+            if (all.size() >= result.totalCount || result.items.isEmpty()) {
+                break;
+            }
+        }
+        return all;
+    };
+
+    auto writeCsv = [&](const QString &filePath, const QVector<RepetitionSearchItem> &items) {
+        QFile file(filePath);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            return false;
+        }
+        QTextStream out(&file);
+        out.setEncoding(QStringConverter::Utf8);
+        QStringList headers;
+        for (const QString &header : repetitionExportHeaders()) {
+            headers << csvField(header);
+        }
+        out << headers.join(QLatin1Char(',')) << "\n";
+        for (const RepetitionSearchItem &item : items) {
+            QStringList row;
+            for (const QString &value : repetitionExportRow(item)) {
+                row << csvField(value);
+            }
+            out << row.join(QLatin1Char(',')) << "\n";
+        }
+        return true;
+    };
+
+    auto writeXlsx = [&](const QString &filePath, const QVector<RepetitionSearchItem> &items) {
+        QXlsx::Document xlsx;
+        QXlsx::Format headerFormat;
+        headerFormat.setFontBold(true);
+        headerFormat.setPatternBackgroundColor(QColor(QStringLiteral("#eef3f9")));
+        const QStringList headers = repetitionExportHeaders();
+        for (int col = 0; col < headers.size(); ++col) {
+            xlsx.write(1, col + 1, headers.at(col), headerFormat);
+            xlsx.setColumnWidth(col + 1, 18);
+        }
+        for (int row = 0; row < items.size(); ++row) {
+            const QStringList values = repetitionExportRow(items.at(row));
+            for (int col = 0; col < values.size(); ++col) {
+                xlsx.write(row + 2, col + 1, values.at(col));
+            }
+        }
+        return xlsx.saveAs(filePath);
+    };
+
+    auto exportData = [&](const QString &suffix) {
+        currentFilters = filtersFromUi();
+        const QVector<RepetitionSearchItem> all = fetchAll();
+        const QString filter = suffix == QStringLiteral("xlsx") ? QStringLiteral("Excel 工作簿 (*.xlsx)") : QStringLiteral("CSV (*.csv)");
+        QString filePath = QFileDialog::getSaveFileName(&dialog,
+                                                        QStringLiteral("导出动作明细"),
+                                                        QDir::homePath() + QStringLiteral("/repetitions.") + suffix,
+                                                        filter);
+        if (filePath.isEmpty()) {
+            return;
+        }
+        filePath = withFileSuffix(filePath, suffix);
+        const bool ok = suffix == QStringLiteral("xlsx") ? writeXlsx(filePath, all) : writeCsv(filePath, all);
+        if (!ok) {
+            QMessageBox::warning(&dialog, QStringLiteral("导出失败"), QStringLiteral("无法写入文件。"));
+            return;
+        }
+        statusLabel->setText(QStringLiteral("已导出 %1 条：%2").arg(all.size()).arg(QDir::toNativeSeparators(filePath)));
+    };
+
+    connect(competitionCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), &dialog, reloadEvents);
+    connect(fromCheck, &QCheckBox::toggled, fromDate, &QDateEdit::setEnabled);
+    connect(toCheck, &QCheckBox::toggled, toDate, &QDateEdit::setEnabled);
+    connect(queryButton, &QPushButton::clicked, &dialog, runQuery);
+    connect(resetButton, &QPushButton::clicked, &dialog, [&]() {
+        athleteCombo->setCurrentIndex(0);
+        coachCombo->setCurrentIndex(0);
+        actionCombo->setCurrentIndex(0);
+        competitionCombo->setCurrentIndex(0);
+        sourceTypeCombo->setCurrentIndex(0);
+        validCombo->setCurrentIndex(0);
+        reviewCombo->setCurrentIndex(0);
+        repSourceCombo->setCurrentIndex(0);
+        minScore->setValue(-1);
+        maxScore->setValue(-1);
+        clipFrom->setValue(-1);
+        clipTo->setValue(-1);
+        errorEdit->clear();
+        fromCheck->setChecked(false);
+        toCheck->setChecked(false);
+        runQuery();
+    });
+    connect(exportCsvButton, &QPushButton::clicked, &dialog, [&]() { exportData(QStringLiteral("csv")); });
+    connect(exportXlsxButton, &QPushButton::clicked, &dialog, [&]() { exportData(QStringLiteral("xlsx")); });
+    connect(table, &QTableWidget::cellDoubleClicked, &dialog, [&](int row, int) {
+        if (row < 0 || row >= currentItems.size()) {
+            return;
+        }
+        const RepetitionSearchItem item = currentItems.at(row);
+        SessionHistoryItem record;
+        record.id = item.sessionId;
+        record.startedAt = item.startedAt;
+        record.videoSource = item.videoSource;
+        record.videoFallbackSource = item.videoFallbackSource;
+        record.videoCameraName = item.videoCameraName;
+        openSessionVideo(record, item.videoClipStartMs, item.videoClipEndMs);
+    });
+
+    runQuery();
+    dialog.exec();
 }
 
 // 保存当前训练记录；后续可在此持久化训练时长、动作数量和模型评分。

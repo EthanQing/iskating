@@ -1312,6 +1312,163 @@ def repetition_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def effective_repetition_row(row: dict[str, Any]) -> dict[str, Any]:
+    item = repetition_row(row)
+    item.update({
+        "time": row["saved_at"].strftime("%Y-%m-%d %H:%M:%S") if row.get("saved_at") else "",
+        "startedAt": row["session_started_at"].isoformat() if row.get("session_started_at") else "",
+        "athleteId": str(row["athlete_id"]),
+        "athleteName": row.get("athlete_name") or "",
+        "coachId": str(row["coach_id"] or ""),
+        "coachName": row.get("coach_name") or "",
+        "competitionId": str(row["competition_id"] or ""),
+        "competitionName": row.get("competition_name") or "",
+        "competitionEventId": str(row["competition_event_id"] or ""),
+        "raceName": row.get("race_name") or "",
+        "eventName": row.get("event_name") or "",
+        "heatName": row.get("heat_name") or "",
+        "groupName": row.get("group_name") or "",
+        "eventAthleteId": str(row["event_athlete_id"] or ""),
+        "bibNumber": row.get("bib_number") or "",
+        "laneNumber": row.get("lane_number") or "",
+        "actionName": row.get("action_name") or "",
+        "actionCategory": row.get("action_category") or "",
+        "videoSource": row.get("video_source") or "",
+        "videoFallbackSource": row.get("video_fallback_source") or "",
+        "videoCameraName": row.get("video_camera_name") or "",
+        "sessionSourceType": row.get("source_type") or "training",
+        "sessionSourceRef": row.get("source_ref") or "",
+        "effectiveStartedMs": row["effective_started_ms"],
+        "effectiveEndedMs": row["effective_ended_ms"],
+        "effectiveValid": bool(row["effective_valid"]),
+        "effectiveScore": row["effective_score"],
+        "effectiveDetectionScore": row["effective_detection_score"],
+        "effectiveSymmetryScore": row["effective_symmetry_score"],
+        "effectiveBalanceScore": row["effective_balance_score"],
+        "effectiveStabilityScore": row["effective_stability_score"],
+        "effectiveDepthScore": row["effective_depth_score"],
+        "effectiveErrorCodes": row["effective_error_codes"] if isinstance(row["effective_error_codes"], str) else "",
+        "effectiveFeedback": row.get("effective_feedback") or "",
+    })
+    return item
+
+
+@app.get("/training/repetitions")
+def search_repetitions(
+    sessionId: str = "",
+    athleteId: str = "",
+    coachId: str = "",
+    actionStandardId: str = "",
+    competitionId: str = "",
+    competitionEventId: str = "",
+    eventAthleteId: str = "",
+    sourceType: str = "",
+    validState: str = "all",
+    reviewStatus: str = "",
+    repetitionSource: str = "",
+    minScore: int = -1,
+    maxScore: int = -1,
+    savedFrom: str = "",
+    savedTo: str = "",
+    clipFromMs: int = -1,
+    clipToMs: int = -1,
+    errorText: str = "",
+    pageNumber: int = 1,
+    pageSize: int = 50,
+    db: Session = Depends(db_session),
+    _: dict[str, Any] = Depends(require_user),
+) -> dict[str, Any]:
+    where: list[str] = []
+    args: dict[str, Any] = {}
+    for query_name, column in [
+        ("sessionId", "session_id"),
+        ("athleteId", "athlete_id"),
+        ("coachId", "coach_id"),
+        ("actionStandardId", "action_standard_id"),
+        ("competitionId", "competition_id"),
+        ("competitionEventId", "competition_event_id"),
+        ("eventAthleteId", "event_athlete_id"),
+    ]:
+        value = locals()[query_name]
+        if value:
+            where.append(f"{column} = :{query_name}")
+            args[query_name] = parse_uuid(value)
+    if sourceType:
+        where.append("source_type = :sourceType")
+        args["sourceType"] = sourceType
+    if reviewStatus:
+        where.append("review_status = :reviewStatus")
+        args["reviewStatus"] = reviewStatus
+    if repetitionSource:
+        where.append("source = :repetitionSource")
+        args["repetitionSource"] = repetitionSource
+    if savedFrom:
+        where.append("saved_at >= :savedFrom")
+        args["savedFrom"] = parse_dt(savedFrom)
+    if savedTo:
+        where.append("saved_at <= :savedTo")
+        args["savedTo"] = parse_dt(savedTo)
+    if validState == "valid":
+        where.append("effective_valid = true")
+    elif validState == "invalid":
+        where.append("effective_valid = false")
+    if minScore >= 0:
+        where.append("effective_score >= :minScore")
+        args["minScore"] = minScore
+    if maxScore >= 0:
+        where.append("effective_score <= :maxScore")
+        args["maxScore"] = maxScore
+    if clipFromMs >= 0:
+        where.append("video_clip_end_ms >= :clipFromMs")
+        args["clipFromMs"] = clipFromMs
+    if clipToMs >= 0:
+        where.append("video_clip_start_ms <= :clipToMs")
+        args["clipToMs"] = clipToMs
+    if errorText.strip():
+        where.append("(COALESCE(effective_error_codes, '') ILIKE :errorText OR COALESCE(effective_feedback, '') ILIKE :errorText OR COALESCE(coach_note, '') ILIKE :errorText)")
+        args["errorText"] = f"%{errorText.strip()}%"
+    where_sql = "WHERE " + " AND ".join(where) if where else ""
+    from_sql = (
+        "FROM ("
+        "SELECT ar.*, ts.athlete_id, ts.coach_id, ts.competition_id, ts.competition_event_id, ts.event_athlete_id, "
+        "ts.saved_at, ts.started_at AS session_started_at, ts.video_source, ts.video_fallback_source, "
+        "ts.video_camera_name, ts.source_type, ts.source_ref, "
+        "a.name AS athlete_name, COALESCE(c.name, '') AS coach_name, COALESCE(comp.name, '') AS competition_name, "
+        "COALESCE(ce.race_name, '') AS race_name, COALESCE(ce.event_name, '') AS event_name, "
+        "COALESCE(ce.heat_name, '') AS heat_name, COALESCE(ce.group_name, '') AS group_name, "
+        "COALESCE(ea.bib_number, '') AS bib_number, COALESCE(ea.lane_number, '') AS lane_number, "
+        "s.name AS action_name, ac.name AS action_category, "
+        "COALESCE(ar.manual_started_ms, ar.started_ms) AS effective_started_ms, "
+        "COALESCE(ar.manual_ended_ms, ar.ended_ms) AS effective_ended_ms, "
+        "COALESCE(ar.manual_valid, ar.valid) AS effective_valid, "
+        "COALESCE(ar.manual_score, ar.score) AS effective_score, "
+        "COALESCE((ar.manual_scores->>'detection')::int, (ar.scores->>'detection')::int, 0) AS effective_detection_score, "
+        "COALESCE((ar.manual_scores->>'symmetry')::int, (ar.scores->>'symmetry')::int, 0) AS effective_symmetry_score, "
+        "COALESCE((ar.manual_scores->>'balance')::int, (ar.scores->>'balance')::int, 0) AS effective_balance_score, "
+        "COALESCE((ar.manual_scores->>'stability')::int, (ar.scores->>'stability')::int, 0) AS effective_stability_score, "
+        "COALESCE((ar.manual_scores->>'depth')::int, (ar.scores->>'depth')::int, 0) AS effective_depth_score, "
+        "COALESCE(NULLIF(ar.manual_error_codes #>> '{}', ''), ar.error_codes #>> '{}', '') AS effective_error_codes, "
+        "COALESCE(NULLIF(ar.manual_feedback, ''), ar.feedback, '') AS effective_feedback "
+        "FROM action_repetitions ar JOIN training_sessions ts ON ts.id = ar.session_id "
+        "JOIN athletes a ON a.id = ts.athlete_id LEFT JOIN coaches c ON c.id = ts.coach_id "
+        "LEFT JOIN competitions comp ON comp.id = ts.competition_id "
+        "LEFT JOIN competition_events ce ON ce.id = ts.competition_event_id "
+        "LEFT JOIN event_athletes ea ON ea.id = ts.event_athlete_id "
+        "JOIN action_standards s ON s.id = ar.action_standard_id "
+        "JOIN action_categories ac ON ac.id = s.category_id"
+        ") rep "
+    )
+    total = int(db.execute(text(f"SELECT COUNT(*) {from_sql} {where_sql}"), args).scalar() or 0)
+    page_size = max(1, min(pageSize, 1000))
+    page_number = min(max(1, pageNumber), max(1, (total + page_size - 1) // page_size))
+    args.update({"limit": page_size, "offset": (page_number - 1) * page_size})
+    rows = db.execute(
+        text(f"SELECT * {from_sql} {where_sql} ORDER BY saved_at DESC, effective_started_ms ASC, id DESC LIMIT :limit OFFSET :offset"),
+        args,
+    ).mappings()
+    return {"items": [effective_repetition_row(dict(row)) for row in rows], "totalCount": total, "pageNumber": page_number, "pageSize": page_size}
+
+
 @app.get("/training/sessions/{session_id}/repetitions")
 def repetitions(session_id: str,
                 db: Session = Depends(db_session),

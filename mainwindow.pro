@@ -35,6 +35,8 @@ include(common.pri)
 
 QT += core gui widgets svg network printsupport
 
+include(third_party/QXlsx/QXlsx/QXlsx.pri)
+
 FFMPEG_ROOT = $$(FFMPEG_ROOT)
 isEmpty(FFMPEG_ROOT) {
     FFMPEG_ROOT = C:/Users/qc/zm/ffmpeg-8.0.1-full_build-shared

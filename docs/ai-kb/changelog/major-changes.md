@@ -35,3 +35,4 @@
 - 完成 F-16 比赛基础信息：新增 `competitions` PostgreSQL 表和 `training_sessions.competition_id`，桌面端支持比赛管理、训练归属比赛、历史按比赛筛选，以及 Markdown/CSV/PDF 报告展示比赛信息。
 - 完成 F-17 场次分组与参赛关系：新增 `competition_events`、`event_athletes` 和训练 session 场次/参赛外键，桌面端比赛管理可维护场次/分组与参赛运动员，采集页可按比赛选择场次，历史筛选和 Markdown/CSV/PDF 报告展示场次、分组、参赛号、道次、成绩和名次。
 - 完成 F-18 分析结果归属：新增 session 级 `source_type/source_ref`，训练记录自动归属为训练、比赛或导入视频，历史页支持来源筛选，历史卡和 Markdown/CSV/PDF 报告展示分析归属。
+- 完成 F-20 动作明细检索与导出：新增跨 session 动作实例检索 API 和历史页动作检索对话框，支持按有效性、错误项、分数、时间和片段筛选，并可导出 CSV/XLSX；引入 vendored QXlsx 用于 XLSX 写入。

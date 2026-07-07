@@ -93,9 +93,11 @@ PostgreSQL 主要表：
 - `createManualRepetition()`
 - `saveActionStandard()`
 - `recalculateSessionSummary()`
-- `searchSessions()`, `recentSessions()`, `repetitionsForSession()`, `trendForRecentDays()`, `baselineFor()`
+- `searchSessions()`, `searchRepetitions()`, `recentSessions()`, `repetitionsForSession()`, `trendForRecentDays()`, `baselineFor()`
 
 `searchSessions(filters, page, sort)` 是历史页组合检索入口，按运动员、教练、比赛、场次、参赛关系、分析来源、动作标准、保存时间、分数区间和比赛关键词分页查询 `training_sessions`。比赛关键词匹配 `competitions.name/location/competition_type/notes`、`competition_events.race_name/event_name/heat_name/group_name/notes`、`event_athletes.bib_number/lane_number/notes`、`training_sessions.source_type/source_ref` 以及 `training_sessions.site/training_phase/goal/notes/feedback/coach_comment`。`recentSessions(limit)` 保留兼容，内部按保存时间倒序读取第一页。
+
+`searchRepetitions(filters, page)` 是跨 session 动作实例检索入口，通过 `training_sessions` 与 `action_repetitions` 联查，支持按 session、人员、比赛/场次、动作、来源、有效性、复核状态、分数区间、训练时间、动作片段时间和错误项关键词检索。筛选和展示默认使用“人工优先”的有效值；历史页动作明细检索对话框可将当前筛选结果导出为 CSV 或 XLSX。
 
 `trendForRecentDays(days)` 用 `training_sessions.saved_at` 做最近 N 天窗口统计，返回训练次数、session 均分、最佳分和动作完成数；动作完成数优先来自 `action_repetitions` 数量，旧记录没有动作明细时退回 `training_sessions.total_reps`。弱项分项均值优先来自动作实例的人工有效分项分，没有动作实例分项时退回 session 分项分。
 
@@ -143,5 +145,5 @@ PostgreSQL 主要表：
 
 ## 未确认问题
 
-- TODO: 未确认是否需要 Excel 或可导入第三方训练系统的专用格式；当前支持 Markdown、CSV 明细和 PDF 复盘报告。
+- TODO: 未确认是否需要可导入第三方训练系统的专用格式；当前支持 Markdown、CSV 明细、PDF 复盘报告，以及跨 session 动作明细 CSV/XLSX 导出。
 - TODO: 未确认 QSettings 中密码是否需要加密。

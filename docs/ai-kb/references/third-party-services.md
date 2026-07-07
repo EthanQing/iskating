@@ -53,4 +53,5 @@ TODO: 未发现日志收集或监控服务。代码使用 `qDebug()` 和 `qWarni
 - Direct3D 11 / DXGI / D3DCompiler：`mainwindow.pro`, `d3dvideosurface.cpp`
 - TensorRT 10.1：`mainwindow.pro`, `tensorrtrunner.cpp`
 - CUDA 11.8：`mainwindow.pro`, `tensorrtrunner.cpp`
+- QXlsx vendored 源码：`third_party/QXlsx`, `mainwindow.pro`；MIT license，用于动作明细 XLSX 导出。
 - ONNX 模型：`models/body/`, `models/hand/`

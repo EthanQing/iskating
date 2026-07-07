@@ -36,6 +36,8 @@ public:
     SessionSearchResult searchSessions(const SessionSearchFilters &filters,
                                        const SessionSearchPage &page,
                                        const SessionSearchSort &sort) const;
+    RepetitionSearchResult searchRepetitions(const RepetitionSearchFilters &filters,
+                                             const SessionSearchPage &page) const;
     QVector<SessionHistoryItem> recentSessions(int limit) const;
     QVector<ActionRepetition> repetitionsForSession(const QString &sessionId) const;
     QVector<ActionRepetition> reviewedRepetitionsForSession(const QString &sessionId) const;

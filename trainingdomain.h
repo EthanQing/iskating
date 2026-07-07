@@ -399,4 +399,72 @@ struct SessionSearchResult
     int pageSize = 10;
 };
 
+struct RepetitionSearchFilters
+{
+    QString sessionId;
+    QString athleteId;
+    QString coachId;
+    QString actionStandardId;
+    QString competitionId;
+    QString competitionEventId;
+    QString eventAthleteId;
+    QString sourceType;
+    QString validState;
+    QString reviewStatus;
+    QString repetitionSource;
+    QDateTime savedFrom;
+    QDateTime savedTo;
+    QString errorText;
+    int minScore = -1;
+    int maxScore = -1;
+    int clipFromMs = -1;
+    int clipToMs = -1;
+};
+
+struct RepetitionSearchItem : ActionRepetition
+{
+    QString time;
+    QDateTime startedAt;
+    QString athleteId;
+    QString athleteName;
+    QString coachId;
+    QString coachName;
+    QString competitionId;
+    QString competitionName;
+    QString competitionEventId;
+    QString raceName;
+    QString eventName;
+    QString heatName;
+    QString groupName;
+    QString eventAthleteId;
+    QString bibNumber;
+    QString laneNumber;
+    QString actionName;
+    QString actionCategory;
+    QString videoSource;
+    QString videoFallbackSource;
+    QString videoCameraName;
+    QString sessionSourceType;
+    QString sessionSourceRef;
+    int effectiveStartedMsValue = 0;
+    int effectiveEndedMsValue = 0;
+    bool effectiveValidValue = false;
+    int effectiveScoreValue = 0;
+    int effectiveDetectionScoreValue = 0;
+    int effectiveSymmetryScoreValue = 0;
+    int effectiveBalanceScoreValue = 0;
+    int effectiveStabilityScoreValue = 0;
+    int effectiveDepthScoreValue = 0;
+    QString effectiveErrorCodesValue;
+    QString effectiveFeedbackValue;
+};
+
+struct RepetitionSearchResult
+{
+    QVector<RepetitionSearchItem> items;
+    int totalCount = 0;
+    int pageNumber = 1;
+    int pageSize = 50;
+};
+
 #endif // TRAININGDOMAIN_H

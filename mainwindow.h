@@ -76,6 +76,7 @@ private:
     void addCoachFromDialog();
     void openPersonManagement();
     void openCompetitionManagement();
+    void openRepetitionSearchDialog();
     ActionStandard selectedActionStandard() const;
     QString selectedAthleteId() const;
     QString selectedCoachId() const;

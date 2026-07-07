@@ -434,6 +434,47 @@ ActionRepetition repetitionFromJson(const QJsonObject &object)
     return repetition;
 }
 
+RepetitionSearchItem repetitionSearchItemFromJson(const QJsonObject &object)
+{
+    RepetitionSearchItem item;
+    static_cast<ActionRepetition &>(item) = repetitionFromJson(object);
+    item.time = jsonString(object, QStringLiteral("time"));
+    item.startedAt = dateTimeFromJson(object.value(QStringLiteral("startedAt")));
+    item.athleteId = jsonString(object, QStringLiteral("athleteId"));
+    item.athleteName = jsonString(object, QStringLiteral("athleteName"));
+    item.coachId = jsonString(object, QStringLiteral("coachId"));
+    item.coachName = jsonString(object, QStringLiteral("coachName"));
+    item.competitionId = jsonString(object, QStringLiteral("competitionId"));
+    item.competitionName = jsonString(object, QStringLiteral("competitionName"));
+    item.competitionEventId = jsonString(object, QStringLiteral("competitionEventId"));
+    item.raceName = jsonString(object, QStringLiteral("raceName"));
+    item.eventName = jsonString(object, QStringLiteral("eventName"));
+    item.heatName = jsonString(object, QStringLiteral("heatName"));
+    item.groupName = jsonString(object, QStringLiteral("groupName"));
+    item.eventAthleteId = jsonString(object, QStringLiteral("eventAthleteId"));
+    item.bibNumber = jsonString(object, QStringLiteral("bibNumber"));
+    item.laneNumber = jsonString(object, QStringLiteral("laneNumber"));
+    item.actionName = jsonString(object, QStringLiteral("actionName"));
+    item.actionCategory = jsonString(object, QStringLiteral("actionCategory"));
+    item.videoSource = jsonString(object, QStringLiteral("videoSource"));
+    item.videoFallbackSource = jsonString(object, QStringLiteral("videoFallbackSource"));
+    item.videoCameraName = jsonString(object, QStringLiteral("videoCameraName"));
+    item.sessionSourceType = jsonString(object, QStringLiteral("sessionSourceType"));
+    item.sessionSourceRef = jsonString(object, QStringLiteral("sessionSourceRef"));
+    item.effectiveStartedMsValue = jsonInt(object, QStringLiteral("effectiveStartedMs"));
+    item.effectiveEndedMsValue = jsonInt(object, QStringLiteral("effectiveEndedMs"));
+    item.effectiveValidValue = object.value(QStringLiteral("effectiveValid")).toBool(false);
+    item.effectiveScoreValue = jsonInt(object, QStringLiteral("effectiveScore"));
+    item.effectiveDetectionScoreValue = jsonInt(object, QStringLiteral("effectiveDetectionScore"));
+    item.effectiveSymmetryScoreValue = jsonInt(object, QStringLiteral("effectiveSymmetryScore"));
+    item.effectiveBalanceScoreValue = jsonInt(object, QStringLiteral("effectiveBalanceScore"));
+    item.effectiveStabilityScoreValue = jsonInt(object, QStringLiteral("effectiveStabilityScore"));
+    item.effectiveDepthScoreValue = jsonInt(object, QStringLiteral("effectiveDepthScore"));
+    item.effectiveErrorCodesValue = jsonString(object, QStringLiteral("effectiveErrorCodes"));
+    item.effectiveFeedbackValue = jsonString(object, QStringLiteral("effectiveFeedback"));
+    return item;
+}
+
 SessionHistoryItem historyFromJson(const QJsonObject &object)
 {
     SessionHistoryItem item;
@@ -936,6 +977,60 @@ SessionSearchResult TrainingRepository::searchSessions(const SessionSearchFilter
     const QJsonArray items = response.value(QStringLiteral("items")).toArray();
     for (const QJsonValue &value : items) {
         result.items.append(historyFromJson(value.toObject()));
+    }
+    return result;
+}
+
+RepetitionSearchResult TrainingRepository::searchRepetitions(const RepetitionSearchFilters &filters,
+                                                             const SessionSearchPage &page) const
+{
+    RepetitionSearchResult result;
+    QVariantMap query{
+        {QStringLiteral("sessionId"), filters.sessionId},
+        {QStringLiteral("athleteId"), filters.athleteId},
+        {QStringLiteral("coachId"), filters.coachId},
+        {QStringLiteral("actionStandardId"), filters.actionStandardId},
+        {QStringLiteral("competitionId"), filters.competitionId},
+        {QStringLiteral("competitionEventId"), filters.competitionEventId},
+        {QStringLiteral("eventAthleteId"), filters.eventAthleteId},
+        {QStringLiteral("sourceType"), filters.sourceType},
+        {QStringLiteral("validState"), filters.validState.isEmpty() ? QStringLiteral("all") : filters.validState},
+        {QStringLiteral("reviewStatus"), filters.reviewStatus},
+        {QStringLiteral("repetitionSource"), filters.repetitionSource},
+        {QStringLiteral("errorText"), filters.errorText},
+        {QStringLiteral("pageNumber"), page.pageNumber},
+        {QStringLiteral("pageSize"), page.pageSize}
+    };
+    if (filters.savedFrom.isValid()) {
+        query.insert(QStringLiteral("savedFrom"), dateTimeToIso(filters.savedFrom));
+    }
+    if (filters.savedTo.isValid()) {
+        query.insert(QStringLiteral("savedTo"), dateTimeToIso(filters.savedTo));
+    }
+    if (filters.minScore >= 0) {
+        query.insert(QStringLiteral("minScore"), filters.minScore);
+    }
+    if (filters.maxScore >= 0) {
+        query.insert(QStringLiteral("maxScore"), filters.maxScore);
+    }
+    if (filters.clipFromMs >= 0) {
+        query.insert(QStringLiteral("clipFromMs"), filters.clipFromMs);
+    }
+    if (filters.clipToMs >= 0) {
+        query.insert(QStringLiteral("clipToMs"), filters.clipToMs);
+    }
+
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("GET"), QStringLiteral("/training/repetitions"), {}, query, &ok, nullptr);
+    if (!ok) {
+        return result;
+    }
+    result.totalCount = jsonInt(response, QStringLiteral("totalCount"));
+    result.pageNumber = jsonInt(response, QStringLiteral("pageNumber"), 1);
+    result.pageSize = jsonInt(response, QStringLiteral("pageSize"), 50);
+    const QJsonArray items = response.value(QStringLiteral("items")).toArray();
+    for (const QJsonValue &value : items) {
+        result.items.append(repetitionSearchItemFromJson(value.toObject()));
     }
     return result;
 }
