@@ -110,6 +110,19 @@ struct EventAthlete
     bool active = true;
 };
 
+struct TrainingSessionParticipant
+{
+    QString id;
+    QString sessionId;
+    QString athleteId;
+    QString athleteName;
+    int slotIndex = 1;
+    QString role = QStringLiteral("participant");
+    QString trackLabel;
+    QString notes;
+    bool active = true;
+};
+
 struct ActionStandard
 {
     QString id;
@@ -188,6 +201,9 @@ struct ActionRepetition
 {
     QString id;
     QString sessionId;
+    QString participantId;
+    QString athleteId;
+    QString athleteName;
     QString actionStandardId;
     int standardVersion = 1;
     int startedMs = 0;
@@ -221,6 +237,12 @@ struct ActionRepetition
     QString manualFeedback;
     QString coachNote;
     QString keyFramePoseJson;
+    int trackId = -1;
+    int cameraId = -1;
+    qint64 frameTimeMs = -1;
+    QString identityStatus = QStringLiteral("unknown");
+    double identityConfidence = -1.0;
+    QString identitySource;
 
     bool hasManualReview() const
     {
@@ -303,6 +325,7 @@ struct TrainingSession
     QString feedback;
     QString notes;
     QString coachComment;
+    QVector<TrainingSessionParticipant> participants;
 };
 
 struct SessionHistoryItem
@@ -366,6 +389,7 @@ struct SessionHistoryItem
     QString feedback;
     QString notes;
     QString coachComment;
+    QVector<TrainingSessionParticipant> participants;
 };
 
 struct TrainingBaseline
@@ -427,6 +451,7 @@ struct RepetitionSearchItem : ActionRepetition
     QDateTime startedAt;
     QString athleteId;
     QString athleteName;
+    QString participantId;
     QString coachId;
     QString coachName;
     QString competitionId;

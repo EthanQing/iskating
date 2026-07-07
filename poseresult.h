@@ -39,6 +39,11 @@ struct PoseKeypoint
 struct PoseInstance
 {
     int trackId = -1;
+    QString athleteId;
+    QString participantId;
+    QString identityStatus = QStringLiteral("unknown");
+    float identityConfidence = 0.0f;
+    QString identitySource;
     PoseSkeletonType skeletonType = PoseSkeletonType::Unknown;
     PoseInstanceKind kind = PoseInstanceKind::Unknown;
     QVector<PoseKeypoint> keypoints;

@@ -367,13 +367,16 @@ def import_data(sqlite_path: Path, database_url: str) -> dict[str, int]:
                      scores, error_codes, feedback, key_frame_ms, video_clip_start_ms, video_clip_end_ms,
                      source, review_status, reviewer_coach_id, reviewed_at, manual_started_ms, manual_ended_ms,
                      manual_valid, manual_score, manual_scores, manual_error_codes, manual_feedback, coach_note,
-                     key_frame_pose)
+                     key_frame_pose, participant_id, athlete_id, track_id, camera_id, frame_time_ms,
+                     identity_status, identity_confidence, identity_source)
                     VALUES (%(id)s, %(session_id)s, %(action_standard_id)s, %(standard_version)s, %(started_ms)s,
                             %(ended_ms)s, %(valid)s, %(score)s, %(scores)s, %(error_codes)s, %(feedback)s,
                             %(key_frame_ms)s, %(video_clip_start_ms)s, %(video_clip_end_ms)s, %(source)s,
                             %(review_status)s, %(reviewer_coach_id)s, %(reviewed_at)s, %(manual_started_ms)s,
                             %(manual_ended_ms)s, %(manual_valid)s, %(manual_score)s, %(manual_scores)s,
-                            %(manual_error_codes)s, %(manual_feedback)s, %(coach_note)s, %(key_frame_pose)s)
+                            %(manual_error_codes)s, %(manual_feedback)s, %(coach_note)s, %(key_frame_pose)s,
+                            %(participant_id)s, %(athlete_id)s, %(track_id)s, %(camera_id)s, %(frame_time_ms)s,
+                            %(identity_status)s, %(identity_confidence)s, %(identity_source)s)
                     ON CONFLICT (id) DO UPDATE SET review_status=excluded.review_status,
                     manual_started_ms=excluded.manual_started_ms, manual_ended_ms=excluded.manual_ended_ms,
                     manual_valid=excluded.manual_valid, manual_score=excluded.manual_score,
@@ -408,6 +411,14 @@ def import_data(sqlite_path: Path, database_url: str) -> dict[str, int]:
                         "manual_feedback": row["manual_feedback"],
                         "coach_note": row["coach_note"],
                         "key_frame_pose": Jsonb(json_text(row["key_frame_pose_json"])),
+                        "participant_id": None,
+                        "athlete_id": None,
+                        "track_id": None,
+                        "camera_id": None,
+                        "frame_time_ms": None,
+                        "identity_status": "unknown",
+                        "identity_confidence": None,
+                        "identity_source": None,
                     },
                 )
                 counts["action_repetitions"] = counts.get("action_repetitions", 0) + 1

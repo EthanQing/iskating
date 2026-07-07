@@ -24,6 +24,7 @@
 ## 当前设计
 
 - `PoseFrameResult` 是跨 AI、渲染、评分模块的统一交换格式。
+- `PoseInstance` 带 `athleteId`, `participantId`, `identityStatus`, `identityConfidence`, `identitySource`，用于承接多人身份/轨迹协议；`PoseFrameResult.timestampMs` 是保存到动作明细中的 `frameTimeMs`。
 - 主流程使用 `PoseSkeletonType::Body17`。
 - RTMW3D 成功后，关键点会带 `point3d` 和 `hasPoint3d`。
 - `PoseStandardnessScorer` 维护上一帧，用于计算稳定性。
@@ -32,6 +33,7 @@
 - `ActionStandardScorer` 复用通用分项分，再按动作标准中的权重、最低分和纠错提示生成 `ActionAssessment`。
 - `ActionRepetitionTracker` 通过动作标准中的髋/膝屈伸阈值和防抖时间识别一次动作，并输出动作明细。
 - 每次自动识别动作会保留最低分/关键错误帧对应的 `PoseFrameResult`，保存训练记录时序列化为 `ActionRepetition::keyFramePoseJson`，供复盘校准姿态叠加使用。
+- `PoseIdentityResolver` 在推理结果进入 UI/评分前补全身份字段：算法已写入身份时保留，未写入时按人工绑定的 `cameraId + trackId` 映射到 session participant，仍无法识别时标记 `unknown`。
 - 人工复核字段不会覆盖 AI 原始姿态评分；复盘、趋势和报告按“人工优先”读取有效分数，AI 原始分仍用于追溯模型表现。
 
 ## 对外接口
@@ -43,6 +45,7 @@
 - `poseSkeletonBones(skeletonType)`
 - `poseSkeletonTypeName(skeletonType)`
 - `poseInstanceKindName(kind)`
+- `PoseIdentityResolver::resolve(frame)`
 - `TrajectoryWidget::setCameraSegments(segments)`
 
 ## 常见修改任务
@@ -79,6 +82,7 @@
 - `PoseStandardnessScorer` 内部保存上一帧，复用同一 scorer 实例时注意状态延续。
 - 当前仍未做动作类型自动分类；必须先在训练上下文中手动选择动作标准。动作实例可由阈值规则自动计数，也可在复盘校准中人工新增或修正。
 - 关键帧姿态 JSON 是复盘辅助数据，不是视频帧缓存；它不能替代原视频，也不会复制或裁剪媒体文件。
+- 当前 YOLO 人体检测生成的 `trackId` 来自当帧检测排序，只是临时轨迹标识，不是跨帧 ReID；F-21 第一版只提供协议、人工绑定和算法接入壳子。
 - 当前多机位轨迹重建使用线性场地段映射：画面纵向位置映射到相机覆盖距离，画面横向位置映射到横向偏移。它能覆盖 12 路分段拼接的 P1 需求，但还不是基于相机内外参、畸变参数或 homography 的精标定。
 
 ## 相关流程

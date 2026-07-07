@@ -94,6 +94,11 @@ PoseFrameResult poseFrameFromJson(const QString &json)
         const QJsonObject instanceObject = instanceValue.toObject();
         PoseInstance instance;
         instance.trackId = instanceObject.value(QStringLiteral("trackId")).toInt();
+        instance.athleteId = instanceObject.value(QStringLiteral("athleteId")).toString();
+        instance.participantId = instanceObject.value(QStringLiteral("participantId")).toString();
+        instance.identityStatus = instanceObject.value(QStringLiteral("identityStatus")).toString(QStringLiteral("unknown"));
+        instance.identityConfidence = static_cast<float>(instanceObject.value(QStringLiteral("identityConfidence")).toDouble());
+        instance.identitySource = instanceObject.value(QStringLiteral("identitySource")).toString();
         instance.skeletonType = static_cast<PoseSkeletonType>(instanceObject.value(QStringLiteral("skeletonType")).toInt());
         instance.kind = static_cast<PoseInstanceKind>(instanceObject.value(QStringLiteral("kind")).toInt());
         instance.confidence = static_cast<float>(instanceObject.value(QStringLiteral("confidence")).toDouble());

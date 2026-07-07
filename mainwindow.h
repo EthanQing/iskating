@@ -1,6 +1,7 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
+#include "poseresult.h"
 #include "systemsettingsdialog.h"
 #include "trainingdomain.h"
 
@@ -20,7 +21,7 @@ class QLineEdit;
 class QSpinBox;
 class QPlainTextEdit;
 class PoseStandardnessScorer;
-struct PoseFrameResult;
+class PoseIdentityResolver;
 class QEvent;
 class QProgressBar;
 class QPushButton;
@@ -77,12 +78,14 @@ private:
     void openPersonManagement();
     void openCompetitionManagement();
     void openRepetitionSearchDialog();
+    void openTrackBindingDialog();
     ActionStandard selectedActionStandard() const;
     QString selectedAthleteId() const;
     QString selectedCoachId() const;
     QString selectedCompetitionId() const;
     QString selectedCompetitionEventId() const;
     QString selectedEventAthleteId() const;
+    QVector<TrainingSessionParticipant> currentSessionParticipants() const;
     void resetCurrentTrainingSession();
     void recordCompletedRepetition(const ActionRepetition &repetition);
     void importOfflineVideo();
@@ -148,6 +151,7 @@ private:
     std::unique_ptr<PoseStandardnessScorer> m_poseStandardnessScorer;
     std::unique_ptr<ActionStandardScorer> m_actionStandardScorer;
     std::unique_ptr<ActionRepetitionTracker> m_actionRepetitionTracker;
+    std::unique_ptr<PoseIdentityResolver> m_poseIdentityResolver;
     std::unique_ptr<TrainingRepository> m_trainingRepository;
     SkeletonViewWidget *m_skeletonView = nullptr;
     QWidget *m_trainingContextPanel = nullptr;
@@ -156,6 +160,8 @@ private:
     QComboBox *m_competitionComboBox = nullptr;
     QComboBox *m_competitionEventComboBox = nullptr;
     QComboBox *m_actionStandardComboBox = nullptr;
+    QVector<QComboBox *> m_participantComboBoxes;
+    QPushButton *m_trackBindingButton = nullptr;
     QLineEdit *m_siteLineEdit = nullptr;
     QComboBox *m_trainingPhaseComboBox = nullptr;
     QLineEdit *m_goalLineEdit = nullptr;
@@ -195,6 +201,7 @@ private:
     QVector<EventAthlete> m_eventAthletes;
     QVector<ActionStandard> m_actionStandards;
     QVector<ActionRepetition> m_currentRepetitions;
+    PoseFrameResult m_lastPoseFrame;
     QString m_lastSavedAt;
     int m_historyPageNumber = 1;
     int m_historyPageSize = 10;

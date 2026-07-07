@@ -967,12 +967,14 @@ def insert_repetition(db: Session, session_id: str, action_standard_id: str, rep
             "(id, session_id, action_standard_id, standard_version, started_ms, ended_ms, valid, score, scores, "
             "error_codes, feedback, key_frame_ms, video_clip_start_ms, video_clip_end_ms, source, review_status, "
             "reviewer_coach_id, reviewed_at, manual_started_ms, manual_ended_ms, manual_valid, manual_score, manual_scores, "
-            "manual_error_codes, manual_feedback, coach_note, key_frame_pose) "
+            "manual_error_codes, manual_feedback, coach_note, key_frame_pose, participant_id, athlete_id, track_id, "
+            "camera_id, frame_time_ms, identity_status, identity_confidence, identity_source) "
             "VALUES (:id, :session_id, :action_standard_id, :standard_version, :started_ms, :ended_ms, :valid, :score, "
             "CAST(:scores AS jsonb), CAST(:error_codes AS jsonb), :feedback, :key_frame_ms, :video_clip_start_ms, "
             ":video_clip_end_ms, :source, :review_status, :reviewer_coach_id, :reviewed_at, :manual_started_ms, "
             ":manual_ended_ms, :manual_valid, :manual_score, CAST(:manual_scores AS jsonb), CAST(:manual_error_codes AS jsonb), "
-            ":manual_feedback, :coach_note, CAST(:key_frame_pose AS jsonb))"
+            ":manual_feedback, :coach_note, CAST(:key_frame_pose AS jsonb), :participant_id, :athlete_id, :track_id, "
+            ":camera_id, :frame_time_ms, :identity_status, :identity_confidence, :identity_source)"
         ),
         {
             "id": rep_id,
@@ -1002,9 +1004,89 @@ def insert_repetition(db: Session, session_id: str, action_standard_id: str, rep
             "manual_feedback": repetition.get("manualFeedback") or None,
             "coach_note": repetition.get("coachNote") or None,
             "key_frame_pose": json.dumps(repetition.get("keyFramePoseJson") or "", ensure_ascii=False),
+            "participant_id": parse_uuid(repetition.get("participantId")),
+            "athlete_id": parse_uuid(repetition.get("athleteId")),
+            "track_id": int(repetition.get("trackId")) if int(repetition.get("trackId", -1)) >= 0 else None,
+            "camera_id": int(repetition.get("cameraId")) if int(repetition.get("cameraId", -1)) >= 0 else None,
+            "frame_time_ms": int(repetition.get("frameTimeMs")) if str(repetition.get("frameTimeMs", "")).strip() else None,
+            "identity_status": repetition.get("identityStatus") or "unknown",
+            "identity_confidence": repetition.get("identityConfidence") if float(repetition.get("identityConfidence", -1)) >= 0 else None,
+            "identity_source": repetition.get("identitySource") or None,
         },
     )
     return rep_id
+
+
+def participant_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row["id"]),
+        "sessionId": str(row["session_id"]),
+        "athleteId": str(row["athlete_id"]),
+        "athleteName": row.get("athlete_name") or "",
+        "slotIndex": row["slot_index"],
+        "role": row["role"],
+        "trackLabel": row.get("track_label") or "",
+        "notes": row.get("notes") or "",
+        "active": bool(row.get("active", True)),
+    }
+
+
+def participants_for_sessions(db: Session, session_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+    if not session_ids:
+        return {}
+    rows = db.execute(
+        text(
+            "SELECT tsp.*, a.name AS athlete_name FROM training_session_participants tsp "
+            "JOIN athletes a ON a.id = tsp.athlete_id "
+            "WHERE tsp.session_id = ANY(:session_ids) ORDER BY tsp.session_id, tsp.slot_index"
+        ),
+        {"session_ids": session_ids},
+    ).mappings()
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        item = participant_row(dict(row))
+        grouped.setdefault(item["sessionId"], []).append(item)
+    return grouped
+
+
+def save_session_participants(db: Session, session_id: str, primary_athlete_id: str, participants: list[dict[str, Any]]) -> dict[str, str]:
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    primary_key = str(primary_athlete_id)
+    for item in [{"athleteId": primary_key, "slotIndex": 1, "role": "primary"}, *participants]:
+        athlete_id = parse_uuid(item.get("athleteId"))
+        if not athlete_id:
+            continue
+        athlete_key = str(athlete_id)
+        if athlete_key in seen:
+            continue
+        seen.add(athlete_key)
+        normalized.append({
+            "id": parse_uuid(item.get("id")) or new_uuid(),
+            "session_id": session_id,
+            "athlete_id": athlete_id,
+            "slot_index": len(normalized) + 1,
+            "role": "primary" if not normalized else "participant",
+            "track_label": item.get("trackLabel") or None,
+            "notes": item.get("notes") or None,
+            "active": bool(item.get("active", True)),
+        })
+        if len(normalized) >= 4:
+            break
+
+    db.execute(text("DELETE FROM training_session_participants WHERE session_id = :session_id"), {"session_id": session_id})
+    mapping: dict[str, str] = {}
+    for item in normalized:
+        db.execute(
+            text(
+                "INSERT INTO training_session_participants "
+                "(id, session_id, athlete_id, slot_index, role, track_label, notes, active, updated_at) "
+                "VALUES (:id, :session_id, :athlete_id, :slot_index, :role, :track_label, :notes, :active, now())"
+            ),
+            item,
+        )
+        mapping[str(item["athlete_id"])] = str(item["id"])
+    return mapping
 
 
 @app.post("/training/sessions")
@@ -1092,8 +1174,12 @@ def save_training_session(payload: dict[str, Any] = Body(...),
             "coach_comment": session.get("coachComment") or None,
         },
     )
+    participant_by_athlete = save_session_participants(db, session_id, athlete_id, session.get("participants", []))
     db.execute(text("DELETE FROM action_repetitions WHERE session_id = :session_id"), {"session_id": session_id})
     for repetition in repetitions:
+        rep_athlete_id = parse_uuid(repetition.get("athleteId"))
+        if rep_athlete_id and not parse_uuid(repetition.get("participantId")):
+            repetition["participantId"] = participant_by_athlete.get(str(rep_athlete_id), "")
         insert_repetition(db, session_id, action_standard_id, repetition)
     if session.get("taskId"):
         status_value = "completed" if int(session.get("validReps", 0)) >= int(session.get("targetReps", 0)) else "active"
@@ -1197,7 +1283,6 @@ def search_sessions(
     where: list[str] = []
     args: dict[str, Any] = {}
     for query_name, column in [
-        ("athleteId", "ts.athlete_id"),
         ("coachId", "ts.coach_id"),
         ("actionStandardId", "ts.action_standard_id"),
         ("competitionId", "ts.competition_id"),
@@ -1208,6 +1293,9 @@ def search_sessions(
         if value:
             where.append(f"{column} = :{query_name}")
             args[query_name] = parse_uuid(value)
+    if athleteId:
+        where.append("(ts.athlete_id = :athleteId OR EXISTS (SELECT 1 FROM training_session_participants tsp WHERE tsp.session_id = ts.id AND tsp.athlete_id = :athleteId))")
+        args["athleteId"] = parse_uuid(athleteId)
     if sourceType:
         where.append("ts.source_type = :sourceType")
         args["sourceType"] = sourceType
@@ -1251,7 +1339,7 @@ def search_sessions(
     order = sort_map.get(sortField, "ts.saved_at")
     direction = "DESC" if descending else "ASC"
     args.update({"limit": page_size, "offset": (page_number - 1) * page_size})
-    rows = db.execute(
+    rows = list(db.execute(
         text(
             "SELECT ts.*, a.name AS athlete_name, COALESCE(c.name, '') AS coach_name, "
             "COALESCE(comp.name, '') AS competition_name, COALESCE(comp.location, '') AS competition_location, "
@@ -1266,8 +1354,14 @@ def search_sessions(
             f"{from_sql} {where_sql} ORDER BY {order} {direction}, ts.id DESC LIMIT :limit OFFSET :offset"
         ),
         args,
-    ).mappings()
-    return {"items": [history_row(dict(row)) for row in rows], "totalCount": total, "pageNumber": page_number, "pageSize": page_size}
+    ).mappings())
+    participant_map = participants_for_sessions(db, [str(row["id"]) for row in rows])
+    items = []
+    for row in rows:
+        item = history_row(dict(row))
+        item["participants"] = participant_map.get(item["id"], [])
+        items.append(item)
+    return {"items": items, "totalCount": total, "pageNumber": page_number, "pageSize": page_size}
 
 
 def repetition_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -1309,6 +1403,15 @@ def repetition_row(row: dict[str, Any]) -> dict[str, Any]:
         "manualFeedback": row["manual_feedback"] or "",
         "coachNote": row["coach_note"] or "",
         "keyFramePoseJson": row["key_frame_pose"] if isinstance(row["key_frame_pose"], str) else "",
+        "participantId": str(row.get("participant_id") or ""),
+        "athleteId": str(row.get("repetition_athlete_id") or row.get("athlete_id") or ""),
+        "athleteName": row.get("repetition_athlete_name") or row.get("athlete_name") or "",
+        "trackId": row["track_id"] if row.get("track_id") is not None else -1,
+        "cameraId": row["camera_id"] if row.get("camera_id") is not None else -1,
+        "frameTimeMs": str(row["frame_time_ms"]) if row.get("frame_time_ms") is not None else "",
+        "identityStatus": row.get("identity_status") or "unknown",
+        "identityConfidence": row["identity_confidence"] if row.get("identity_confidence") is not None else -1,
+        "identitySource": row.get("identity_source") or "",
     }
 
 
@@ -1317,8 +1420,9 @@ def effective_repetition_row(row: dict[str, Any]) -> dict[str, Any]:
     item.update({
         "time": row["saved_at"].strftime("%Y-%m-%d %H:%M:%S") if row.get("saved_at") else "",
         "startedAt": row["session_started_at"].isoformat() if row.get("session_started_at") else "",
-        "athleteId": str(row["athlete_id"]),
-        "athleteName": row.get("athlete_name") or "",
+        "athleteId": str(row.get("effective_athlete_id") or row["athlete_id"]),
+        "athleteName": row.get("effective_athlete_name") or row.get("athlete_name") or "",
+        "participantId": str(row["participant_id"] or ""),
         "coachId": str(row["coach_id"] or ""),
         "coachName": row.get("coach_name") or "",
         "competitionId": str(row["competition_id"] or ""),
@@ -1382,7 +1486,6 @@ def search_repetitions(
     args: dict[str, Any] = {}
     for query_name, column in [
         ("sessionId", "session_id"),
-        ("athleteId", "athlete_id"),
         ("coachId", "coach_id"),
         ("actionStandardId", "action_standard_id"),
         ("competitionId", "competition_id"),
@@ -1393,6 +1496,9 @@ def search_repetitions(
         if value:
             where.append(f"{column} = :{query_name}")
             args[query_name] = parse_uuid(value)
+    if athleteId:
+        where.append("(effective_athlete_id = :athleteId OR (repetition_athlete_id IS NULL AND athlete_id = :athleteId))")
+        args["athleteId"] = parse_uuid(athleteId)
     if sourceType:
         where.append("source_type = :sourceType")
         args["sourceType"] = sourceType
@@ -1430,7 +1536,9 @@ def search_repetitions(
     where_sql = "WHERE " + " AND ".join(where) if where else ""
     from_sql = (
         "FROM ("
-        "SELECT ar.*, ts.athlete_id, ts.coach_id, ts.competition_id, ts.competition_event_id, ts.event_athlete_id, "
+        "SELECT ar.*, ar.athlete_id AS repetition_athlete_id, COALESCE(ra.name, '') AS repetition_athlete_name, "
+        "COALESCE(ar.athlete_id, ts.athlete_id) AS effective_athlete_id, COALESCE(ra.name, a.name, '') AS effective_athlete_name, "
+        "ts.athlete_id, ts.coach_id, ts.competition_id, ts.competition_event_id, ts.event_athlete_id, "
         "ts.saved_at, ts.started_at AS session_started_at, ts.video_source, ts.video_fallback_source, "
         "ts.video_camera_name, ts.source_type, ts.source_ref, "
         "a.name AS athlete_name, COALESCE(c.name, '') AS coach_name, COALESCE(comp.name, '') AS competition_name, "
@@ -1450,7 +1558,7 @@ def search_repetitions(
         "COALESCE(NULLIF(ar.manual_error_codes #>> '{}', ''), ar.error_codes #>> '{}', '') AS effective_error_codes, "
         "COALESCE(NULLIF(ar.manual_feedback, ''), ar.feedback, '') AS effective_feedback "
         "FROM action_repetitions ar JOIN training_sessions ts ON ts.id = ar.session_id "
-        "JOIN athletes a ON a.id = ts.athlete_id LEFT JOIN coaches c ON c.id = ts.coach_id "
+        "JOIN athletes a ON a.id = ts.athlete_id LEFT JOIN athletes ra ON ra.id = ar.athlete_id LEFT JOIN coaches c ON c.id = ts.coach_id "
         "LEFT JOIN competitions comp ON comp.id = ts.competition_id "
         "LEFT JOIN competition_events ce ON ce.id = ts.competition_event_id "
         "LEFT JOIN event_athletes ea ON ea.id = ts.event_athlete_id "
@@ -1475,8 +1583,9 @@ def repetitions(session_id: str,
                 _: dict[str, Any] = Depends(require_user)) -> list[dict[str, Any]]:
     rows = db.execute(
         text(
-            "SELECT * FROM action_repetitions WHERE session_id = :session_id "
-            "ORDER BY COALESCE(manual_started_ms, started_ms), started_ms"
+            "SELECT ar.*, ar.athlete_id AS repetition_athlete_id, COALESCE(a.name, '') AS repetition_athlete_name "
+            "FROM action_repetitions ar LEFT JOIN athletes a ON a.id = ar.athlete_id "
+            "WHERE ar.session_id = :session_id ORDER BY COALESCE(ar.manual_started_ms, ar.started_ms), ar.started_ms"
         ),
         {"session_id": session_id},
     ).mappings()

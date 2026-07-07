@@ -30,7 +30,7 @@ QSettings schema 仍分散在读写代码中：
 - `MainWindow::loadCameraSettings()`
 - `MainWindow::persistSystemSettings()`
 摄像头 JSON 模板 schema 位于 `cameraconfigtemplate.cpp`，作为现场导入/导出交换格式；模板导入后仍写回 QSettings，不新增数据库表或字段。
-PostgreSQL schema 由 Alembic 管理，初始迁移为 `20260630_0001_initial_postgresql.py`，比赛实体迁移为 `20260707_0002_competitions.py`，比赛场次和参赛关系迁移为 `20260707_0003_competition_events.py`，session 分析来源迁移为 `20260707_0004_session_source.py`。seed 数据在 FastAPI 启动时由 `seed_defaults()` 维护。旧 SQLite 数据通过一次性导入工具迁入，不再由桌面端启动时自动补列或迁移。
+PostgreSQL schema 由 Alembic 管理，初始迁移为 `20260630_0001_initial_postgresql.py`，比赛实体迁移为 `20260707_0002_competitions.py`，比赛场次和参赛关系迁移为 `20260707_0003_competition_events.py`，session 分析来源迁移为 `20260707_0004_session_source.py`，多人参与者与动作身份轨迹迁移为 `20260707_0005_multi_participant_identity.py`。seed 数据在 FastAPI 启动时由 `seed_defaults()` 维护。旧 SQLite 数据通过一次性导入工具迁入，不再由桌面端启动时自动补列或迁移。
 
 ## 主要数据结构
 
@@ -160,9 +160,34 @@ P1 轨迹拼接默认把 12 路相机按 5m 一段初始化为 CAM 01: 0-5m 至 
 - `coach_comment`: 单次训练教练批注。
 - `notes`: 训练备注；当前 UI 的训练情境面板、历史卡片和 Markdown/CSV/PDF 报告都会展示。
 
+#### `training_session_participants`
+
+保存单次训练的参与运动员，最多 4 名：
+
+- `session_id`: 关联 `training_sessions.id`。
+- `athlete_id`: 关联 `athletes.id`。
+- `slot_index`: 1-4；`1` 为主运动员槽位。
+- `role`: `primary` 或 `participant`。
+- `track_label`: 可选轨迹标签。
+- `notes`: 备注。
+- `active`: 软归档标记。
+
+同一 session 内 `athlete_id` 和 `slot_index` 均唯一。旧数据可以没有参与者行；查询和展示仍按 `training_sessions.athlete_id` 解释为主运动员。
+
 #### `action_repetitions`
 
 保存每次动作实例：AI 原始开始/结束时间、有效性、总分、分项分、错误项、反馈、关键帧时间、视频片段时间窗口、人工复核字段和关键帧姿态 JSON。
+
+多人身份轨迹字段：
+
+- `participant_id`: 可空，关联 `training_session_participants.id`。
+- `athlete_id`: 可空，动作级运动员身份；旧记录为空时回退到 session 主运动员。
+- `track_id`: 可空，姿态实例轨迹 ID。当前来自当帧检测顺序，不代表跨帧 ReID。
+- `camera_id`: 可空，动作关键帧来源机位。
+- `frame_time_ms`: 可空，动作关键帧对应 `PoseFrameResult.timestampMs`。
+- `identity_status`: `identified` 或 `unknown`；默认 `unknown`。
+- `identity_confidence`: 可空，算法或人工绑定置信度。
+- `identity_source`: 可空，当前为 `manual`、`algorithm` 或空。
 
 复盘相关字段：
 
@@ -236,7 +261,7 @@ python tools/import_sqlite_to_postgres.py --sqlite "$env:APPDATA/iSkating/iSkati
 
 ## 查询入口
 
-训练历史通过 `TrainingRepository::searchSessions(filters, page, sort)` 查询，支持运动员、教练、比赛、场次、参赛关系、分析来源、动作标准、保存时间、平均分区间和比赛关键词组合检索，并返回总数和当前页结果；比赛关键词匹配 `competitions.name/location/competition_type/notes`、`competition_events.race_name/event_name/heat_name/group_name/notes`、`event_athletes.bib_number/lane_number/notes`、`training_sessions.source_type/source_ref` 以及 `training_sessions.site/training_phase/goal/notes/feedback/coach_comment`。`recentSessions(limit)` 仍保留为兼容入口，内部调用默认查询。跨 session 动作实例通过 `searchRepetitions(filters, page)` 联查 `training_sessions` 和 `action_repetitions`，支持按 session、人员、比赛/场次、动作、来源、有效性、复核状态、分数区间、训练时间、片段时间和错误项关键词查询；有效性、分数、错误项和反馈默认使用人工优先值。单 session 动作明细通过 `repetitionsForSession()` / `reviewedRepetitionsForSession()` 查询；人员档案通过 `athletes()`、`coaches()`、`athleteIdsForCoach()` 查询；比赛基础信息通过 `competitions()`、`saveCompetition()`、`archiveCompetition()` 查询和维护；比赛场次通过 `competitionEvents()`、`saveCompetitionEvent()`、`archiveCompetitionEvent()` 查询和维护；参赛关系通过 `eventAthletes()`、`saveEventAthlete()`、`archiveEventAthlete()` 查询和维护；最近 7/30 天趋势通过 `trendForRecentDays()` 聚合 `training_sessions` 和 `action_repetitions` 查询；教练批注通过 `saveCoachComment()` 更新；个体基线通过 `baselineFor()` 查询。
+训练历史通过 `TrainingRepository::searchSessions(filters, page, sort)` 查询，支持运动员、教练、比赛、场次、参赛关系、分析来源、动作标准、保存时间、平均分区间和比赛关键词组合检索，并返回总数和当前页结果；运动员筛选会匹配 session 主运动员和 `training_session_participants`。比赛关键词匹配 `competitions.name/location/competition_type/notes`、`competition_events.race_name/event_name/heat_name/group_name/notes`、`event_athletes.bib_number/lane_number/notes`、`training_sessions.source_type/source_ref` 以及 `training_sessions.site/training_phase/goal/notes/feedback/coach_comment`。`recentSessions(limit)` 仍保留为兼容入口，内部调用默认查询。跨 session 动作实例通过 `searchRepetitions(filters, page)` 联查 `training_sessions` 和 `action_repetitions`，支持按 session、人员、比赛/场次、动作、来源、有效性、复核状态、分数区间、训练时间、片段时间和错误项关键词查询；人员筛选优先匹配动作级 `action_repetitions.athlete_id`，旧记录没有动作级身份时回退到 session 主运动员；有效性、分数、错误项和反馈默认使用人工优先值。单 session 动作明细通过 `repetitionsForSession()` / `reviewedRepetitionsForSession()` 查询；人员档案通过 `athletes()`、`coaches()`、`athleteIdsForCoach()` 查询；比赛基础信息通过 `competitions()`、`saveCompetition()`、`archiveCompetition()` 查询和维护；比赛场次通过 `competitionEvents()`、`saveCompetitionEvent()`、`archiveCompetitionEvent()` 查询和维护；参赛关系通过 `eventAthletes()`、`saveEventAthlete()`、`archiveEventAthlete()` 查询和维护；最近 7/30 天趋势通过 `trendForRecentDays()` 聚合 `training_sessions` 和 `action_repetitions` 查询；教练批注通过 `saveCoachComment()` 更新；个体基线通过 `baselineFor()` 查询。
 
 人员管理写入口：
 

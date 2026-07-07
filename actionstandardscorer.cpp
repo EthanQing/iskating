@@ -100,6 +100,11 @@ QString poseFrameToJson(const PoseFrameResult &frame)
     for (const PoseInstance &instance : frame.instances) {
         QJsonObject instanceObject;
         instanceObject.insert(QStringLiteral("trackId"), instance.trackId);
+        instanceObject.insert(QStringLiteral("athleteId"), instance.athleteId);
+        instanceObject.insert(QStringLiteral("participantId"), instance.participantId);
+        instanceObject.insert(QStringLiteral("identityStatus"), instance.identityStatus);
+        instanceObject.insert(QStringLiteral("identityConfidence"), instance.identityConfidence);
+        instanceObject.insert(QStringLiteral("identitySource"), instance.identitySource);
         instanceObject.insert(QStringLiteral("skeletonType"), static_cast<int>(instance.skeletonType));
         instanceObject.insert(QStringLiteral("kind"), static_cast<int>(instance.kind));
         instanceObject.insert(QStringLiteral("confidence"), instance.confidence);
@@ -336,5 +341,16 @@ ActionRepetition ActionRepetitionTracker::complete(int relativeMs, const ActionA
     repetition.feedback = m_feedback.trimmed().isEmpty() ? assessment.feedback : m_feedback;
     repetition.keyFrameMs = m_keyFrameMs;
     repetition.keyFramePoseJson = poseFrameToJson(m_keyFramePoseFrame);
+    const PoseInstance *person = primaryInstance(m_keyFramePoseFrame);
+    if (person) {
+        repetition.participantId = person->participantId;
+        repetition.athleteId = person->athleteId;
+        repetition.trackId = person->trackId;
+        repetition.cameraId = m_keyFramePoseFrame.cameraId;
+        repetition.frameTimeMs = m_keyFramePoseFrame.timestampMs;
+        repetition.identityStatus = person->identityStatus.trimmed().isEmpty() ? QStringLiteral("unknown") : person->identityStatus;
+        repetition.identityConfidence = person->identityConfidence;
+        repetition.identitySource = person->identitySource;
+    }
     return repetition;
 }

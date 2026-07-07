@@ -4,6 +4,7 @@
 #include "iconutils.h"
 #include "nvrplayback.h"
 #include "personmanagementdialog.h"
+#include "poseidentityresolver.h"
 #include "posestandardnessscorer.h"
 #include "skeletonviewwidget.h"
 #include "trainingreviewdialog.h"
@@ -427,6 +428,33 @@ QString weakTrendSummary(const TrainingTrendWindow &recentTrend,
         .arg(-delta);
 }
 
+QString identityStatusLabel(const QString &status)
+{
+    if (status == QStringLiteral("identified")) {
+        return QStringLiteral("已标识");
+    }
+    return QStringLiteral("未标识");
+}
+
+QString repetitionIdentityLabel(const ActionRepetition &repetition)
+{
+    QStringList parts;
+    if (!repetition.athleteName.trimmed().isEmpty()) {
+        parts.append(repetition.athleteName.trimmed());
+    } else if (!repetition.athleteId.trimmed().isEmpty()) {
+        parts.append(repetition.athleteId.trimmed());
+    } else {
+        parts.append(identityStatusLabel(repetition.identityStatus));
+    }
+    if (repetition.trackId >= 0) {
+        parts.append(QStringLiteral("T%1").arg(repetition.trackId));
+    }
+    if (repetition.cameraId >= 0) {
+        parts.append(QStringLiteral("C%1").arg(repetition.cameraId));
+    }
+    return parts.join(QStringLiteral(" · "));
+}
+
 QString repetitionReportLine(const ActionRepetition &repetition, int index, const std::function<QString(int)> &formatMs)
 {
     const QString reviewTag = repetition.hasManualReview() ? QStringLiteral("  复核") : QString();
@@ -438,7 +466,9 @@ QString repetitionReportLine(const ActionRepetition &repetition, int index, cons
         .arg(qualityLabel(repetition.effectiveScore(), repetition.effectiveValid()))
         .arg(reviewTag)
         .arg(issueSummary(repetition.effectiveErrorCodes()))
-        .arg(repetition.effectiveFeedback().trimmed().isEmpty() ? QStringLiteral("无") : repetition.effectiveFeedback().trimmed());
+        .arg(QStringLiteral("%1；身份：%2")
+                 .arg(repetition.effectiveFeedback().trimmed().isEmpty() ? QStringLiteral("无") : repetition.effectiveFeedback().trimmed(),
+                      repetitionIdentityLabel(repetition)));
 }
 
 QString csvField(const QString &value)
@@ -538,6 +568,11 @@ QStringList repetitionExportHeaders()
         QStringLiteral("repetition_id"),
         QStringLiteral("time"),
         QStringLiteral("athlete"),
+        QStringLiteral("identity_status"),
+        QStringLiteral("identity_source"),
+        QStringLiteral("track_id"),
+        QStringLiteral("camera_id"),
+        QStringLiteral("frame_time_ms"),
         QStringLiteral("coach"),
         QStringLiteral("competition"),
         QStringLiteral("race_name"),
@@ -571,6 +606,11 @@ QStringList repetitionExportRow(const RepetitionSearchItem &item)
         item.id,
         item.time,
         item.athleteName,
+        item.identityStatus,
+        item.identitySource,
+        item.trackId >= 0 ? QString::number(item.trackId) : QString(),
+        item.cameraId >= 0 ? QString::number(item.cameraId) : QString(),
+        item.frameTimeMs >= 0 ? QString::number(item.frameTimeMs) : QString(),
         item.coachName.isEmpty() ? QStringLiteral("未指定") : item.coachName,
         item.competitionName,
         item.raceName,
@@ -732,9 +772,12 @@ MainWindow::MainWindow(QWidget *parent)
     m_poseStandardnessScorer = std::make_unique<PoseStandardnessScorer>();
     m_actionStandardScorer = std::make_unique<ActionStandardScorer>();
     m_actionRepetitionTracker = std::make_unique<ActionRepetitionTracker>();
+    m_poseIdentityResolver = std::make_unique<PoseIdentityResolver>();
     m_trainingRepository = std::make_unique<TrainingRepository>();
     m_handAnalysisManager = std::make_unique<HandAnalysisManager>(this);
-    m_handAnalysisManager->setResultCallback([this](const PoseFrameResult &poseFrame) {
+    m_handAnalysisManager->setResultCallback([this](const PoseFrameResult &rawPoseFrame) {
+        const PoseFrameResult poseFrame = m_poseIdentityResolver ? m_poseIdentityResolver->resolve(rawPoseFrame) : rawPoseFrame;
+        m_lastPoseFrame = poseFrame;
         const bool selectedFrame = poseFrame.cameraId == m_selectedCamera
                                    || (m_selectedCamera == 0 && poseFrame.cameraId == 0);
         if (poseFrame.instances.isEmpty()) {
@@ -754,7 +797,17 @@ MainWindow::MainWindow(QWidget *parent)
             m_trajectoryWidget->setPoseFrame(poseFrame);
         }
         if (m_poseStandardnessScorer) {
-            const PoseStandardnessResult baseStandardness = m_poseStandardnessScorer->scoreFrame(poseFrame);
+            PoseFrameResult scoringFrame = poseFrame;
+            const QString primaryAthleteId = selectedAthleteId();
+            if (!primaryAthleteId.isEmpty()) {
+                for (const PoseInstance &instance : poseFrame.instances) {
+                    if (instance.athleteId == primaryAthleteId) {
+                        scoringFrame.instances = {instance};
+                        break;
+                    }
+                }
+            }
+            const PoseStandardnessResult baseStandardness = m_poseStandardnessScorer->scoreFrame(scoringFrame);
             const ActionStandard standard = selectedActionStandard();
             ActionAssessment assessment;
             if (m_actionStandardScorer && !standard.id.isEmpty()) {
@@ -785,7 +838,7 @@ MainWindow::MainWindow(QWidget *parent)
             }
             if (m_isRecording && !m_isPaused && m_actionRepetitionTracker) {
                 ActionRepetition repetition;
-                if (m_actionRepetitionTracker->update(poseFrame,
+                if (m_actionRepetitionTracker->update(scoringFrame,
                                                       assessment,
                                                       QDateTime::currentMSecsSinceEpoch(),
                                                       m_recordingStartedAtMsec,
@@ -1209,9 +1262,11 @@ void MainWindow::installTrainingContextPanel()
     auto *editStandardButton = new QPushButton(QStringLiteral("编辑标准"), m_trainingContextPanel);
     auto *managePersonsButton = new QPushButton(QStringLiteral("人员管理"), m_trainingContextPanel);
     auto *manageCompetitionsButton = new QPushButton(QStringLiteral("比赛管理"), m_trainingContextPanel);
+    m_trackBindingButton = new QPushButton(QStringLiteral("轨迹绑定"), m_trainingContextPanel);
     editStandardButton->setProperty("role", "secondaryButton");
     managePersonsButton->setProperty("role", "secondaryButton");
     manageCompetitionsButton->setProperty("role", "secondaryButton");
+    m_trackBindingButton->setProperty("role", "secondaryButton");
     m_standardDetailLabel = new QLabel(QStringLiteral("动作标准库初始化中"), m_trainingContextPanel);
     m_standardDetailLabel->setProperty("role", "muted");
     m_standardDetailLabel->setWordWrap(true);
@@ -1220,6 +1275,7 @@ void MainWindow::installTrainingContextPanel()
     titleRow->addWidget(m_standardDetailLabel, 1);
     titleRow->addWidget(managePersonsButton, 0);
     titleRow->addWidget(manageCompetitionsButton, 0);
+    titleRow->addWidget(m_trackBindingButton, 0);
     titleRow->addWidget(editStandardButton, 0);
     panelLayout->addLayout(titleRow);
 
@@ -1266,6 +1322,16 @@ void MainWindow::installTrainingContextPanel()
     grid->addWidget(m_coachComboBox, 0, 4);
     grid->addWidget(addCoachButton, 0, 5);
 
+    for (int i = 0; i < 3; ++i) {
+        auto *combo = new QComboBox(m_trainingContextPanel);
+        m_participantComboBoxes.append(combo);
+        grid->addWidget(new QLabel(QStringLiteral("参与%1").arg(i + 2), m_trainingContextPanel), 6, i * 2);
+        grid->addWidget(combo, 6, i * 2 + 1);
+        connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
+            refreshTrainingContextDetails();
+        });
+    }
+
     grid->addWidget(new QLabel(QStringLiteral("比赛"), m_trainingContextPanel), 1, 0);
     grid->addWidget(m_competitionComboBox, 1, 1);
     grid->addWidget(new QLabel(QStringLiteral("场次"), m_trainingContextPanel), 1, 2);
@@ -1304,6 +1370,7 @@ void MainWindow::installTrainingContextPanel()
     connect(addCoachButton, &QPushButton::clicked, this, [this]() { addCoachFromDialog(); });
     connect(managePersonsButton, &QPushButton::clicked, this, [this]() { openPersonManagement(); });
     connect(manageCompetitionsButton, &QPushButton::clicked, this, [this]() { openCompetitionManagement(); });
+    connect(m_trackBindingButton, &QPushButton::clicked, this, [this]() { openTrackBindingDialog(); });
     connect(editStandardButton, &QPushButton::clicked, this, [this]() { editActionStandard(); });
     connect(m_actionStandardComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
         refreshTrainingContextDetails();
@@ -2205,6 +2272,10 @@ void MainWindow::reloadTrainingContext()
     const QString previousCompetitionId = selectedCompetitionId();
     const QString previousCompetitionEventId = selectedCompetitionEventId();
     const QString previousActionId = selectedActionStandard().id;
+    QStringList previousParticipantIds;
+    for (QComboBox *combo : std::as_const(m_participantComboBoxes)) {
+        previousParticipantIds.append(combo ? combo->currentData().toString() : QString());
+    }
 
     m_athletes = m_trainingRepository->athletes();
     m_coaches = m_trainingRepository->coaches();
@@ -2279,6 +2350,26 @@ void MainWindow::reloadTrainingContext()
         if (index >= 0) {
             m_actionStandardComboBox->setCurrentIndex(index);
         }
+    }
+
+    for (int i = 0; i < m_participantComboBoxes.size(); ++i) {
+        QComboBox *combo = m_participantComboBoxes.at(i);
+        if (!combo) {
+            continue;
+        }
+        QSignalBlocker blocker(combo);
+        combo->clear();
+        combo->addItem(QStringLiteral("未选择"), QString());
+        const QString primaryId = selectedAthleteId();
+        for (const AthleteProfile &athlete : std::as_const(m_athletes)) {
+            if (athlete.id == primaryId) {
+                continue;
+            }
+            combo->addItem(athlete.name, athlete.id);
+        }
+        const QString previousId = i < previousParticipantIds.size() ? previousParticipantIds.at(i) : QString();
+        const int index = combo->findData(previousId);
+        combo->setCurrentIndex(index >= 0 ? index : 0);
     }
 
     reloadHistorySearchOptions();
@@ -2882,6 +2973,148 @@ QString MainWindow::selectedAthleteId() const
 QString MainWindow::selectedCoachId() const
 {
     return m_coachComboBox ? m_coachComboBox->currentData().toString() : QString();
+}
+
+QVector<TrainingSessionParticipant> MainWindow::currentSessionParticipants() const
+{
+    QVector<TrainingSessionParticipant> participants;
+    auto appendParticipant = [&](const QString &athleteId, int slotIndex, const QString &role) {
+        if (athleteId.trimmed().isEmpty()) {
+            return;
+        }
+        for (const TrainingSessionParticipant &existing : std::as_const(participants)) {
+            if (existing.athleteId == athleteId) {
+                return;
+            }
+        }
+        TrainingSessionParticipant participant;
+        participant.athleteId = athleteId;
+        participant.slotIndex = slotIndex;
+        participant.role = role;
+        for (const AthleteProfile &athlete : std::as_const(m_athletes)) {
+            if (athlete.id == athleteId) {
+                participant.athleteName = athlete.name;
+                break;
+            }
+        }
+        participants.append(participant);
+    };
+
+    appendParticipant(selectedAthleteId(), 1, QStringLiteral("primary"));
+    for (QComboBox *combo : m_participantComboBoxes) {
+        appendParticipant(combo ? combo->currentData().toString() : QString(), participants.size() + 1, QStringLiteral("participant"));
+        if (participants.size() >= 4) {
+            break;
+        }
+    }
+    return participants;
+}
+
+void MainWindow::openTrackBindingDialog()
+{
+    const QVector<TrainingSessionParticipant> participants = currentSessionParticipants();
+    if (participants.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("轨迹绑定"), QStringLiteral("请先选择主运动员。"));
+        return;
+    }
+    if (m_lastPoseFrame.instances.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("轨迹绑定"), QStringLiteral("当前还没有可绑定的姿态实例。"));
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("轨迹绑定"));
+    dialog.resize(760, 360);
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *table = new QTableWidget(&dialog);
+    table->setColumnCount(6);
+    table->setHorizontalHeaderLabels({QStringLiteral("机位"),
+                                      QStringLiteral("轨迹ID"),
+                                      QStringLiteral("置信度"),
+                                      QStringLiteral("当前身份"),
+                                      QStringLiteral("绑定运动员"),
+                                      QStringLiteral("来源")});
+    table->horizontalHeader()->setStretchLastSection(true);
+    table->verticalHeader()->setVisible(false);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    layout->addWidget(table);
+
+    auto makeItem = [](const QString &text) {
+        auto *item = new QTableWidgetItem(text);
+        item->setFlags(item->flags() & ~Qt::ItemIsEditable);
+        return item;
+    };
+    const QVector<PoseIdentityBinding> existingBindings = m_poseIdentityResolver ? m_poseIdentityResolver->bindings() : QVector<PoseIdentityBinding>();
+    const int rowCount = std::min(4, static_cast<int>(m_lastPoseFrame.instances.size()));
+    table->setRowCount(rowCount);
+    QVector<QComboBox *> bindingCombos;
+    for (int row = 0; row < rowCount; ++row) {
+        const PoseInstance &instance = m_lastPoseFrame.instances.at(row);
+        table->setItem(row, 0, makeItem(QString::number(m_lastPoseFrame.cameraId)));
+        table->setItem(row, 1, makeItem(QString::number(instance.trackId)));
+        table->setItem(row, 2, makeItem(QString::number(instance.confidence, 'f', 2)));
+        QString currentName = QStringLiteral("未标识");
+        for (const TrainingSessionParticipant &participant : participants) {
+            if (participant.athleteId == instance.athleteId) {
+                currentName = participant.athleteName;
+                break;
+            }
+        }
+        table->setItem(row, 3, makeItem(currentName));
+        auto *combo = new QComboBox(table);
+        combo->addItem(QStringLiteral("未绑定"), QString());
+        for (const TrainingSessionParticipant &participant : participants) {
+            combo->addItem(participant.athleteName.isEmpty() ? participant.athleteId : participant.athleteName,
+                           participant.athleteId);
+        }
+        QString boundAthleteId = instance.athleteId;
+        for (const PoseIdentityBinding &binding : existingBindings) {
+            if (binding.cameraId == m_lastPoseFrame.cameraId && binding.trackId == instance.trackId) {
+                boundAthleteId = binding.athleteId;
+                break;
+            }
+        }
+        const int index = combo->findData(boundAthleteId);
+        combo->setCurrentIndex(index >= 0 ? index : 0);
+        table->setCellWidget(row, 4, combo);
+        table->setItem(row, 5, makeItem(instance.identitySource.isEmpty() ? QStringLiteral("unknown") : instance.identitySource));
+        bindingCombos.append(combo);
+    }
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    QVector<PoseIdentityBinding> bindings;
+    for (int row = 0; row < rowCount; ++row) {
+        const QString athleteId = bindingCombos.at(row)->currentData().toString();
+        if (athleteId.isEmpty()) {
+            continue;
+        }
+        const PoseInstance &instance = m_lastPoseFrame.instances.at(row);
+        PoseIdentityBinding binding;
+        binding.cameraId = m_lastPoseFrame.cameraId;
+        binding.trackId = instance.trackId;
+        binding.athleteId = athleteId;
+        for (const TrainingSessionParticipant &participant : participants) {
+            if (participant.athleteId == athleteId) {
+                binding.participantId = participant.id;
+                binding.label = participant.athleteName;
+                break;
+            }
+        }
+        bindings.append(binding);
+    }
+    if (m_poseIdentityResolver) {
+        m_poseIdentityResolver->setBindings(bindings);
+    }
+    ui->saveTipLabel->setText(QStringLiteral("轨迹绑定已更新。"));
+    ui->saveTipLabel->show();
 }
 
 QString MainWindow::selectedCompetitionId() const
@@ -3519,9 +3752,12 @@ void MainWindow::openRepetitionSearchDialog()
     buttonRow->addWidget(exportXlsxButton);
     layout->addLayout(buttonRow);
 
-    table->setColumnCount(10);
+    table->setColumnCount(13);
     table->setHorizontalHeaderLabels({QStringLiteral("时间"),
                                       QStringLiteral("运动员"),
+                                      QStringLiteral("身份"),
+                                      QStringLiteral("轨迹"),
+                                      QStringLiteral("机位"),
                                       QStringLiteral("动作"),
                                       QStringLiteral("比赛/场次"),
                                       QStringLiteral("片段"),
@@ -3583,6 +3819,9 @@ void MainWindow::openRepetitionSearchDialog()
                                           formatMilliseconds(item.effectiveEndedMsValue));
             const QStringList values = {item.time,
                                         item.athleteName,
+                                        identityStatusLabel(item.identityStatus),
+                                        item.trackId >= 0 ? QString::number(item.trackId) : QStringLiteral("-"),
+                                        item.cameraId >= 0 ? QString::number(item.cameraId) : QStringLiteral("-"),
                                         QStringLiteral("%1/%2").arg(item.actionCategory, item.actionName),
                                         competition,
                                         clip,
@@ -3593,7 +3832,7 @@ void MainWindow::openRepetitionSearchDialog()
                                         displayMediaSource(item.videoSource)};
             for (int col = 0; col < values.size(); ++col) {
                 auto *cell = new QTableWidgetItem(values.at(col));
-                if (col == 5) {
+                if (col == 8) {
                     cell->setTextAlignment(Qt::AlignCenter);
                 }
                 table->setItem(row, col, cell);
@@ -3863,6 +4102,7 @@ void MainWindow::saveRecord()
     }
     session.feedback = m_feedbackText.trimmed().isEmpty() ? QStringLiteral("等待姿态") : m_feedbackText.trimmed();
     session.notes = trainingNotes;
+    session.participants = currentSessionParticipants();
 
     QVector<ActionRepetition> repetitions = m_currentRepetitions;
     for (ActionRepetition &repetition : repetitions) {
@@ -3871,6 +4111,9 @@ void MainWindow::saveRecord()
         repetition.standardVersion = standard.version;
         repetition.videoClipStartMs = std::max(0, repetition.startedMs - 1500);
         repetition.videoClipEndMs = std::max(repetition.endedMs + 1500, repetition.videoClipStartMs);
+        if (repetition.identityStatus.trimmed().isEmpty()) {
+            repetition.identityStatus = QStringLiteral("unknown");
+        }
     }
     if (!m_trainingRepository->saveTrainingSession(&session, repetitions, &errorMessage)) {
         QMessageBox::warning(this, QStringLiteral("保存失败"), errorMessage);

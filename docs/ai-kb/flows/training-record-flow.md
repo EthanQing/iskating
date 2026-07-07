@@ -27,9 +27,10 @@
 5. AI 回调先由 `PoseStandardnessScorer` 生成通用分项分，再由 `ActionStandardScorer` 按所选动作标准权重和阈值生成动作分与纠错反馈。
 6. `ActionRepetitionTracker` 根据动作标准中的膝/髋屈伸阈值、防抖规则识别一次动作，生成 `ActionRepetition`。
 7. `tick()` 每秒累加 `m_durationSec`，统计卡展示有效动作数、目标次数、均分、目标分和最好分。
-8. 用户点击保存记录，`saveRecord()` 通过 `TrainingRepository::ensureDailyTask()` 生成或更新今日训练计划/任务，再保存 `training_sessions` 与 `action_repetitions`。session 会记录训练开始时间、可选比赛/场次/参赛关系归属、分析来源类型与引用、主码流、回退码流和机位名称；选择场次时服务端用场次自动带出比赛；选择场次且当前运动员存在 active 参赛关系时桌面端自动写入 `eventAthleteId`。分析来源按比赛优先、导入视频其次、普通训练兜底自动判定。离线视频训练会记录本地视频绝对路径且 `camera=0`；每个动作实例会记录动作片段起止时间，并通过 `session_id` 继承 session 的分析归属。
-9. `refreshHistory()` 基于历史页当前筛选和分页结果重新生成历史复盘卡和统计摘要。历史页通过 `TrainingRepository::searchSessions()` 支持运动员、教练、比赛、场次、分析来源、时间、比赛关键词、动作和分数区间组合检索，并可按保存时间、平均分、最佳分、有效动作数或训练时长排序；复盘卡展示训练摘要、比赛、场次/分组、参赛号/道次/成绩/名次、分析归属、视频引用、最好/最差动作、关键错误时间轴、教练批注入口、复盘校准入口和 Markdown/CSV/PDF 报告导出入口。
-10. 历史页“动作检索”通过 `TrainingRepository::searchRepetitions()` 跨 session 查询动作实例，支持按 session、人员、比赛/场次、动作、来源、有效性、复核状态、分数区间、训练时间、动作片段时间和错误项关键词筛选；结果表格可双击定位片段，并可导出当前筛选结果为 CSV/XLSX。
+8. 采集页训练上下文可选择主运动员和最多 3 名参与运动员；“轨迹绑定”入口把当前帧的 `cameraId + trackId` 绑定到某个参与者。绑定只补全身份协议，不改变 TensorRT 推理或姿态评分算法。
+9. 用户点击保存记录，`saveRecord()` 通过 `TrainingRepository::ensureDailyTask()` 生成或更新今日训练计划/任务，再保存 `training_sessions`、`training_session_participants` 与 `action_repetitions`。session 会记录训练开始时间、可选比赛/场次/参赛关系归属、分析来源类型与引用、主码流、回退码流和机位名称；选择场次时服务端用场次自动带出比赛；选择场次且当前运动员存在 active 参赛关系时桌面端自动写入 `eventAthleteId`。分析来源按比赛优先、导入视频其次、普通训练兜底自动判定。离线视频训练会记录本地视频绝对路径且 `camera=0`；每个动作实例会记录动作片段起止时间、动作级运动员/参与者、轨迹 ID、机位和帧时间，并通过 `session_id` 继承 session 的分析归属。
+10. `refreshHistory()` 基于历史页当前筛选和分页结果重新生成历史复盘卡和统计摘要。历史页通过 `TrainingRepository::searchSessions()` 支持运动员、教练、比赛、场次、分析来源、时间、比赛关键词、动作和分数区间组合检索，并可按保存时间、平均分、最佳分、有效动作数或训练时长排序；复盘卡展示训练摘要、比赛、场次/分组、参赛号/道次/成绩/名次、分析归属、视频引用、最好/最差动作、关键错误时间轴、教练批注入口、复盘校准入口和 Markdown/CSV/PDF 报告导出入口。
+11. 历史页“动作检索”通过 `TrainingRepository::searchRepetitions()` 跨 session 查询动作实例，支持按 session、人员、比赛/场次、动作、来源、有效性、复核状态、分数区间、训练时间、动作片段时间和错误项关键词筛选；结果表格展示身份状态、轨迹 ID 和机位，可双击定位片段，并可导出当前筛选结果为 CSV/XLSX。
 11. `openTrainingReview()` 打开独立 `TrainingReviewDialog`。对话框加载动作明细、主视频、标准参考视频和人工复核表单；点击动作行会定位片段，本地视频支持 seek、慢放、逐帧、关键帧定位和姿态叠加；配置 NVR 回放模板时，RTSP/网络视频会按 session 开始时间和动作片段窗口生成 NVR 回放 URL。
 12. 教练在复盘校准中可保存人工有效性、起止时间、总分/分项分、错误项、反馈和备注，或手动新增动作。保存后 `TrainingRepository::recalculateSessionSummary()` 重算 session 汇总和个体基线。
 13. `editActionStandard()` 可维护动作标准阈值、权重、目标次数/分数、提示文案和参考视频路径；参考视频也可在复盘对话框中选择并保存。

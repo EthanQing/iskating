@@ -24,9 +24,10 @@
 5. `TensorRtBodyPoseBackend::infer()` 先运行 YOLOv8n-pose。
 6. 如果 RTMW3D 已就绪，继续补充 3D 关键点。
 7. worker 用 queued callback 发布带 `cameraId` 的 `PoseFrameResult`。
-8. `MainWindow` 只用选中机位结果更新主视频覆盖层和骨架视图；所有机位结果都会进入轨迹视图。
-9. `TrajectoryWidget` 根据系统设置中的相机覆盖段，把图像锚点线性映射到场地坐标并绘制全场轨迹。
-10. 动作计数和评分继续复用现有实时评分链路。
+8. `MainWindow` 先用 `PoseIdentityResolver` 处理结果：算法身份字段优先，人工绑定的 `cameraId + trackId` 次之，未匹配则保持 `identityStatus=unknown`。
+9. `MainWindow` 只用选中机位结果更新主视频覆盖层和骨架视图；所有机位结果都会进入轨迹视图。
+10. `TrajectoryWidget` 根据系统设置中的相机覆盖段，把图像锚点线性映射到场地坐标并绘制全场轨迹。
+11. 动作计数和评分默认针对主运动员；若当前帧已有主运动员绑定实例则优先使用该实例，否则回退到最高置信度实例。
 
 ## 涉及文件
 
@@ -44,6 +45,7 @@
 - `QImage`
 - `TensorRtOutput`
 - `PoseFrameResult`
+- `PoseIdentityResolver`
 - `PoseStandardnessResult`
 
 ## 错误处理
@@ -57,5 +59,6 @@
 
 - 没有活动分析流时不推理。
 - 当前全场轨迹是按相机覆盖段做线性拼接，不是基于棋盘格/AprilTag/内外参的单应性标定，也不是多相机三维三角化。
+- 当前 `trackId` 是检测实例临时标识，不提供跨帧身份重识别；人工轨迹绑定用于把当前可见实例挂接到 session 参与者。
 - `rtmw3d-x.onnx` 缺失时，2D 人体姿态仍可运行。
 - `HandAnalysisManager` 名称含 Hand，但当前主流程实际是人体姿态分析。

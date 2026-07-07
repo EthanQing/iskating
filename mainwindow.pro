@@ -127,6 +127,7 @@ SOURCES += \
     mainwindow.cpp \
     nvrplayback.cpp \
     personmanagementdialog.cpp \
+    poseidentityresolver.cpp \
     poseresult.cpp \
     posestandardnessscorer.cpp \
     rtspstream.cpp \
@@ -155,6 +156,7 @@ HEADERS += \
     mainwindow.h \
     nvrplayback.h \
     personmanagementdialog.h \
+    poseidentityresolver.h \
     poseresult.h \
     posestandardnessscorer.h \
     rtspstream.h \

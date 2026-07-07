@@ -307,6 +307,20 @@ ActionStandard standardFromJson(const QJsonObject &object)
 
 QJsonObject sessionToJson(const TrainingSession &session)
 {
+    QJsonArray participants;
+    for (const TrainingSessionParticipant &participant : session.participants) {
+        participants.append(QJsonObject{
+            {QStringLiteral("id"), participant.id},
+            {QStringLiteral("sessionId"), participant.sessionId},
+            {QStringLiteral("athleteId"), participant.athleteId},
+            {QStringLiteral("athleteName"), participant.athleteName},
+            {QStringLiteral("slotIndex"), participant.slotIndex},
+            {QStringLiteral("role"), participant.role},
+            {QStringLiteral("trackLabel"), participant.trackLabel},
+            {QStringLiteral("notes"), participant.notes},
+            {QStringLiteral("active"), participant.active}
+        });
+    }
     return {
         {QStringLiteral("id"), session.id},
         {QStringLiteral("athleteId"), session.athleteId},
@@ -348,7 +362,8 @@ QJsonObject sessionToJson(const TrainingSession &session)
         {QStringLiteral("sourceRef"), session.sourceRef},
         {QStringLiteral("feedback"), session.feedback},
         {QStringLiteral("notes"), session.notes},
-        {QStringLiteral("coachComment"), session.coachComment}
+        {QStringLiteral("coachComment"), session.coachComment},
+        {QStringLiteral("participants"), participants}
     };
 }
 
@@ -357,6 +372,8 @@ QJsonObject repetitionToJson(const ActionRepetition &repetition)
     return {
         {QStringLiteral("id"), repetition.id},
         {QStringLiteral("sessionId"), repetition.sessionId},
+        {QStringLiteral("participantId"), repetition.participantId},
+        {QStringLiteral("athleteId"), repetition.athleteId},
         {QStringLiteral("actionStandardId"), repetition.actionStandardId},
         {QStringLiteral("standardVersion"), repetition.standardVersion},
         {QStringLiteral("startedMs"), repetition.startedMs},
@@ -389,7 +406,13 @@ QJsonObject repetitionToJson(const ActionRepetition &repetition)
         {QStringLiteral("manualErrorCodes"), repetition.manualErrorCodes},
         {QStringLiteral("manualFeedback"), repetition.manualFeedback},
         {QStringLiteral("coachNote"), repetition.coachNote},
-        {QStringLiteral("keyFramePoseJson"), repetition.keyFramePoseJson}
+        {QStringLiteral("keyFramePoseJson"), repetition.keyFramePoseJson},
+        {QStringLiteral("trackId"), repetition.trackId},
+        {QStringLiteral("cameraId"), repetition.cameraId},
+        {QStringLiteral("frameTimeMs"), QString::number(repetition.frameTimeMs)},
+        {QStringLiteral("identityStatus"), repetition.identityStatus},
+        {QStringLiteral("identityConfidence"), repetition.identityConfidence},
+        {QStringLiteral("identitySource"), repetition.identitySource}
     };
 }
 
@@ -398,6 +421,9 @@ ActionRepetition repetitionFromJson(const QJsonObject &object)
     ActionRepetition repetition;
     repetition.id = jsonString(object, QStringLiteral("id"));
     repetition.sessionId = jsonString(object, QStringLiteral("sessionId"));
+    repetition.participantId = jsonString(object, QStringLiteral("participantId"));
+    repetition.athleteId = jsonString(object, QStringLiteral("athleteId"));
+    repetition.athleteName = jsonString(object, QStringLiteral("athleteName"));
     repetition.actionStandardId = jsonString(object, QStringLiteral("actionStandardId"));
     repetition.standardVersion = jsonInt(object, QStringLiteral("standardVersion"), 1);
     repetition.startedMs = jsonInt(object, QStringLiteral("startedMs"));
@@ -431,7 +457,37 @@ ActionRepetition repetitionFromJson(const QJsonObject &object)
     repetition.manualFeedback = jsonString(object, QStringLiteral("manualFeedback"));
     repetition.coachNote = jsonString(object, QStringLiteral("coachNote"));
     repetition.keyFramePoseJson = jsonString(object, QStringLiteral("keyFramePoseJson"));
+    repetition.trackId = jsonInt(object, QStringLiteral("trackId"), -1);
+    repetition.cameraId = jsonInt(object, QStringLiteral("cameraId"), -1);
+    repetition.frameTimeMs = jsonString(object, QStringLiteral("frameTimeMs")).toLongLong();
+    if (repetition.frameTimeMs == 0 && object.contains(QStringLiteral("frameTimeMs"))) {
+        repetition.frameTimeMs = static_cast<qint64>(object.value(QStringLiteral("frameTimeMs")).toDouble(-1));
+    }
+    repetition.identityStatus = jsonString(object, QStringLiteral("identityStatus"));
+    if (repetition.identityStatus.isEmpty()) {
+        repetition.identityStatus = QStringLiteral("unknown");
+    }
+    repetition.identityConfidence = jsonDouble(object, QStringLiteral("identityConfidence"), -1.0);
+    repetition.identitySource = jsonString(object, QStringLiteral("identitySource"));
     return repetition;
+}
+
+TrainingSessionParticipant participantFromJson(const QJsonObject &object)
+{
+    TrainingSessionParticipant participant;
+    participant.id = jsonString(object, QStringLiteral("id"));
+    participant.sessionId = jsonString(object, QStringLiteral("sessionId"));
+    participant.athleteId = jsonString(object, QStringLiteral("athleteId"));
+    participant.athleteName = jsonString(object, QStringLiteral("athleteName"));
+    participant.slotIndex = jsonInt(object, QStringLiteral("slotIndex"), 1);
+    participant.role = jsonString(object, QStringLiteral("role"));
+    if (participant.role.isEmpty()) {
+        participant.role = QStringLiteral("participant");
+    }
+    participant.trackLabel = jsonString(object, QStringLiteral("trackLabel"));
+    participant.notes = jsonString(object, QStringLiteral("notes"));
+    participant.active = object.value(QStringLiteral("active")).toBool(true);
+    return participant;
 }
 
 RepetitionSearchItem repetitionSearchItemFromJson(const QJsonObject &object)
@@ -442,6 +498,7 @@ RepetitionSearchItem repetitionSearchItemFromJson(const QJsonObject &object)
     item.startedAt = dateTimeFromJson(object.value(QStringLiteral("startedAt")));
     item.athleteId = jsonString(object, QStringLiteral("athleteId"));
     item.athleteName = jsonString(object, QStringLiteral("athleteName"));
+    item.participantId = jsonString(object, QStringLiteral("participantId"));
     item.coachId = jsonString(object, QStringLiteral("coachId"));
     item.coachName = jsonString(object, QStringLiteral("coachName"));
     item.competitionId = jsonString(object, QStringLiteral("competitionId"));
@@ -540,6 +597,10 @@ SessionHistoryItem historyFromJson(const QJsonObject &object)
     item.feedback = jsonString(object, QStringLiteral("feedback"));
     item.notes = jsonString(object, QStringLiteral("notes"));
     item.coachComment = jsonString(object, QStringLiteral("coachComment"));
+    const QJsonArray participants = object.value(QStringLiteral("participants")).toArray();
+    for (const QJsonValue &value : participants) {
+        item.participants.append(participantFromJson(value.toObject()));
+    }
     return item;
 }
 
