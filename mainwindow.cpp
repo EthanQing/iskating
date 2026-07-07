@@ -3,6 +3,7 @@
 #include "handanalysismanager.h"
 #include "iconutils.h"
 #include "nvrplayback.h"
+#include "offlinevideoprobe.h"
 #include "personmanagementdialog.h"
 #include "poseidentityresolver.h"
 #include "posestandardnessscorer.h"
@@ -333,6 +334,41 @@ QString offlineVideoDisplayName(const QString &filePath)
     return fileName.isEmpty()
                ? QStringLiteral("离线视频")
                : QStringLiteral("离线视频 · %1").arg(fileName);
+}
+
+QString formatMediaDuration(qint64 durationMs)
+{
+    if (durationMs <= 0) {
+        return QStringLiteral("未知时长");
+    }
+    const qint64 totalSeconds = durationMs / 1000;
+    return QStringLiteral("%1:%2")
+        .arg(totalSeconds / 60, 2, 10, QLatin1Char('0'))
+        .arg(totalSeconds % 60, 2, 10, QLatin1Char('0'));
+}
+
+QString offlineProbeSummary(const OfflineVideoProbeResult &probe)
+{
+    QStringList parts;
+    if (!probe.codecName.trimmed().isEmpty()) {
+        parts << QStringLiteral("编码 %1").arg(probe.codecName);
+    }
+    if (!probe.resolution.trimmed().isEmpty()) {
+        parts << QStringLiteral("分辨率 %1").arg(probe.resolution);
+    }
+    if (probe.durationMs > 0) {
+        parts << QStringLiteral("时长 %1").arg(formatMediaDuration(probe.durationMs));
+    }
+    return parts.join(QStringLiteral("，"));
+}
+
+bool sameOfflineProbeFile(const OfflineVideoProbeResult &probe, const QFileInfo &fileInfo)
+{
+    return probe.success
+           && QFileInfo(probe.filePath).absoluteFilePath() == fileInfo.absoluteFilePath()
+           && probe.fileSize == fileInfo.size()
+           && probe.lastModified.isValid()
+           && probe.lastModified == fileInfo.lastModified();
 }
 
 QString issueSummary(const QString &errorCodes)
@@ -3204,9 +3240,19 @@ void MainWindow::importOfflineVideo()
         return;
     }
 
+    const OfflineVideoProbeResult probe = OfflineVideoProbe::probe(fileInfo.absoluteFilePath());
+    if (!probe.success) {
+        QMessageBox::warning(this,
+                             QStringLiteral("导入失败"),
+                             QStringLiteral("视频文件校验失败：%1\n\n文件：%2")
+                                 .arg(probe.message, QDir::toNativeSeparators(fileInfo.absoluteFilePath())));
+        return;
+    }
+
     settings.setValue(QStringLiteral("offlineVideo/lastDir"), fileInfo.absolutePath());
     m_offlineVideoPath = fileInfo.absoluteFilePath();
     m_offlineVideoName = offlineVideoDisplayName(m_offlineVideoPath);
+    m_offlineVideoProbe = probe;
 
     for (auto *videoWidget : m_cameraButtons) {
         if (videoWidget && videoWidget->isPlaying()) {
@@ -3214,8 +3260,10 @@ void MainWindow::importOfflineVideo()
         }
     }
     showOfflineVideoInMainView(true);
-    ui->saveTipLabel->setText(QStringLiteral("已导入离线视频：%1。点击“开始采集”后将基于该视频记录训练复盘。")
-                                  .arg(QDir::toNativeSeparators(m_offlineVideoPath)));
+    const QString summary = offlineProbeSummary(m_offlineVideoProbe);
+    ui->saveTipLabel->setText(QStringLiteral("已导入离线视频：%1%2。点击“开始采集”后将基于该视频记录训练复盘。")
+                                  .arg(QDir::toNativeSeparators(m_offlineVideoPath),
+                                       summary.isEmpty() ? QString() : QStringLiteral("（%1）").arg(summary)));
     ui->saveTipLabel->show();
 }
 
@@ -3265,6 +3313,7 @@ void MainWindow::showCameraInMainView(int cameraIndex, bool autoPlay)
 
     m_offlineVideoPath.clear();
     m_offlineVideoName.clear();
+    m_offlineVideoProbe = OfflineVideoProbeResult();
     auto *cameraWidget = m_cameraButtons.at(cameraIndex);
     m_selectedCamera = cameraIndex + 1;
     const QString source = cameraWidget->mainUrl();
@@ -3512,6 +3561,11 @@ void MainWindow::startCapture()
         const QFileInfo offlineFile(m_offlineVideoPath);
         if (!offlineFile.exists() || !offlineFile.isFile()) {
             ui->saveTipLabel->setText(QStringLiteral("离线视频文件不存在，请重新导入。"));
+            ui->saveTipLabel->show();
+            return;
+        }
+        if (!sameOfflineProbeFile(m_offlineVideoProbe, offlineFile)) {
+            ui->saveTipLabel->setText(QStringLiteral("离线视频文件已变化或尚未通过校验，请重新导入。"));
             ui->saveTipLabel->show();
             return;
         }

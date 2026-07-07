@@ -40,7 +40,7 @@
 
 视频播放当前要求 FFmpeg 解码器支持 D3D11VA。`RtspStream` 如果发现解码器不支持 D3D11VA，会进入 fatal error，没有通用软件解码 fallback。
 
-离线视频导入也复用这条硬解链路，不是软件解码 fallback；本地文件如果编码不支持 D3D11VA，仍会播放/分析失败。
+离线视频导入也复用这条硬解链路，不是软件解码 fallback；导入前会用 FFmpeg/D3D11VA 校验文件、视频轨、时长、seek 能力和首帧硬解，不兼容编码会提前阻止导入。
 
 历史复盘的精确 seek、慢放、逐帧和关键帧定位只对本地离线视频可用；RTSP/网络视频没有通用 DVR seek 能力。配置 NVR 回放模板后，历史页和复盘校准会按训练开始时间、机位 IP 和动作片段窗口生成 NVR RTSP 回放 URL，但 URL 路径、时间格式和 seek 能力都取决于 NVR 厂商实现。离线文件若被移动或删除，复盘摘要仍保留，但回看无法播放，需要恢复原文件或重新导入。
 
@@ -48,6 +48,7 @@
 
 - `rtspstream.cpp`
 - `videoopenglwidget.cpp`
+- `offlinevideoprobe.cpp`
 - `mainwindow.cpp`
 - `d3d11videodevice.cpp`
 - `d3dvideosurface.cpp`

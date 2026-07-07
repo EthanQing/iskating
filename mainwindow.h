@@ -4,6 +4,7 @@
 #include "poseresult.h"
 #include "systemsettingsdialog.h"
 #include "trainingdomain.h"
+#include "offlinevideoprobe.h"
 
 #include <QMainWindow>
 #include <QMargins>
@@ -245,6 +246,7 @@ private:
     QString m_feedbackText = QStringLiteral("动作标准");
     QString m_offlineVideoPath;
     QString m_offlineVideoName;
+    OfflineVideoProbeResult m_offlineVideoProbe;
     SharedCameraSettings m_sharedCameraSettings;
     QVector<CameraSlotSettings> m_cameraSlotSettings;
     CapturePreferenceSettings m_capturePreferenceSettings;

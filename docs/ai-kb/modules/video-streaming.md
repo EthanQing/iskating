@@ -17,6 +17,7 @@
 - `streamregistry.cpp`: 创建并缓存 `RtspStream`。
 - `rtspstream.h`: 视频流状态、帧读取和本地回放控制接口。
 - `rtspstream.cpp`: FFmpeg 打开输入、D3D11VA 解码、UDP/TCP RTSP 重试、断流统计和重连；本地文件按 PTS 控速并支持 seek、倍率和单帧步进。
+- `offlinevideoprobe.h/.cpp`: 离线视频导入前校验文件、视频轨、时长、seek 能力和 D3D11VA 首帧硬解。
 - `d3d11videodevice.cpp`: 全局 D3D11 设备和 FFmpeg hw device。
 - `d3dframe.h`: D3D11 硬件帧封装。
 - `d3dvideosurface.cpp`: D3D11 swap chain、shader、视频渲染和骨架叠加。
@@ -30,7 +31,7 @@
 - `StreamRegistry::acquire(url)` 按 URL 返回共享 `RtspStream`。
 - `RtspStream` 后台线程使用 FFmpeg 打开视频源，优先 RTSP UDP，失败后尝试 TCP；断流时记录连续/总重连次数、最近断流/恢复时间、最近错误和当前传输协议。
 - RTSP 断流后保留 1s/2s/5s/5s 退避重连；超过 30 秒未恢复时状态显示“长时间断流，请检查摄像头网络或 RTSP 配置”。
-- 离线视频导入复用同一条链路：`MainWindow::importOfflineVideo()` 选择本地文件后，主视图通过 `VideoOpenGLWidget::playFile()` 打开文件并把 active stream 交给 AI 分析。
+- 离线视频导入先由 `OfflineVideoProbe` 校验本地文件、视频轨、时长、seek 能力、D3D11VA 支持和首帧硬解；通过后才由 `MainWindow::importOfflineVideo()` 切换主视图，并通过 `VideoOpenGLWidget::playFile()` 打开文件交给 AI 分析。
 - 解码必须输出 `AV_PIX_FMT_D3D11`，否则视为 fatal error。
 - `D3DVideoSurface` 负责把最新 `D3DFrame` 显示到 Qt 控件。
 - `HandAnalysisManager` 用 `D3DFrameExtractor` 从当前分析流转 RGB；采集中会由 `MainWindow::syncAnalysisStreams()` 把参与轨迹的 12 路相机活动流同步给 AI。
@@ -90,9 +91,10 @@
 ### 调整离线视频导入
 
 1. 入口在主视频标题栏的“导入视频”按钮，逻辑集中在 `MainWindow::importOfflineVideo()` 和 `showOfflineVideoInMainView()`。
-2. 选中离线视频后 `m_selectedCamera` 为 0，开始采集不会切回 CAM 01，也不会启动 12 路 RTSP 预览。
-3. AI 分析只订阅主视图本地文件流，不会走 12 路相机轨迹拼接。
-4. 保存训练记录时 `video_source` 写入本地文件绝对路径，`video_camera_name` 写入“离线视频 · 文件名”。
+2. `OfflineVideoProbe` 必须在保存 `m_offlineVideoPath` 前通过校验；失败时不改变当前播放源。
+3. 选中离线视频后 `m_selectedCamera` 为 0，开始采集不会切回 CAM 01，也不会启动 12 路 RTSP 预览。
+4. AI 分析只订阅主视图本地文件流，不会走 12 路相机轨迹拼接。
+5. 保存训练记录时 `video_source` 写入本地文件绝对路径，`video_camera_name` 写入“离线视频 · 文件名”。
 
 ### 调整本地复盘回放
 
@@ -121,7 +123,7 @@
 ## 注意事项
 
 - ⚠️ 高风险区域：当前没有通用软件解码 fallback。
-- 离线视频仍要求解码器支持 D3D11VA；不兼容编码会像 RTSP 一样进入视频错误状态。
+- 离线视频仍要求解码器支持 D3D11VA；导入前会校验并提前提示不兼容编码，但历史回看仍依赖实际播放链路。
 - 离线训练记录只保存本地文件引用，不复制视频文件；后续回看依赖原文件仍在本机可访问。
 - 历史复盘的精确 seek、慢放和逐帧仅对本地离线视频可用；NVR/RTSP 网络回放按模板生成对应时间窗口的 RTSP 源，是否可 seek 取决于 NVR 能力。
 - ⚠️ 高风险区域：D3D11 设备是全局共享的，修改线程/生命周期要谨慎。
