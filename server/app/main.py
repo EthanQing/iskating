@@ -346,6 +346,18 @@ def event_athlete_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def session_source(session: dict[str, Any],
+                   competition_id: uuid.UUID | str | None,
+                   competition_event_id: uuid.UUID | None) -> tuple[str, str | None]:
+    if competition_event_id:
+        return "competition", str(competition_event_id)
+    if competition_id:
+        return "competition", str(competition_id)
+    if int(session.get("camera", 1)) == 0 and session.get("videoSource"):
+        return "offline_import", session.get("videoSource")
+    return "training", session.get("taskId") or session.get("planId") or None
+
+
 def scores_from_payload(payload: dict[str, Any], prefix: str = "") -> dict[str, int]:
     def value(name: str) -> int:
         key = f"{prefix}{name[0].upper()}{name[1:]}Score" if prefix else f"{name}Score"
@@ -1019,24 +1031,26 @@ def save_training_session(payload: dict[str, Any] = Body(...),
         if not event_row:
             raise HTTPException(status_code=400, detail="competitionEventId is invalid")
         competition_id = event_row[0]
+    source_type, source_ref = session_source(session, competition_id, competition_event_id)
     db.execute(
         text(
             "INSERT INTO training_sessions "
             "(id, athlete_id, coach_id, competition_id, competition_event_id, event_athlete_id, plan_id, task_id, action_standard_id, standard_version, legacy_qsettings_id, "
             "started_at, saved_at, duration_sec, total_reps, valid_reps, average_score, best_score, camera, "
             "model_precision, fps, scores, site, training_phase, goal, target_reps, target_score, set_count, rest_seconds, "
-            "video_source, video_fallback_source, video_camera_name, feedback, notes, coach_comment) "
+            "video_source, video_fallback_source, video_camera_name, source_type, source_ref, feedback, notes, coach_comment) "
             "VALUES (:id, :athlete_id, :coach_id, :competition_id, :competition_event_id, :event_athlete_id, :plan_id, :task_id, :action_standard_id, :standard_version, "
             ":legacy_qsettings_id, :started_at, :saved_at, :duration_sec, :total_reps, :valid_reps, :average_score, "
             ":best_score, :camera, :model_precision, :fps, CAST(:scores AS jsonb), :site, :training_phase, :goal, "
             ":target_reps, :target_score, :set_count, :rest_seconds, :video_source, :video_fallback_source, "
-            ":video_camera_name, :feedback, :notes, :coach_comment) "
+            ":video_camera_name, :source_type, :source_ref, :feedback, :notes, :coach_comment) "
             "ON CONFLICT (id) DO UPDATE SET coach_id=excluded.coach_id, competition_id=excluded.competition_id, "
             "competition_event_id=excluded.competition_event_id, event_athlete_id=excluded.event_athlete_id, "
             "plan_id=excluded.plan_id, task_id=excluded.task_id, "
             "saved_at=excluded.saved_at, duration_sec=excluded.duration_sec, total_reps=excluded.total_reps, "
             "valid_reps=excluded.valid_reps, average_score=excluded.average_score, best_score=excluded.best_score, "
-            "scores=excluded.scores, feedback=excluded.feedback, notes=excluded.notes, coach_comment=excluded.coach_comment"
+            "scores=excluded.scores, source_type=excluded.source_type, source_ref=excluded.source_ref, "
+            "feedback=excluded.feedback, notes=excluded.notes, coach_comment=excluded.coach_comment"
         ),
         {
             "id": session_id,
@@ -1071,6 +1085,8 @@ def save_training_session(payload: dict[str, Any] = Body(...),
             "video_source": session.get("videoSource") or None,
             "video_fallback_source": session.get("videoFallbackSource") or None,
             "video_camera_name": session.get("videoCameraName") or None,
+            "source_type": source_type,
+            "source_ref": source_ref,
             "feedback": session.get("feedback") or None,
             "notes": session.get("notes") or None,
             "coach_comment": session.get("coachComment") or None,
@@ -1088,6 +1104,12 @@ def save_training_session(payload: dict[str, Any] = Body(...),
 
 def history_row(row: dict[str, Any]) -> dict[str, Any]:
     scores = row["scores"] or {}
+    source_type = row.get("source_type") or "training"
+    source_label = "训练"
+    if source_type == "competition":
+        source_label = row.get("race_name") or row.get("competition_name") or "比赛"
+    elif source_type == "offline_import":
+        source_label = row.get("video_camera_name") or row.get("source_ref") or "导入视频"
     return {
         "id": str(row["id"]),
         "athleteId": str(row["athlete_id"]),
@@ -1142,6 +1164,9 @@ def history_row(row: dict[str, Any]) -> dict[str, Any]:
         "videoSource": row["video_source"] or "",
         "videoFallbackSource": row["video_fallback_source"] or "",
         "videoCameraName": row["video_camera_name"] or "",
+        "sourceType": source_type,
+        "sourceRef": row.get("source_ref") or "",
+        "sourceLabel": source_label,
         "feedback": row["feedback"] or "",
         "notes": row["notes"] or "",
         "coachComment": row["coach_comment"] or "",
@@ -1156,6 +1181,7 @@ def search_sessions(
     competitionId: str = "",
     competitionEventId: str = "",
     eventAthleteId: str = "",
+    sourceType: str = "",
     savedFrom: str = "",
     savedTo: str = "",
     competitionText: str = "",
@@ -1182,6 +1208,9 @@ def search_sessions(
         if value:
             where.append(f"{column} = :{query_name}")
             args[query_name] = parse_uuid(value)
+    if sourceType:
+        where.append("ts.source_type = :sourceType")
+        args["sourceType"] = sourceType
     if savedFrom:
         where.append("ts.saved_at >= :savedFrom")
         args["savedFrom"] = parse_dt(savedFrom)
@@ -1195,7 +1224,7 @@ def search_sessions(
         where.append("ts.average_score <= :maxScore")
         args["maxScore"] = maxScore
     if competitionText.strip():
-        where.append("(COALESCE(comp.name,'') ILIKE :q OR COALESCE(comp.location,'') ILIKE :q OR COALESCE(comp.competition_type,'') ILIKE :q OR COALESCE(comp.notes,'') ILIKE :q OR COALESCE(ce.race_name,'') ILIKE :q OR COALESCE(ce.event_name,'') ILIKE :q OR COALESCE(ce.heat_name,'') ILIKE :q OR COALESCE(ce.group_name,'') ILIKE :q OR COALESCE(ce.notes,'') ILIKE :q OR COALESCE(ea.bib_number,'') ILIKE :q OR COALESCE(ea.lane_number,'') ILIKE :q OR COALESCE(ea.notes,'') ILIKE :q OR COALESCE(ts.site,'') ILIKE :q OR COALESCE(ts.training_phase,'') ILIKE :q OR COALESCE(ts.goal,'') ILIKE :q OR COALESCE(ts.notes,'') ILIKE :q OR COALESCE(ts.feedback,'') ILIKE :q OR COALESCE(ts.coach_comment,'') ILIKE :q)")
+        where.append("(COALESCE(comp.name,'') ILIKE :q OR COALESCE(comp.location,'') ILIKE :q OR COALESCE(comp.competition_type,'') ILIKE :q OR COALESCE(comp.notes,'') ILIKE :q OR COALESCE(ce.race_name,'') ILIKE :q OR COALESCE(ce.event_name,'') ILIKE :q OR COALESCE(ce.heat_name,'') ILIKE :q OR COALESCE(ce.group_name,'') ILIKE :q OR COALESCE(ce.notes,'') ILIKE :q OR COALESCE(ea.bib_number,'') ILIKE :q OR COALESCE(ea.lane_number,'') ILIKE :q OR COALESCE(ea.notes,'') ILIKE :q OR COALESCE(ts.source_type,'') ILIKE :q OR COALESCE(ts.source_ref,'') ILIKE :q OR COALESCE(ts.site,'') ILIKE :q OR COALESCE(ts.training_phase,'') ILIKE :q OR COALESCE(ts.goal,'') ILIKE :q OR COALESCE(ts.notes,'') ILIKE :q OR COALESCE(ts.feedback,'') ILIKE :q OR COALESCE(ts.coach_comment,'') ILIKE :q)")
         args["q"] = f"%{competitionText.strip()}%"
     where_sql = "WHERE " + " AND ".join(where) if where else ""
     from_sql = (

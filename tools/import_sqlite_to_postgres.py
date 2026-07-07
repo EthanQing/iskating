@@ -301,19 +301,21 @@ def import_data(sqlite_path: Path, database_url: str) -> dict[str, int]:
                      legacy_qsettings_id, started_at, saved_at, duration_sec, total_reps, valid_reps,
                      average_score, best_score, camera, model_precision, fps, scores, site, training_phase,
                      goal, target_reps, target_score, set_count, rest_seconds, video_source,
-                     video_fallback_source, video_camera_name, feedback, notes, coach_comment)
+                     video_fallback_source, video_camera_name, source_type, source_ref, feedback, notes, coach_comment)
                     VALUES (%(id)s, %(athlete_id)s, %(coach_id)s, %(competition_id)s, %(competition_event_id)s,
                             %(event_athlete_id)s, %(plan_id)s, %(task_id)s, %(action_standard_id)s,
                             %(standard_version)s, %(legacy_qsettings_id)s, %(started_at)s, %(saved_at)s,
                             %(duration_sec)s, %(total_reps)s, %(valid_reps)s, %(average_score)s, %(best_score)s,
                             %(camera)s, %(model_precision)s, %(fps)s, %(scores)s, %(site)s, %(training_phase)s,
                             %(goal)s, %(target_reps)s, %(target_score)s, %(set_count)s, %(rest_seconds)s,
-                            %(video_source)s, %(video_fallback_source)s, %(video_camera_name)s, %(feedback)s,
-                            %(notes)s, %(coach_comment)s)
+                            %(video_source)s, %(video_fallback_source)s, %(video_camera_name)s,
+                            %(source_type)s, %(source_ref)s, %(feedback)s, %(notes)s, %(coach_comment)s)
                     ON CONFLICT (id) DO UPDATE SET saved_at=excluded.saved_at, total_reps=excluded.total_reps,
                     valid_reps=excluded.valid_reps, average_score=excluded.average_score, best_score=excluded.best_score,
                     competition_id=excluded.competition_id, competition_event_id=excluded.competition_event_id,
-                    event_athlete_id=excluded.event_athlete_id, scores=excluded.scores, coach_comment=excluded.coach_comment
+                    event_athlete_id=excluded.event_athlete_id, scores=excluded.scores,
+                    source_type=excluded.source_type, source_ref=excluded.source_ref,
+                    coach_comment=excluded.coach_comment
                     """,
                     {
                         "id": as_uuid(row["id"]),
@@ -348,6 +350,8 @@ def import_data(sqlite_path: Path, database_url: str) -> dict[str, int]:
                         "video_source": row["video_source"],
                         "video_fallback_source": row["video_fallback_source"],
                         "video_camera_name": row["video_camera_name"],
+                        "source_type": "training",
+                        "source_ref": None,
                         "feedback": row["feedback"],
                         "notes": row["notes"],
                         "coach_comment": row["coach_comment"],

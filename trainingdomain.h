@@ -23,6 +23,7 @@ struct SessionSearchFilters
     QString competitionId;
     QString competitionEventId;
     QString eventAthleteId;
+    QString sourceType;
     QDateTime savedFrom;
     QDateTime savedTo;
     QString competitionText;
@@ -296,6 +297,9 @@ struct TrainingSession
     QString videoSource;
     QString videoFallbackSource;
     QString videoCameraName;
+    QString sourceType = QStringLiteral("training");
+    QString sourceRef;
+    QString sourceLabel;
     QString feedback;
     QString notes;
     QString coachComment;
@@ -356,6 +360,9 @@ struct SessionHistoryItem
     QString videoSource;
     QString videoFallbackSource;
     QString videoCameraName;
+    QString sourceType = QStringLiteral("training");
+    QString sourceRef;
+    QString sourceLabel;
     QString feedback;
     QString notes;
     QString coachComment;

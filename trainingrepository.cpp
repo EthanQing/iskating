@@ -344,6 +344,8 @@ QJsonObject sessionToJson(const TrainingSession &session)
         {QStringLiteral("videoSource"), session.videoSource},
         {QStringLiteral("videoFallbackSource"), session.videoFallbackSource},
         {QStringLiteral("videoCameraName"), session.videoCameraName},
+        {QStringLiteral("sourceType"), session.sourceType},
+        {QStringLiteral("sourceRef"), session.sourceRef},
         {QStringLiteral("feedback"), session.feedback},
         {QStringLiteral("notes"), session.notes},
         {QStringLiteral("coachComment"), session.coachComment}
@@ -488,6 +490,12 @@ SessionHistoryItem historyFromJson(const QJsonObject &object)
     item.videoSource = jsonString(object, QStringLiteral("videoSource"));
     item.videoFallbackSource = jsonString(object, QStringLiteral("videoFallbackSource"));
     item.videoCameraName = jsonString(object, QStringLiteral("videoCameraName"));
+    item.sourceType = jsonString(object, QStringLiteral("sourceType"));
+    if (item.sourceType.trimmed().isEmpty()) {
+        item.sourceType = QStringLiteral("training");
+    }
+    item.sourceRef = jsonString(object, QStringLiteral("sourceRef"));
+    item.sourceLabel = jsonString(object, QStringLiteral("sourceLabel"));
     item.feedback = jsonString(object, QStringLiteral("feedback"));
     item.notes = jsonString(object, QStringLiteral("notes"));
     item.coachComment = jsonString(object, QStringLiteral("coachComment"));
@@ -897,6 +905,7 @@ SessionSearchResult TrainingRepository::searchSessions(const SessionSearchFilter
         {QStringLiteral("competitionId"), filters.competitionId},
         {QStringLiteral("competitionEventId"), filters.competitionEventId},
         {QStringLiteral("eventAthleteId"), filters.eventAthleteId},
+        {QStringLiteral("sourceType"), filters.sourceType},
         {QStringLiteral("competitionText"), filters.competitionText},
         {QStringLiteral("pageNumber"), page.pageNumber},
         {QStringLiteral("pageSize"), page.pageSize},

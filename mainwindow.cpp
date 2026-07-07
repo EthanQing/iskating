@@ -451,6 +451,37 @@ QString sourceLabel(const ActionRepetition &repetition)
     return repetition.source == QStringLiteral("coach") ? QStringLiteral("教练手动") : QStringLiteral("AI");
 }
 
+QString sessionSourceTypeLabel(const QString &sourceType)
+{
+    if (sourceType == QStringLiteral("competition")) {
+        return QStringLiteral("比赛");
+    }
+    if (sourceType == QStringLiteral("offline_import")) {
+        return QStringLiteral("导入视频");
+    }
+    return QStringLiteral("训练");
+}
+
+QString sessionSourceDisplay(const SessionHistoryItem &record)
+{
+    if (!record.sourceLabel.trimmed().isEmpty()) {
+        return record.sourceLabel.trimmed();
+    }
+    if (record.sourceType == QStringLiteral("competition")) {
+        if (!record.raceName.trimmed().isEmpty()) {
+            return record.raceName.trimmed();
+        }
+        if (!record.competitionName.trimmed().isEmpty()) {
+            return record.competitionName.trimmed();
+        }
+        return QStringLiteral("比赛");
+    }
+    if (record.sourceType == QStringLiteral("offline_import")) {
+        return displayMediaSource(record.sourceRef.trimmed().isEmpty() ? record.videoSource : record.sourceRef);
+    }
+    return QStringLiteral("训练");
+}
+
 QString reviewStatusLabel(const ActionRepetition &repetition)
 {
     if (repetition.source == QStringLiteral("coach")) {
@@ -1250,6 +1281,7 @@ void MainWindow::installHistorySearchPanel()
     m_historyActionComboBox = new QComboBox(m_historySearchPanel);
     m_historyCompetitionComboBox = new QComboBox(m_historySearchPanel);
     m_historyCompetitionEventComboBox = new QComboBox(m_historySearchPanel);
+    m_historySourceTypeComboBox = new QComboBox(m_historySearchPanel);
     m_historySortComboBox = new QComboBox(m_historySearchPanel);
     m_historyCompetitionLineEdit = new QLineEdit(m_historySearchPanel);
     m_historyMinScoreSpinBox = new QSpinBox(m_historySearchPanel);
@@ -1278,6 +1310,10 @@ void MainWindow::installHistorySearchPanel()
     m_historySortComboBox->addItem(QStringLiteral("最佳分 · 高到低"), 4);
     m_historySortComboBox->addItem(QStringLiteral("有效动作 · 多到少"), 5);
     m_historySortComboBox->addItem(QStringLiteral("训练时长 · 长到短"), 6);
+    m_historySourceTypeComboBox->addItem(QStringLiteral("全部来源"), QString());
+    m_historySourceTypeComboBox->addItem(QStringLiteral("训练"), QStringLiteral("training"));
+    m_historySourceTypeComboBox->addItem(QStringLiteral("比赛"), QStringLiteral("competition"));
+    m_historySourceTypeComboBox->addItem(QStringLiteral("导入视频"), QStringLiteral("offline_import"));
 
     auto *searchButton = new QPushButton(QStringLiteral("查询"), m_historySearchPanel);
     auto *resetButton = new QPushButton(QStringLiteral("重置"), m_historySearchPanel);
@@ -1308,15 +1344,17 @@ void MainWindow::installHistorySearchPanel()
     grid->addWidget(m_historyCompetitionComboBox, 2, 1);
     grid->addWidget(new QLabel(QStringLiteral("场次"), m_historySearchPanel), 2, 2);
     grid->addWidget(m_historyCompetitionEventComboBox, 2, 3);
-    grid->addWidget(new QLabel(QStringLiteral("关键词"), m_historySearchPanel), 2, 4);
-    grid->addWidget(m_historyCompetitionLineEdit, 2, 5, 1, 2);
-    grid->addWidget(new QLabel(QStringLiteral("排序"), m_historySearchPanel), 2, 7);
-    grid->addWidget(m_historySortComboBox, 2, 8, 1, 2);
-    grid->addWidget(searchButton, 2, 10);
-    grid->addWidget(resetButton, 2, 11);
-    grid->addWidget(manageCompetitionsButton, 2, 12);
-    grid->addWidget(m_historyPreviousPageButton, 2, 13);
-    grid->addWidget(m_historyNextPageButton, 2, 14);
+    grid->addWidget(new QLabel(QStringLiteral("来源"), m_historySearchPanel), 2, 4);
+    grid->addWidget(m_historySourceTypeComboBox, 2, 5);
+    grid->addWidget(new QLabel(QStringLiteral("关键词"), m_historySearchPanel), 2, 6);
+    grid->addWidget(m_historyCompetitionLineEdit, 2, 7, 1, 2);
+    grid->addWidget(new QLabel(QStringLiteral("排序"), m_historySearchPanel), 2, 9);
+    grid->addWidget(m_historySortComboBox, 2, 10, 1, 2);
+    grid->addWidget(searchButton, 2, 12);
+    grid->addWidget(resetButton, 2, 13);
+    grid->addWidget(manageCompetitionsButton, 2, 14);
+    grid->addWidget(m_historyPreviousPageButton, 2, 15);
+    grid->addWidget(m_historyNextPageButton, 2, 16);
 
     panelLayout->addLayout(grid);
     ui->historyPageLayout->insertWidget(1, m_historySearchPanel);
@@ -1929,6 +1967,9 @@ SessionSearchFilters MainWindow::currentHistorySearchFilters() const
     if (m_historyCompetitionEventComboBox) {
         filters.competitionEventId = m_historyCompetitionEventComboBox->currentData().toString();
     }
+    if (m_historySourceTypeComboBox) {
+        filters.sourceType = m_historySourceTypeComboBox->currentData().toString();
+    }
     if (m_historyFromCheckBox && m_historyFromCheckBox->isChecked() && m_historyFromDateEdit) {
         filters.savedFrom = QDateTime(m_historyFromDateEdit->date(), QTime(0, 0, 0));
     }
@@ -2004,6 +2045,9 @@ void MainWindow::resetHistorySearch()
     }
     if (m_historyCompetitionEventComboBox) {
         m_historyCompetitionEventComboBox->setCurrentIndex(0);
+    }
+    if (m_historySourceTypeComboBox) {
+        m_historySourceTypeComboBox->setCurrentIndex(0);
     }
     if (m_historySortComboBox) {
         m_historySortComboBox->setCurrentIndex(0);
@@ -3368,6 +3412,19 @@ void MainWindow::saveRecord()
         session.videoFallbackSource = cameraWidget->previewUrl().trimmed();
         session.videoCameraName = cameraWidget->channelName();
     }
+    if (!competitionEventId.isEmpty()) {
+        session.sourceType = QStringLiteral("competition");
+        session.sourceRef = competitionEventId;
+    } else if (!competitionId.isEmpty()) {
+        session.sourceType = QStringLiteral("competition");
+        session.sourceRef = competitionId;
+    } else if (offlineSession && !session.videoSource.trimmed().isEmpty()) {
+        session.sourceType = QStringLiteral("offline_import");
+        session.sourceRef = session.videoSource;
+    } else {
+        session.sourceType = QStringLiteral("training");
+        session.sourceRef = !taskId.isEmpty() ? taskId : planId;
+    }
     session.feedback = m_feedbackText.trimmed().isEmpty() ? QStringLiteral("等待姿态") : m_feedbackText.trimmed();
     session.notes = trainingNotes;
 
@@ -3705,6 +3762,14 @@ void MainWindow::refreshHistory()
         eventLabel->setProperty("role", "muted");
         eventLabel->setWordWrap(true);
         cardLayout->addWidget(eventLabel);
+
+        auto *sourceTypeLabel = new QLabel(QStringLiteral("分析归属：%1   对象：%2")
+                                               .arg(sessionSourceTypeLabel(record.sourceType),
+                                                    sessionSourceDisplay(record)),
+                                           card);
+        sourceTypeLabel->setProperty("role", "muted");
+        sourceTypeLabel->setWordWrap(true);
+        cardLayout->addWidget(sourceTypeLabel);
 
         if (repetitions.isEmpty()) {
             auto *emptyReviewLabel = new QLabel(QStringLiteral("本次尚未保存动作实例。复盘会先展示 session 摘要，后续采集到动作计数后会自动列出动作明细、最好/最差动作和错误时间轴。"),
@@ -4432,6 +4497,8 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
             << " / " << (record.laneNumber.trimmed().isEmpty() ? QStringLiteral("未填写") : record.laneNumber.trimmed())
             << " / " << (record.resultScore >= 0 ? QString::number(record.resultScore) : QStringLiteral("未填"))
             << " / " << (record.resultRank >= 0 ? QString::number(record.resultRank) : QStringLiteral("未填")) << "\n";
+        out << "- 分析归属：" << sessionSourceTypeLabel(record.sourceType)
+            << " / " << sessionSourceDisplay(record) << "\n";
         out << "- 场地/阶段/目标：" << (record.site.isEmpty() ? QStringLiteral("未填写") : record.site)
             << " / " << (record.trainingPhase.isEmpty() ? QStringLiteral("未填写") : record.trainingPhase)
             << " / " << (record.goal.isEmpty() ? QStringLiteral("未填写") : record.goal) << "\n";
@@ -4496,6 +4563,9 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
             QStringLiteral("lane_number"),
             QStringLiteral("result_score"),
             QStringLiteral("result_rank"),
+            QStringLiteral("session_source_type"),
+            QStringLiteral("session_source_label"),
+            QStringLiteral("session_source_ref"),
             QStringLiteral("action"),
             QStringLiteral("standard_version"),
             QStringLiteral("duration"),
@@ -4555,6 +4625,9 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
                 << csvField(record.laneNumber)
                 << csvField(record.resultScore >= 0 ? QString::number(record.resultScore) : QString())
                 << csvField(record.resultRank >= 0 ? QString::number(record.resultRank) : QString())
+                << csvField(record.sourceType)
+                << csvField(sessionSourceDisplay(record))
+                << csvField(record.sourceRef)
                 << csvField(QStringLiteral("%1/%2").arg(record.actionCategory, record.actionName))
                 << csvField(QString::number(record.standardVersion))
                 << csvField(formatTime(record.duration))
@@ -4648,6 +4721,9 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
                                                          record.laneNumber.trimmed().isEmpty() ? QStringLiteral("未填写") : record.laneNumber.trimmed(),
                                                          record.resultScore >= 0 ? QString::number(record.resultScore) : QStringLiteral("未填"),
                                                          record.resultRank >= 0 ? QString::number(record.resultRank) : QStringLiteral("未填"))},
+            {QStringLiteral("分析归属"), QStringLiteral("%1 / %2")
+                                      .arg(sessionSourceTypeLabel(record.sourceType),
+                                           sessionSourceDisplay(record))},
             {QStringLiteral("动作"), QStringLiteral("%1 / %2 v%3").arg(record.actionCategory, record.actionName).arg(record.standardVersion)},
             {QStringLiteral("场地/阶段/目标"), QStringLiteral("%1 / %2 / %3")
                                               .arg(record.site.isEmpty() ? QStringLiteral("未填写") : record.site,

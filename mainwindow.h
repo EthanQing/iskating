@@ -171,6 +171,7 @@ private:
     QComboBox *m_historyActionComboBox = nullptr;
     QComboBox *m_historyCompetitionComboBox = nullptr;
     QComboBox *m_historyCompetitionEventComboBox = nullptr;
+    QComboBox *m_historySourceTypeComboBox = nullptr;
     QComboBox *m_historySortComboBox = nullptr;
     QLineEdit *m_historyCompetitionLineEdit = nullptr;
     QSpinBox *m_historyMinScoreSpinBox = nullptr;
