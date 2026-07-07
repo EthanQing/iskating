@@ -80,6 +80,8 @@ private:
     QString selectedAthleteId() const;
     QString selectedCoachId() const;
     QString selectedCompetitionId() const;
+    QString selectedCompetitionEventId() const;
+    QString selectedEventAthleteId() const;
     void resetCurrentTrainingSession();
     void recordCompletedRepetition(const ActionRepetition &repetition);
     void importOfflineVideo();
@@ -151,6 +153,7 @@ private:
     QComboBox *m_athleteComboBox = nullptr;
     QComboBox *m_coachComboBox = nullptr;
     QComboBox *m_competitionComboBox = nullptr;
+    QComboBox *m_competitionEventComboBox = nullptr;
     QComboBox *m_actionStandardComboBox = nullptr;
     QLineEdit *m_siteLineEdit = nullptr;
     QComboBox *m_trainingPhaseComboBox = nullptr;
@@ -167,6 +170,7 @@ private:
     QComboBox *m_historyCoachComboBox = nullptr;
     QComboBox *m_historyActionComboBox = nullptr;
     QComboBox *m_historyCompetitionComboBox = nullptr;
+    QComboBox *m_historyCompetitionEventComboBox = nullptr;
     QComboBox *m_historySortComboBox = nullptr;
     QLineEdit *m_historyCompetitionLineEdit = nullptr;
     QSpinBox *m_historyMinScoreSpinBox = nullptr;
@@ -185,6 +189,8 @@ private:
     QVector<AthleteProfile> m_athletes;
     QVector<CoachProfile> m_coaches;
     QVector<Competition> m_competitions;
+    QVector<CompetitionEvent> m_competitionEvents;
+    QVector<EventAthlete> m_eventAthletes;
     QVector<ActionStandard> m_actionStandards;
     QVector<ActionRepetition> m_currentRepetitions;
     QString m_lastSavedAt;

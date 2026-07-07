@@ -21,6 +21,8 @@ struct SessionSearchFilters
     QString coachId;
     QString actionStandardId;
     QString competitionId;
+    QString competitionEventId;
+    QString eventAthleteId;
     QDateTime savedFrom;
     QDateTime savedTo;
     QString competitionText;
@@ -75,6 +77,34 @@ struct Competition
     QString location;
     QDate competitionDate;
     QString competitionType;
+    QString notes;
+    bool active = true;
+};
+
+struct CompetitionEvent
+{
+    QString id;
+    QString competitionId;
+    QString raceName;
+    QString eventName;
+    QString heatName;
+    QString groupName;
+    QDateTime scheduledAt;
+    QString notes;
+    bool active = true;
+};
+
+struct EventAthlete
+{
+    QString id;
+    QString eventId;
+    QString athleteId;
+    QString athleteName;
+    QString bibNumber;
+    QString laneNumber;
+    int sortOrder = 0;
+    int resultScore = -1;
+    int resultRank = -1;
     QString notes;
     bool active = true;
 };
@@ -234,6 +264,8 @@ struct TrainingSession
     QString athleteId;
     QString coachId;
     QString competitionId;
+    QString competitionEventId;
+    QString eventAthleteId;
     QString planId;
     QString taskId;
     QString actionStandardId;
@@ -285,6 +317,19 @@ struct SessionHistoryItem
     QDate competitionDate;
     QString competitionType;
     QString competitionNotes;
+    QString competitionEventId;
+    QString eventAthleteId;
+    QString raceName;
+    QString eventName;
+    QString heatName;
+    QString groupName;
+    QDateTime eventScheduledAt;
+    QString eventNotes;
+    QString bibNumber;
+    QString laneNumber;
+    int resultScore = -1;
+    int resultRank = -1;
+    QString eventAthleteNotes;
     QString actionName;
     QString actionCategory;
     int standardVersion = 1;

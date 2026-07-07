@@ -18,6 +18,7 @@
 #include <QDate>
 #include <QDateTime>
 #include <QDateEdit>
+#include <QDateTimeEdit>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -1126,6 +1127,7 @@ void MainWindow::installTrainingContextPanel()
     m_athleteComboBox = new QComboBox(m_trainingContextPanel);
     m_coachComboBox = new QComboBox(m_trainingContextPanel);
     m_competitionComboBox = new QComboBox(m_trainingContextPanel);
+    m_competitionEventComboBox = new QComboBox(m_trainingContextPanel);
     m_actionStandardComboBox = new QComboBox(m_trainingContextPanel);
     m_siteLineEdit = new QLineEdit(m_trainingContextPanel);
     m_trainingPhaseComboBox = new QComboBox(m_trainingContextPanel);
@@ -1161,9 +1163,11 @@ void MainWindow::installTrainingContextPanel()
     grid->addWidget(addCoachButton, 0, 5);
 
     grid->addWidget(new QLabel(QStringLiteral("比赛"), m_trainingContextPanel), 1, 0);
-    grid->addWidget(m_competitionComboBox, 1, 1, 1, 2);
-    grid->addWidget(new QLabel(QStringLiteral("场地"), m_trainingContextPanel), 1, 3);
-    grid->addWidget(m_siteLineEdit, 1, 4, 1, 2);
+    grid->addWidget(m_competitionComboBox, 1, 1);
+    grid->addWidget(new QLabel(QStringLiteral("场次"), m_trainingContextPanel), 1, 2);
+    grid->addWidget(m_competitionEventComboBox, 1, 3);
+    grid->addWidget(new QLabel(QStringLiteral("场地"), m_trainingContextPanel), 1, 4);
+    grid->addWidget(m_siteLineEdit, 1, 5);
 
     grid->addWidget(new QLabel(QStringLiteral("动作"), m_trainingContextPanel), 2, 0);
     grid->addWidget(m_actionStandardComboBox, 2, 1, 1, 2);
@@ -1203,6 +1207,12 @@ void MainWindow::installTrainingContextPanel()
     connect(m_athleteComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
         refreshTrainingContextDetails();
     });
+    connect(m_competitionComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
+        reloadTrainingContext();
+    });
+    connect(m_competitionEventComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
+        refreshTrainingContextDetails();
+    });
     connect(m_targetRepsSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, [this]() { refreshStats(); });
     connect(m_targetScoreSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, [this]() { refreshStats(); });
 }
@@ -1239,6 +1249,7 @@ void MainWindow::installHistorySearchPanel()
     m_historyCoachComboBox = new QComboBox(m_historySearchPanel);
     m_historyActionComboBox = new QComboBox(m_historySearchPanel);
     m_historyCompetitionComboBox = new QComboBox(m_historySearchPanel);
+    m_historyCompetitionEventComboBox = new QComboBox(m_historySearchPanel);
     m_historySortComboBox = new QComboBox(m_historySearchPanel);
     m_historyCompetitionLineEdit = new QLineEdit(m_historySearchPanel);
     m_historyMinScoreSpinBox = new QSpinBox(m_historySearchPanel);
@@ -1248,7 +1259,7 @@ void MainWindow::installHistorySearchPanel()
     m_historyFromDateEdit = new QDateEdit(QDate::currentDate().addMonths(-1), m_historySearchPanel);
     m_historyToDateEdit = new QDateEdit(QDate::currentDate(), m_historySearchPanel);
 
-    m_historyCompetitionLineEdit->setPlaceholderText(QStringLiteral("比赛/场地/阶段/目标/备注关键词"));
+    m_historyCompetitionLineEdit->setPlaceholderText(QStringLiteral("比赛/场次/分组/场地/阶段/目标/备注关键词"));
     for (QDateEdit *dateEdit : {m_historyFromDateEdit, m_historyToDateEdit}) {
         dateEdit->setCalendarPopup(true);
         dateEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd"));
@@ -1295,15 +1306,17 @@ void MainWindow::installHistorySearchPanel()
 
     grid->addWidget(new QLabel(QStringLiteral("比赛"), m_historySearchPanel), 2, 0);
     grid->addWidget(m_historyCompetitionComboBox, 2, 1);
-    grid->addWidget(new QLabel(QStringLiteral("关键词"), m_historySearchPanel), 2, 2);
-    grid->addWidget(m_historyCompetitionLineEdit, 2, 3, 1, 2);
-    grid->addWidget(new QLabel(QStringLiteral("排序"), m_historySearchPanel), 2, 5);
-    grid->addWidget(m_historySortComboBox, 2, 6, 1, 2);
-    grid->addWidget(searchButton, 2, 8);
-    grid->addWidget(resetButton, 2, 9);
-    grid->addWidget(manageCompetitionsButton, 2, 10);
-    grid->addWidget(m_historyPreviousPageButton, 2, 11);
-    grid->addWidget(m_historyNextPageButton, 2, 12);
+    grid->addWidget(new QLabel(QStringLiteral("场次"), m_historySearchPanel), 2, 2);
+    grid->addWidget(m_historyCompetitionEventComboBox, 2, 3);
+    grid->addWidget(new QLabel(QStringLiteral("关键词"), m_historySearchPanel), 2, 4);
+    grid->addWidget(m_historyCompetitionLineEdit, 2, 5, 1, 2);
+    grid->addWidget(new QLabel(QStringLiteral("排序"), m_historySearchPanel), 2, 7);
+    grid->addWidget(m_historySortComboBox, 2, 8, 1, 2);
+    grid->addWidget(searchButton, 2, 10);
+    grid->addWidget(resetButton, 2, 11);
+    grid->addWidget(manageCompetitionsButton, 2, 12);
+    grid->addWidget(m_historyPreviousPageButton, 2, 13);
+    grid->addWidget(m_historyNextPageButton, 2, 14);
 
     panelLayout->addLayout(grid);
     ui->historyPageLayout->insertWidget(1, m_historySearchPanel);
@@ -1318,6 +1331,9 @@ void MainWindow::installHistorySearchPanel()
     });
     connect(resetButton, &QPushButton::clicked, this, [this]() { resetHistorySearch(); });
     connect(manageCompetitionsButton, &QPushButton::clicked, this, [this]() { openCompetitionManagement(); });
+    connect(m_historyCompetitionComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
+        reloadHistorySearchOptions();
+    });
     connect(m_historyPreviousPageButton, &QPushButton::clicked, this, [this]() {
         m_historyPageNumber = std::max(1, m_historyPageNumber - 1);
         loadTrainingRecords();
@@ -1827,6 +1843,7 @@ void MainWindow::reloadHistorySearchOptions()
     const QString previousCoachId = m_historyCoachComboBox ? m_historyCoachComboBox->currentData().toString() : QString();
     const QString previousActionId = m_historyActionComboBox ? m_historyActionComboBox->currentData().toString() : QString();
     const QString previousCompetitionId = m_historyCompetitionComboBox ? m_historyCompetitionComboBox->currentData().toString() : QString();
+    const QString previousCompetitionEventId = m_historyCompetitionEventComboBox ? m_historyCompetitionEventComboBox->currentData().toString() : QString();
 
     if (m_historyAthleteComboBox) {
         QSignalBlocker blocker(m_historyAthleteComboBox);
@@ -1872,6 +1889,26 @@ void MainWindow::reloadHistorySearchOptions()
         const int index = m_historyCompetitionComboBox->findData(previousCompetitionId);
         m_historyCompetitionComboBox->setCurrentIndex(index >= 0 ? index : 0);
     }
+
+    if (m_historyCompetitionEventComboBox) {
+        QSignalBlocker blocker(m_historyCompetitionEventComboBox);
+        m_historyCompetitionEventComboBox->clear();
+        m_historyCompetitionEventComboBox->addItem(QStringLiteral("全部场次"), QString());
+        const QString competitionId = m_historyCompetitionComboBox ? m_historyCompetitionComboBox->currentData().toString() : QString();
+        for (const CompetitionEvent &event : std::as_const(m_competitionEvents)) {
+            if (!competitionId.isEmpty() && event.competitionId != competitionId) {
+                continue;
+            }
+            const QString label = QStringLiteral("%1 / %2 / %3 / %4")
+                                      .arg(event.raceName.isEmpty() ? QStringLiteral("未填场次") : event.raceName,
+                                           event.eventName.isEmpty() ? QStringLiteral("未填项目") : event.eventName,
+                                           event.heatName.isEmpty() ? QStringLiteral("未填轮次") : event.heatName,
+                                           event.groupName.isEmpty() ? QStringLiteral("未填分组") : event.groupName);
+            m_historyCompetitionEventComboBox->addItem(label, event.id);
+        }
+        const int index = m_historyCompetitionEventComboBox->findData(previousCompetitionEventId);
+        m_historyCompetitionEventComboBox->setCurrentIndex(index >= 0 ? index : 0);
+    }
 }
 
 SessionSearchFilters MainWindow::currentHistorySearchFilters() const
@@ -1888,6 +1925,9 @@ SessionSearchFilters MainWindow::currentHistorySearchFilters() const
     }
     if (m_historyCompetitionComboBox) {
         filters.competitionId = m_historyCompetitionComboBox->currentData().toString();
+    }
+    if (m_historyCompetitionEventComboBox) {
+        filters.competitionEventId = m_historyCompetitionEventComboBox->currentData().toString();
     }
     if (m_historyFromCheckBox && m_historyFromCheckBox->isChecked() && m_historyFromDateEdit) {
         filters.savedFrom = QDateTime(m_historyFromDateEdit->date(), QTime(0, 0, 0));
@@ -1961,6 +2001,9 @@ void MainWindow::resetHistorySearch()
     }
     if (m_historyCompetitionComboBox) {
         m_historyCompetitionComboBox->setCurrentIndex(0);
+    }
+    if (m_historyCompetitionEventComboBox) {
+        m_historyCompetitionEventComboBox->setCurrentIndex(0);
     }
     if (m_historySortComboBox) {
         m_historySortComboBox->setCurrentIndex(0);
@@ -2040,11 +2083,14 @@ void MainWindow::reloadTrainingContext()
     const QString previousAthleteId = selectedAthleteId();
     const QString previousCoachId = selectedCoachId();
     const QString previousCompetitionId = selectedCompetitionId();
+    const QString previousCompetitionEventId = selectedCompetitionEventId();
     const QString previousActionId = selectedActionStandard().id;
 
     m_athletes = m_trainingRepository->athletes();
     m_coaches = m_trainingRepository->coaches();
     m_competitions = m_trainingRepository->competitions();
+    m_competitionEvents = m_trainingRepository->competitionEvents();
+    m_eventAthletes = m_trainingRepository->eventAthletes();
     m_actionStandards = m_trainingRepository->actionStandards();
 
     if (m_athleteComboBox) {
@@ -2080,6 +2126,26 @@ void MainWindow::reloadTrainingContext()
         }
         const int index = m_competitionComboBox->findData(previousCompetitionId);
         m_competitionComboBox->setCurrentIndex(index >= 0 ? index : 0);
+    }
+
+    if (m_competitionEventComboBox) {
+        QSignalBlocker blocker(m_competitionEventComboBox);
+        m_competitionEventComboBox->clear();
+        m_competitionEventComboBox->addItem(QStringLiteral("未关联场次"), QString());
+        const QString competitionId = selectedCompetitionId();
+        for (const CompetitionEvent &event : std::as_const(m_competitionEvents)) {
+            if (!competitionId.isEmpty() && event.competitionId != competitionId) {
+                continue;
+            }
+            const QString label = QStringLiteral("%1 / %2 / %3 / %4")
+                                      .arg(event.raceName.isEmpty() ? QStringLiteral("未填场次") : event.raceName,
+                                           event.eventName.isEmpty() ? QStringLiteral("未填项目") : event.eventName,
+                                           event.heatName.isEmpty() ? QStringLiteral("未填轮次") : event.heatName,
+                                           event.groupName.isEmpty() ? QStringLiteral("未填分组") : event.groupName);
+            m_competitionEventComboBox->addItem(label, event.id);
+        }
+        const int index = m_competitionEventComboBox->findData(previousCompetitionEventId);
+        m_competitionEventComboBox->setCurrentIndex(index >= 0 ? index : 0);
     }
 
     if (m_actionStandardComboBox) {
@@ -2240,9 +2306,10 @@ void MainWindow::openCompetitionManagement()
     }
 
     const QString previousCompetitionId = selectedCompetitionId();
+    const QString previousCompetitionEventId = selectedCompetitionEventId();
     QDialog dialog(this);
     dialog.setWindowTitle(QStringLiteral("比赛管理"));
-    dialog.resize(720, 460);
+    dialog.resize(980, 680);
 
     auto *layout = new QVBoxLayout(&dialog);
     auto *searchRow = new QHBoxLayout();
@@ -2255,7 +2322,23 @@ void MainWindow::openCompetitionManagement()
     layout->addLayout(searchRow);
 
     auto *list = new QListWidget(&dialog);
-    layout->addWidget(list, 1);
+    auto *eventList = new QListWidget(&dialog);
+    auto *eventAthleteList = new QListWidget(&dialog);
+
+    auto *listsRow = new QHBoxLayout();
+    auto *competitionColumn = new QVBoxLayout();
+    competitionColumn->addWidget(new QLabel(QStringLiteral("比赛"), &dialog));
+    competitionColumn->addWidget(list, 1);
+    auto *eventColumn = new QVBoxLayout();
+    eventColumn->addWidget(new QLabel(QStringLiteral("场次/项目/分组"), &dialog));
+    eventColumn->addWidget(eventList, 1);
+    auto *athleteColumn = new QVBoxLayout();
+    athleteColumn->addWidget(new QLabel(QStringLiteral("参赛运动员"), &dialog));
+    athleteColumn->addWidget(eventAthleteList, 1);
+    listsRow->addLayout(competitionColumn, 1);
+    listsRow->addLayout(eventColumn, 1);
+    listsRow->addLayout(athleteColumn, 1);
+    layout->addLayout(listsRow, 1);
 
     auto *form = new QFormLayout();
     auto *nameEdit = new QLineEdit(&dialog);
@@ -2273,23 +2356,83 @@ void MainWindow::openCompetitionManagement()
     form->addRow(QStringLiteral("备注"), notesEdit);
     layout->addLayout(form);
 
+    auto *eventForm = new QFormLayout();
+    auto *raceEdit = new QLineEdit(&dialog);
+    auto *eventEdit = new QLineEdit(&dialog);
+    auto *heatEdit = new QLineEdit(&dialog);
+    auto *groupEdit = new QLineEdit(&dialog);
+    auto *scheduledEdit = new QDateTimeEdit(QDateTime::currentDateTime(), &dialog);
+    auto *eventNotesEdit = new QPlainTextEdit(&dialog);
+    scheduledEdit->setCalendarPopup(true);
+    scheduledEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm"));
+    eventNotesEdit->setMinimumHeight(58);
+    eventForm->addRow(QStringLiteral("场次"), raceEdit);
+    eventForm->addRow(QStringLiteral("项目"), eventEdit);
+    eventForm->addRow(QStringLiteral("轮次"), heatEdit);
+    eventForm->addRow(QStringLiteral("分组"), groupEdit);
+    eventForm->addRow(QStringLiteral("时间"), scheduledEdit);
+    eventForm->addRow(QStringLiteral("场次备注"), eventNotesEdit);
+    layout->addLayout(eventForm);
+
+    auto *eventAthleteForm = new QFormLayout();
+    auto *athleteComboBox = new QComboBox(&dialog);
+    auto *bibEdit = new QLineEdit(&dialog);
+    auto *laneEdit = new QLineEdit(&dialog);
+    auto *sortSpinBox = new QSpinBox(&dialog);
+    auto *resultScoreSpinBox = new QSpinBox(&dialog);
+    auto *resultRankSpinBox = new QSpinBox(&dialog);
+    auto *eventAthleteNotesEdit = new QPlainTextEdit(&dialog);
+    sortSpinBox->setRange(0, 999);
+    resultScoreSpinBox->setRange(-1, 100);
+    resultScoreSpinBox->setSpecialValueText(QStringLiteral("未填"));
+    resultRankSpinBox->setRange(-1, 999);
+    resultRankSpinBox->setSpecialValueText(QStringLiteral("未填"));
+    eventAthleteNotesEdit->setMinimumHeight(58);
+    for (const AthleteProfile &athlete : std::as_const(m_athletes)) {
+        athleteComboBox->addItem(athlete.name, athlete.id);
+    }
+    eventAthleteForm->addRow(QStringLiteral("运动员"), athleteComboBox);
+    eventAthleteForm->addRow(QStringLiteral("参赛号"), bibEdit);
+    eventAthleteForm->addRow(QStringLiteral("道次"), laneEdit);
+    eventAthleteForm->addRow(QStringLiteral("排序"), sortSpinBox);
+    eventAthleteForm->addRow(QStringLiteral("成绩分"), resultScoreSpinBox);
+    eventAthleteForm->addRow(QStringLiteral("名次"), resultRankSpinBox);
+    eventAthleteForm->addRow(QStringLiteral("参赛备注"), eventAthleteNotesEdit);
+    layout->addLayout(eventAthleteForm);
+
     auto *buttonRow = new QHBoxLayout();
     auto *newButton = new QPushButton(QStringLiteral("新建"), &dialog);
     auto *saveButton = new QPushButton(QStringLiteral("保存"), &dialog);
     auto *archiveButton = new QPushButton(QStringLiteral("归档"), &dialog);
+    auto *newEventButton = new QPushButton(QStringLiteral("新建场次"), &dialog);
+    auto *saveEventButton = new QPushButton(QStringLiteral("保存场次"), &dialog);
+    auto *archiveEventButton = new QPushButton(QStringLiteral("归档场次"), &dialog);
+    auto *newEventAthleteButton = new QPushButton(QStringLiteral("新增参赛"), &dialog);
+    auto *saveEventAthleteButton = new QPushButton(QStringLiteral("保存参赛"), &dialog);
+    auto *archiveEventAthleteButton = new QPushButton(QStringLiteral("归档参赛"), &dialog);
     auto *closeButton = new QPushButton(QStringLiteral("关闭"), &dialog);
-    for (QPushButton *button : {newButton, saveButton, archiveButton, closeButton}) {
+    for (QPushButton *button : {newButton, saveButton, archiveButton, newEventButton, saveEventButton, archiveEventButton, newEventAthleteButton, saveEventAthleteButton, archiveEventAthleteButton, closeButton}) {
         button->setProperty("role", "secondaryButton");
     }
     buttonRow->addWidget(newButton);
     buttonRow->addWidget(saveButton);
     buttonRow->addWidget(archiveButton);
+    buttonRow->addWidget(newEventButton);
+    buttonRow->addWidget(saveEventButton);
+    buttonRow->addWidget(archiveEventButton);
+    buttonRow->addWidget(newEventAthleteButton);
+    buttonRow->addWidget(saveEventAthleteButton);
+    buttonRow->addWidget(archiveEventAthleteButton);
     buttonRow->addStretch(1);
     buttonRow->addWidget(closeButton);
     layout->addLayout(buttonRow);
 
     QVector<Competition> competitions;
+    QVector<CompetitionEvent> events;
+    QVector<EventAthlete> eventAthletes;
     Competition current;
+    CompetitionEvent currentEvent;
+    EventAthlete currentEventAthlete;
     bool changed = false;
 
     auto fillForm = [&]() {
@@ -2299,6 +2442,73 @@ void MainWindow::openCompetitionManagement()
         typeEdit->setText(current.competitionType);
         notesEdit->setPlainText(current.notes);
         archiveButton->setEnabled(!current.id.isEmpty());
+    };
+
+    auto fillEventForm = [&]() {
+        raceEdit->setText(currentEvent.raceName);
+        eventEdit->setText(currentEvent.eventName);
+        heatEdit->setText(currentEvent.heatName);
+        groupEdit->setText(currentEvent.groupName);
+        scheduledEdit->setDateTime(currentEvent.scheduledAt.isValid() ? currentEvent.scheduledAt.toLocalTime() : QDateTime::currentDateTime());
+        eventNotesEdit->setPlainText(currentEvent.notes);
+        archiveEventButton->setEnabled(!currentEvent.id.isEmpty());
+        saveEventButton->setEnabled(!current.id.isEmpty());
+        newEventAthleteButton->setEnabled(!currentEvent.id.isEmpty());
+        saveEventAthleteButton->setEnabled(!currentEvent.id.isEmpty());
+    };
+
+    auto fillEventAthleteForm = [&]() {
+        const int athleteIndex = athleteComboBox->findData(currentEventAthlete.athleteId);
+        athleteComboBox->setCurrentIndex(athleteIndex >= 0 ? athleteIndex : 0);
+        bibEdit->setText(currentEventAthlete.bibNumber);
+        laneEdit->setText(currentEventAthlete.laneNumber);
+        sortSpinBox->setValue(std::max(0, currentEventAthlete.sortOrder));
+        resultScoreSpinBox->setValue(currentEventAthlete.resultScore);
+        resultRankSpinBox->setValue(currentEventAthlete.resultRank);
+        eventAthleteNotesEdit->setPlainText(currentEventAthlete.notes);
+        archiveEventAthleteButton->setEnabled(!currentEventAthlete.id.isEmpty());
+    };
+
+    auto reloadEventAthletes = [&]() {
+        eventAthletes = currentEvent.id.isEmpty()
+                            ? QVector<EventAthlete>()
+                            : m_trainingRepository->eventAthletes(currentEvent.id);
+        eventAthleteList->clear();
+        for (const EventAthlete &eventAthlete : std::as_const(eventAthletes)) {
+            eventAthleteList->addItem(QStringLiteral("%1 · 参赛号 %2 · 道次 %3")
+                                          .arg(eventAthlete.athleteName.isEmpty() ? eventAthlete.athleteId : eventAthlete.athleteName,
+                                               eventAthlete.bibNumber.isEmpty() ? QStringLiteral("未填") : eventAthlete.bibNumber,
+                                               eventAthlete.laneNumber.isEmpty() ? QStringLiteral("未填") : eventAthlete.laneNumber));
+        }
+        if (!eventAthletes.isEmpty()) {
+            eventAthleteList->setCurrentRow(0);
+        } else {
+            currentEventAthlete = {};
+            currentEventAthlete.eventId = currentEvent.id;
+            fillEventAthleteForm();
+        }
+    };
+
+    auto reloadEvents = [&]() {
+        events = current.id.isEmpty()
+                     ? QVector<CompetitionEvent>()
+                     : m_trainingRepository->competitionEvents(current.id);
+        eventList->clear();
+        for (const CompetitionEvent &event : std::as_const(events)) {
+            eventList->addItem(QStringLiteral("%1 / %2 / %3 / %4")
+                                   .arg(event.raceName.isEmpty() ? QStringLiteral("未填场次") : event.raceName,
+                                        event.eventName.isEmpty() ? QStringLiteral("未填项目") : event.eventName,
+                                        event.heatName.isEmpty() ? QStringLiteral("未填轮次") : event.heatName,
+                                        event.groupName.isEmpty() ? QStringLiteral("未填分组") : event.groupName));
+        }
+        if (!events.isEmpty()) {
+            eventList->setCurrentRow(0);
+        } else {
+            currentEvent = {};
+            currentEvent.competitionId = current.id;
+            fillEventForm();
+            reloadEventAthletes();
+        }
     };
 
     auto reload = [&]() {
@@ -2318,17 +2528,48 @@ void MainWindow::openCompetitionManagement()
         } else {
             current = {};
             fillForm();
+            reloadEvents();
         }
     };
 
     QObject::connect(list, &QListWidget::currentRowChanged, &dialog, [&](int row) {
         current = row >= 0 && row < competitions.size() ? competitions.at(row) : Competition();
         fillForm();
+        reloadEvents();
+    });
+    QObject::connect(eventList, &QListWidget::currentRowChanged, &dialog, [&](int row) {
+        currentEvent = row >= 0 && row < events.size() ? events.at(row) : CompetitionEvent();
+        if (currentEvent.competitionId.isEmpty()) {
+            currentEvent.competitionId = current.id;
+        }
+        fillEventForm();
+        reloadEventAthletes();
+    });
+    QObject::connect(eventAthleteList, &QListWidget::currentRowChanged, &dialog, [&](int row) {
+        currentEventAthlete = row >= 0 && row < eventAthletes.size() ? eventAthletes.at(row) : EventAthlete();
+        if (currentEventAthlete.eventId.isEmpty()) {
+            currentEventAthlete.eventId = currentEvent.id;
+        }
+        fillEventAthleteForm();
     });
     QObject::connect(newButton, &QPushButton::clicked, &dialog, [&]() {
         current = {};
         fillForm();
+        reloadEvents();
         nameEdit->setFocus();
+    });
+    QObject::connect(newEventButton, &QPushButton::clicked, &dialog, [&]() {
+        currentEvent = {};
+        currentEvent.competitionId = current.id;
+        fillEventForm();
+        reloadEventAthletes();
+        raceEdit->setFocus();
+    });
+    QObject::connect(newEventAthleteButton, &QPushButton::clicked, &dialog, [&]() {
+        currentEventAthlete = {};
+        currentEventAthlete.eventId = currentEvent.id;
+        fillEventAthleteForm();
+        athleteComboBox->setFocus();
     });
     QObject::connect(searchButton, &QPushButton::clicked, &dialog, reload);
     QObject::connect(searchEdit, &QLineEdit::returnPressed, &dialog, reload);
@@ -2359,6 +2600,74 @@ void MainWindow::openCompetitionManagement()
             }
         }
     });
+    QObject::connect(saveEventButton, &QPushButton::clicked, &dialog, [&]() {
+        if (current.id.isEmpty()) {
+            QMessageBox::warning(&dialog, QStringLiteral("保存失败"), QStringLiteral("请先选择或保存比赛。"));
+            return;
+        }
+        CompetitionEvent event = currentEvent;
+        event.competitionId = current.id;
+        event.raceName = raceEdit->text().trimmed();
+        event.eventName = eventEdit->text().trimmed();
+        event.heatName = heatEdit->text().trimmed();
+        event.groupName = groupEdit->text().trimmed();
+        event.scheduledAt = scheduledEdit->dateTime();
+        event.notes = eventNotesEdit->toPlainText().trimmed();
+        event.active = true;
+        if (event.raceName.isEmpty() && event.eventName.isEmpty() && event.groupName.isEmpty()) {
+            QMessageBox::warning(&dialog, QStringLiteral("保存失败"), QStringLiteral("场次、项目或分组至少填写一项。"));
+            return;
+        }
+        QString errorMessage;
+        if (!m_trainingRepository->saveCompetitionEvent(&event, &errorMessage)) {
+            QMessageBox::warning(&dialog, QStringLiteral("保存失败"), errorMessage);
+            return;
+        }
+        currentEvent = event;
+        changed = true;
+        reloadEvents();
+        for (int i = 0; i < events.size(); ++i) {
+            if (events.at(i).id == currentEvent.id) {
+                eventList->setCurrentRow(i);
+                break;
+            }
+        }
+    });
+    QObject::connect(saveEventAthleteButton, &QPushButton::clicked, &dialog, [&]() {
+        if (currentEvent.id.isEmpty()) {
+            QMessageBox::warning(&dialog, QStringLiteral("保存失败"), QStringLiteral("请先选择或保存场次。"));
+            return;
+        }
+        EventAthlete eventAthlete = currentEventAthlete;
+        eventAthlete.eventId = currentEvent.id;
+        eventAthlete.athleteId = athleteComboBox->currentData().toString();
+        eventAthlete.athleteName = athleteComboBox->currentText();
+        eventAthlete.bibNumber = bibEdit->text().trimmed();
+        eventAthlete.laneNumber = laneEdit->text().trimmed();
+        eventAthlete.sortOrder = sortSpinBox->value();
+        eventAthlete.resultScore = resultScoreSpinBox->value();
+        eventAthlete.resultRank = resultRankSpinBox->value();
+        eventAthlete.notes = eventAthleteNotesEdit->toPlainText().trimmed();
+        eventAthlete.active = true;
+        if (eventAthlete.athleteId.isEmpty()) {
+            QMessageBox::warning(&dialog, QStringLiteral("保存失败"), QStringLiteral("请选择参赛运动员。"));
+            return;
+        }
+        QString errorMessage;
+        if (!m_trainingRepository->saveEventAthlete(&eventAthlete, &errorMessage)) {
+            QMessageBox::warning(&dialog, QStringLiteral("保存失败"), errorMessage);
+            return;
+        }
+        currentEventAthlete = eventAthlete;
+        changed = true;
+        reloadEventAthletes();
+        for (int i = 0; i < eventAthletes.size(); ++i) {
+            if (eventAthletes.at(i).id == currentEventAthlete.id) {
+                eventAthleteList->setCurrentRow(i);
+                break;
+            }
+        }
+    });
     QObject::connect(archiveButton, &QPushButton::clicked, &dialog, [&]() {
         if (current.id.isEmpty()) {
             return;
@@ -2375,6 +2684,38 @@ void MainWindow::openCompetitionManagement()
         current = {};
         reload();
     });
+    QObject::connect(archiveEventButton, &QPushButton::clicked, &dialog, [&]() {
+        if (currentEvent.id.isEmpty()) {
+            return;
+        }
+        if (QMessageBox::question(&dialog, QStringLiteral("归档场次"), QStringLiteral("归档后不会出现在新训练选择中，历史记录仍保留关联。确认归档？")) != QMessageBox::Yes) {
+            return;
+        }
+        QString errorMessage;
+        if (!m_trainingRepository->archiveCompetitionEvent(currentEvent.id, &errorMessage)) {
+            QMessageBox::warning(&dialog, QStringLiteral("归档失败"), errorMessage);
+            return;
+        }
+        changed = true;
+        currentEvent = {};
+        reloadEvents();
+    });
+    QObject::connect(archiveEventAthleteButton, &QPushButton::clicked, &dialog, [&]() {
+        if (currentEventAthlete.id.isEmpty()) {
+            return;
+        }
+        if (QMessageBox::question(&dialog, QStringLiteral("归档参赛关系"), QStringLiteral("归档后不会自动关联新训练，历史记录仍保留关联。确认归档？")) != QMessageBox::Yes) {
+            return;
+        }
+        QString errorMessage;
+        if (!m_trainingRepository->archiveEventAthlete(currentEventAthlete.id, &errorMessage)) {
+            QMessageBox::warning(&dialog, QStringLiteral("归档失败"), errorMessage);
+            return;
+        }
+        changed = true;
+        currentEventAthlete = {};
+        reloadEventAthletes();
+    });
     QObject::connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
 
     reload();
@@ -2390,6 +2731,10 @@ void MainWindow::openCompetitionManagement()
     if (m_competitionComboBox) {
         const int index = m_competitionComboBox->findData(previousCompetitionId);
         m_competitionComboBox->setCurrentIndex(index >= 0 ? index : 0);
+    }
+    if (m_competitionEventComboBox) {
+        const int index = m_competitionEventComboBox->findData(previousCompetitionEventId);
+        m_competitionEventComboBox->setCurrentIndex(index >= 0 ? index : 0);
     }
     ui->saveTipLabel->setText(QStringLiteral("比赛信息已更新。"));
     ui->saveTipLabel->show();
@@ -2422,6 +2767,26 @@ QString MainWindow::selectedCoachId() const
 QString MainWindow::selectedCompetitionId() const
 {
     return m_competitionComboBox ? m_competitionComboBox->currentData().toString() : QString();
+}
+
+QString MainWindow::selectedCompetitionEventId() const
+{
+    return m_competitionEventComboBox ? m_competitionEventComboBox->currentData().toString() : QString();
+}
+
+QString MainWindow::selectedEventAthleteId() const
+{
+    const QString eventId = selectedCompetitionEventId();
+    const QString athleteId = selectedAthleteId();
+    if (eventId.isEmpty() || athleteId.isEmpty()) {
+        return {};
+    }
+    for (const EventAthlete &eventAthlete : std::as_const(m_eventAthletes)) {
+        if (eventAthlete.eventId == eventId && eventAthlete.athleteId == athleteId) {
+            return eventAthlete.id;
+        }
+    }
+    return {};
 }
 
 void MainWindow::resetCurrentTrainingSession()
@@ -2902,7 +3267,9 @@ void MainWindow::saveRecord()
 
     const QString athleteId = selectedAthleteId();
     const QString coachId = selectedCoachId();
-    const QString competitionId = selectedCompetitionId();
+    QString competitionId = selectedCompetitionId();
+    const QString competitionEventId = selectedCompetitionEventId();
+    const QString eventAthleteId = selectedEventAthleteId();
     const ActionStandard standard = selectedActionStandard();
     if (athleteId.isEmpty() || standard.id.isEmpty()) {
         ui->saveTipLabel->setText(QStringLiteral("保存前需要选择运动员和动作标准。"));
@@ -2921,6 +3288,12 @@ void MainWindow::saveRecord()
     const QString trainingPhase = m_trainingPhaseComboBox ? m_trainingPhaseComboBox->currentText() : QString();
     const QString goal = m_goalLineEdit ? m_goalLineEdit->text().trimmed() : QString();
     const QString trainingNotes = m_trainingNotesEdit ? m_trainingNotesEdit->toPlainText().trimmed() : QString();
+    for (const CompetitionEvent &event : std::as_const(m_competitionEvents)) {
+        if (event.id == competitionEventId) {
+            competitionId = event.competitionId;
+            break;
+        }
+    }
 
     if (!m_trainingRepository->ensureDailyTask(athleteId,
                                                coachId,
@@ -2944,6 +3317,8 @@ void MainWindow::saveRecord()
     session.athleteId = athleteId;
     session.coachId = coachId;
     session.competitionId = competitionId;
+    session.competitionEventId = competitionEventId;
+    session.eventAthleteId = eventAthleteId;
     session.planId = planId;
     session.taskId = taskId;
     session.actionStandardId = standard.id;
@@ -3316,6 +3691,20 @@ void MainWindow::refreshHistory()
         competitionLabel->setProperty("role", "muted");
         competitionLabel->setWordWrap(true);
         cardLayout->addWidget(competitionLabel);
+
+        auto *eventLabel = new QLabel(QStringLiteral("场次：%1   项目：%2   轮次：%3   分组：%4   参赛号：%5   道次：%6   成绩/名次：%7/%8")
+                                          .arg(record.raceName.trimmed().isEmpty() ? QStringLiteral("未关联场次") : record.raceName.trimmed(),
+                                               record.eventName.trimmed().isEmpty() ? QStringLiteral("未填写") : record.eventName.trimmed(),
+                                               record.heatName.trimmed().isEmpty() ? QStringLiteral("未填写") : record.heatName.trimmed(),
+                                               record.groupName.trimmed().isEmpty() ? QStringLiteral("未填写") : record.groupName.trimmed(),
+                                               record.bibNumber.trimmed().isEmpty() ? QStringLiteral("未填写") : record.bibNumber.trimmed(),
+                                               record.laneNumber.trimmed().isEmpty() ? QStringLiteral("未填写") : record.laneNumber.trimmed(),
+                                               record.resultScore >= 0 ? QString::number(record.resultScore) : QStringLiteral("未填"),
+                                               record.resultRank >= 0 ? QString::number(record.resultRank) : QStringLiteral("未填")),
+                                      card);
+        eventLabel->setProperty("role", "muted");
+        eventLabel->setWordWrap(true);
+        cardLayout->addWidget(eventLabel);
 
         if (repetitions.isEmpty()) {
             auto *emptyReviewLabel = new QLabel(QStringLiteral("本次尚未保存动作实例。复盘会先展示 session 摘要，后续采集到动作计数后会自动列出动作明细、最好/最差动作和错误时间轴。"),
@@ -4035,6 +4424,14 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
             << " / " << (record.competitionLocation.trimmed().isEmpty() ? QStringLiteral("未填写地点") : record.competitionLocation.trimmed())
             << " / " << (record.competitionDate.isValid() ? record.competitionDate.toString(QStringLiteral("yyyy-MM-dd")) : QStringLiteral("未填写日期"))
             << " / " << (record.competitionType.trimmed().isEmpty() ? QStringLiteral("未填写类型") : record.competitionType.trimmed()) << "\n";
+        out << "- 场次/项目/轮次/分组：" << (record.raceName.trimmed().isEmpty() ? QStringLiteral("未关联场次") : record.raceName.trimmed())
+            << " / " << (record.eventName.trimmed().isEmpty() ? QStringLiteral("未填写") : record.eventName.trimmed())
+            << " / " << (record.heatName.trimmed().isEmpty() ? QStringLiteral("未填写") : record.heatName.trimmed())
+            << " / " << (record.groupName.trimmed().isEmpty() ? QStringLiteral("未填写") : record.groupName.trimmed()) << "\n";
+        out << "- 参赛号/道次/成绩/名次：" << (record.bibNumber.trimmed().isEmpty() ? QStringLiteral("未填写") : record.bibNumber.trimmed())
+            << " / " << (record.laneNumber.trimmed().isEmpty() ? QStringLiteral("未填写") : record.laneNumber.trimmed())
+            << " / " << (record.resultScore >= 0 ? QString::number(record.resultScore) : QStringLiteral("未填"))
+            << " / " << (record.resultRank >= 0 ? QString::number(record.resultRank) : QStringLiteral("未填")) << "\n";
         out << "- 场地/阶段/目标：" << (record.site.isEmpty() ? QStringLiteral("未填写") : record.site)
             << " / " << (record.trainingPhase.isEmpty() ? QStringLiteral("未填写") : record.trainingPhase)
             << " / " << (record.goal.isEmpty() ? QStringLiteral("未填写") : record.goal) << "\n";
@@ -4091,6 +4488,14 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
             QStringLiteral("competition_location"),
             QStringLiteral("competition_date"),
             QStringLiteral("competition_type"),
+            QStringLiteral("race_name"),
+            QStringLiteral("event_name"),
+            QStringLiteral("heat_name"),
+            QStringLiteral("group_name"),
+            QStringLiteral("bib_number"),
+            QStringLiteral("lane_number"),
+            QStringLiteral("result_score"),
+            QStringLiteral("result_rank"),
             QStringLiteral("action"),
             QStringLiteral("standard_version"),
             QStringLiteral("duration"),
@@ -4142,6 +4547,14 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
                 << csvField(record.competitionLocation)
                 << csvField(record.competitionDate.isValid() ? record.competitionDate.toString(Qt::ISODate) : QString())
                 << csvField(record.competitionType)
+                << csvField(record.raceName)
+                << csvField(record.eventName)
+                << csvField(record.heatName)
+                << csvField(record.groupName)
+                << csvField(record.bibNumber)
+                << csvField(record.laneNumber)
+                << csvField(record.resultScore >= 0 ? QString::number(record.resultScore) : QString())
+                << csvField(record.resultRank >= 0 ? QString::number(record.resultRank) : QString())
                 << csvField(QStringLiteral("%1/%2").arg(record.actionCategory, record.actionName))
                 << csvField(QString::number(record.standardVersion))
                 << csvField(formatTime(record.duration))
@@ -4225,6 +4638,16 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
                                            record.competitionLocation.trimmed().isEmpty() ? QStringLiteral("未填写地点") : record.competitionLocation.trimmed(),
                                            record.competitionDate.isValid() ? record.competitionDate.toString(QStringLiteral("yyyy-MM-dd")) : QStringLiteral("未填写日期"),
                                            record.competitionType.trimmed().isEmpty() ? QStringLiteral("未填写类型") : record.competitionType.trimmed())},
+            {QStringLiteral("场次/项目/轮次/分组"), QStringLiteral("%1 / %2 / %3 / %4")
+                                                   .arg(record.raceName.trimmed().isEmpty() ? QStringLiteral("未关联场次") : record.raceName.trimmed(),
+                                                        record.eventName.trimmed().isEmpty() ? QStringLiteral("未填写") : record.eventName.trimmed(),
+                                                        record.heatName.trimmed().isEmpty() ? QStringLiteral("未填写") : record.heatName.trimmed(),
+                                                        record.groupName.trimmed().isEmpty() ? QStringLiteral("未填写") : record.groupName.trimmed())},
+            {QStringLiteral("参赛号/道次/成绩/名次"), QStringLiteral("%1 / %2 / %3 / %4")
+                                                    .arg(record.bibNumber.trimmed().isEmpty() ? QStringLiteral("未填写") : record.bibNumber.trimmed(),
+                                                         record.laneNumber.trimmed().isEmpty() ? QStringLiteral("未填写") : record.laneNumber.trimmed(),
+                                                         record.resultScore >= 0 ? QString::number(record.resultScore) : QStringLiteral("未填"),
+                                                         record.resultRank >= 0 ? QString::number(record.resultRank) : QStringLiteral("未填"))},
             {QStringLiteral("动作"), QStringLiteral("%1 / %2 v%3").arg(record.actionCategory, record.actionName).arg(record.standardVersion)},
             {QStringLiteral("场地/阶段/目标"), QStringLiteral("%1 / %2 / %3")
                                               .arg(record.site.isEmpty() ? QStringLiteral("未填写") : record.site,

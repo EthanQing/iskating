@@ -90,6 +90,13 @@ def parse_date(value: Any, fallback: date | None = None) -> date:
     return date.fromisoformat(str(value)[:10])
 
 
+def optional_int(value: Any) -> int | None:
+    if value is None or str(value).strip() == "":
+        return None
+    parsed = int(value)
+    return parsed if parsed >= 0 else None
+
+
 def camel_to_snake(name: str) -> str:
     out: list[str] = []
     for ch in name:
@@ -303,6 +310,37 @@ def competition_row(row: dict[str, Any]) -> dict[str, Any]:
         "location": row["location"] or "",
         "competitionDate": row["competition_date"].isoformat() if row["competition_date"] else "",
         "competitionType": row["competition_type"] or "",
+        "notes": row["notes"] or "",
+        "active": bool(row["active"]),
+    }
+
+
+def competition_event_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row["id"]),
+        "competitionId": str(row["competition_id"]),
+        "competitionName": row.get("competition_name") or "",
+        "raceName": row["race_name"] or "",
+        "eventName": row["event_name"] or "",
+        "heatName": row["heat_name"] or "",
+        "groupName": row["group_name"] or "",
+        "scheduledAt": row["scheduled_at"].isoformat() if row["scheduled_at"] else "",
+        "notes": row["notes"] or "",
+        "active": bool(row["active"]),
+    }
+
+
+def event_athlete_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row["id"]),
+        "eventId": str(row["event_id"]),
+        "athleteId": str(row["athlete_id"]),
+        "athleteName": row.get("athlete_name") or "",
+        "bibNumber": row["bib_number"] or "",
+        "laneNumber": row["lane_number"] or "",
+        "sortOrder": row["sort_order"],
+        "resultScore": row["result_score"] if row["result_score"] is not None else -1,
+        "resultRank": row["result_rank"] if row["result_rank"] is not None else -1,
         "notes": row["notes"] or "",
         "active": bool(row["active"]),
     }
@@ -538,6 +576,162 @@ def archive_competition(competition_id: str,
                         _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
     active = bool(payload.get("active", False))
     db.execute(text("UPDATE competitions SET active = :active, updated_at = now() WHERE id = :id"), {"id": competition_id, "active": active})
+    return {"ok": True}
+
+
+@app.get("/competition-events")
+def competition_events(competitionId: str = "",
+                       q: str = "",
+                       includeInactive: bool = False,
+                       db: Session = Depends(db_session),
+                       _: dict[str, Any] = Depends(require_user)) -> list[dict[str, Any]]:
+    where: list[str] = []
+    args: dict[str, Any] = {}
+    if competitionId:
+        where.append("e.competition_id = :competition_id")
+        args["competition_id"] = parse_uuid(competitionId)
+    if not includeInactive:
+        where.append("e.active = true")
+    if q.strip():
+        where.append("(COALESCE(e.race_name,'') ILIKE :q OR COALESCE(e.event_name,'') ILIKE :q OR COALESCE(e.heat_name,'') ILIKE :q OR COALESCE(e.group_name,'') ILIKE :q OR COALESCE(e.notes,'') ILIKE :q)")
+        args["q"] = f"%{q.strip()}%"
+    where_sql = "WHERE " + " AND ".join(where) if where else ""
+    rows = db.execute(
+        text(
+            "SELECT e.*, c.name AS competition_name FROM competition_events e "
+            "JOIN competitions c ON c.id = e.competition_id "
+            f"{where_sql} ORDER BY e.scheduled_at DESC NULLS LAST, e.race_name, e.event_name, e.heat_name, e.group_name"
+        ),
+        args,
+    ).mappings()
+    return [competition_event_row(dict(row)) for row in rows]
+
+
+@app.post("/competition-events")
+def save_competition_event(payload: dict[str, Any] = Body(...),
+                           db: Session = Depends(db_session),
+                           _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    event_id = parse_uuid(payload.get("id")) or new_uuid()
+    competition_id = parse_uuid(payload.get("competitionId"))
+    if not competition_id:
+        raise HTTPException(status_code=400, detail="competitionId is required")
+    db.execute(
+        text(
+            "INSERT INTO competition_events "
+            "(id, competition_id, race_name, event_name, heat_name, group_name, scheduled_at, notes, active, updated_at) "
+            "VALUES (:id, :competition_id, :race_name, :event_name, :heat_name, :group_name, :scheduled_at, :notes, :active, now()) "
+            "ON CONFLICT (id) DO UPDATE SET competition_id=excluded.competition_id, race_name=excluded.race_name, "
+            "event_name=excluded.event_name, heat_name=excluded.heat_name, group_name=excluded.group_name, "
+            "scheduled_at=excluded.scheduled_at, notes=excluded.notes, active=excluded.active, updated_at=now()"
+        ),
+        {
+            "id": event_id,
+            "competition_id": competition_id,
+            "race_name": payload.get("raceName") or None,
+            "event_name": payload.get("eventName") or None,
+            "heat_name": payload.get("heatName") or None,
+            "group_name": payload.get("groupName") or None,
+            "scheduled_at": parse_dt(payload.get("scheduledAt")) if payload.get("scheduledAt") else None,
+            "notes": payload.get("notes") or None,
+            "active": bool(payload.get("active", True)),
+        },
+    )
+    row = db.execute(
+        text(
+            "SELECT e.*, c.name AS competition_name FROM competition_events e "
+            "JOIN competitions c ON c.id = e.competition_id WHERE e.id = :id"
+        ),
+        {"id": event_id},
+    ).mappings().one()
+    return competition_event_row(dict(row))
+
+
+@app.patch("/competition-events/{event_id}")
+def archive_competition_event(event_id: str,
+                              payload: dict[str, Any] = Body(default={}),
+                              db: Session = Depends(db_session),
+                              _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    active = bool(payload.get("active", False))
+    db.execute(text("UPDATE competition_events SET active = :active, updated_at = now() WHERE id = :id"), {"id": event_id, "active": active})
+    return {"ok": True}
+
+
+@app.get("/event-athletes")
+def event_athletes(eventId: str = "",
+                   athleteId: str = "",
+                   includeInactive: bool = False,
+                   db: Session = Depends(db_session),
+                   _: dict[str, Any] = Depends(require_user)) -> list[dict[str, Any]]:
+    where: list[str] = []
+    args: dict[str, Any] = {}
+    if eventId:
+        where.append("ea.event_id = :event_id")
+        args["event_id"] = parse_uuid(eventId)
+    if athleteId:
+        where.append("ea.athlete_id = :athlete_id")
+        args["athlete_id"] = parse_uuid(athleteId)
+    if not includeInactive:
+        where.append("ea.active = true")
+    where_sql = "WHERE " + " AND ".join(where) if where else ""
+    rows = db.execute(
+        text(
+            "SELECT ea.*, a.name AS athlete_name FROM event_athletes ea "
+            "JOIN athletes a ON a.id = ea.athlete_id "
+            f"{where_sql} ORDER BY ea.sort_order, a.name"
+        ),
+        args,
+    ).mappings()
+    return [event_athlete_row(dict(row)) for row in rows]
+
+
+@app.post("/event-athletes")
+def save_event_athlete(payload: dict[str, Any] = Body(...),
+                       db: Session = Depends(db_session),
+                       _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    event_athlete_id = parse_uuid(payload.get("id")) or new_uuid()
+    event_id = parse_uuid(payload.get("eventId"))
+    athlete_id = parse_uuid(payload.get("athleteId"))
+    if not event_id or not athlete_id:
+        raise HTTPException(status_code=400, detail="eventId and athleteId are required")
+    db.execute(
+        text(
+            "INSERT INTO event_athletes "
+            "(id, event_id, athlete_id, bib_number, lane_number, sort_order, result_score, result_rank, notes, active, updated_at) "
+            "VALUES (:id, :event_id, :athlete_id, :bib_number, :lane_number, :sort_order, :result_score, :result_rank, :notes, :active, now()) "
+            "ON CONFLICT (event_id, athlete_id) DO UPDATE SET bib_number=excluded.bib_number, lane_number=excluded.lane_number, "
+            "sort_order=excluded.sort_order, result_score=excluded.result_score, result_rank=excluded.result_rank, "
+            "notes=excluded.notes, active=excluded.active, updated_at=now()"
+        ),
+        {
+            "id": event_athlete_id,
+            "event_id": event_id,
+            "athlete_id": athlete_id,
+            "bib_number": payload.get("bibNumber") or None,
+            "lane_number": payload.get("laneNumber") or None,
+            "sort_order": int(payload.get("sortOrder", 0) or 0),
+            "result_score": optional_int(payload.get("resultScore")),
+            "result_rank": optional_int(payload.get("resultRank")),
+            "notes": payload.get("notes") or None,
+            "active": bool(payload.get("active", True)),
+        },
+    )
+    row = db.execute(
+        text(
+            "SELECT ea.*, a.name AS athlete_name FROM event_athletes ea "
+            "JOIN athletes a ON a.id = ea.athlete_id WHERE ea.event_id = :event_id AND ea.athlete_id = :athlete_id"
+        ),
+        {"event_id": event_id, "athlete_id": athlete_id},
+    ).mappings().one()
+    return event_athlete_row(dict(row))
+
+
+@app.patch("/event-athletes/{event_athlete_id}")
+def archive_event_athlete(event_athlete_id: str,
+                          payload: dict[str, Any] = Body(default={}),
+                          db: Session = Depends(db_session),
+                          _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    active = bool(payload.get("active", False))
+    db.execute(text("UPDATE event_athletes SET active = :active, updated_at = now() WHERE id = :id"), {"id": event_athlete_id, "active": active})
     return {"ok": True}
 
 
@@ -814,19 +1008,31 @@ def save_training_session(payload: dict[str, Any] = Body(...),
     action_standard_id = parse_uuid(session.get("actionStandardId"))
     if not athlete_id or not action_standard_id:
         raise HTTPException(status_code=400, detail="athleteId and actionStandardId are required")
+    competition_event_id = parse_uuid(session.get("competitionEventId"))
+    event_athlete_id = parse_uuid(session.get("eventAthleteId"))
+    competition_id = parse_uuid(session.get("competitionId"))
+    if competition_event_id:
+        event_row = db.execute(
+            text("SELECT competition_id::text FROM competition_events WHERE id = :id"),
+            {"id": competition_event_id},
+        ).first()
+        if not event_row:
+            raise HTTPException(status_code=400, detail="competitionEventId is invalid")
+        competition_id = event_row[0]
     db.execute(
         text(
             "INSERT INTO training_sessions "
-            "(id, athlete_id, coach_id, competition_id, plan_id, task_id, action_standard_id, standard_version, legacy_qsettings_id, "
+            "(id, athlete_id, coach_id, competition_id, competition_event_id, event_athlete_id, plan_id, task_id, action_standard_id, standard_version, legacy_qsettings_id, "
             "started_at, saved_at, duration_sec, total_reps, valid_reps, average_score, best_score, camera, "
             "model_precision, fps, scores, site, training_phase, goal, target_reps, target_score, set_count, rest_seconds, "
             "video_source, video_fallback_source, video_camera_name, feedback, notes, coach_comment) "
-            "VALUES (:id, :athlete_id, :coach_id, :competition_id, :plan_id, :task_id, :action_standard_id, :standard_version, "
+            "VALUES (:id, :athlete_id, :coach_id, :competition_id, :competition_event_id, :event_athlete_id, :plan_id, :task_id, :action_standard_id, :standard_version, "
             ":legacy_qsettings_id, :started_at, :saved_at, :duration_sec, :total_reps, :valid_reps, :average_score, "
             ":best_score, :camera, :model_precision, :fps, CAST(:scores AS jsonb), :site, :training_phase, :goal, "
             ":target_reps, :target_score, :set_count, :rest_seconds, :video_source, :video_fallback_source, "
             ":video_camera_name, :feedback, :notes, :coach_comment) "
             "ON CONFLICT (id) DO UPDATE SET coach_id=excluded.coach_id, competition_id=excluded.competition_id, "
+            "competition_event_id=excluded.competition_event_id, event_athlete_id=excluded.event_athlete_id, "
             "plan_id=excluded.plan_id, task_id=excluded.task_id, "
             "saved_at=excluded.saved_at, duration_sec=excluded.duration_sec, total_reps=excluded.total_reps, "
             "valid_reps=excluded.valid_reps, average_score=excluded.average_score, best_score=excluded.best_score, "
@@ -836,7 +1042,9 @@ def save_training_session(payload: dict[str, Any] = Body(...),
             "id": session_id,
             "athlete_id": athlete_id,
             "coach_id": parse_uuid(session.get("coachId")),
-            "competition_id": parse_uuid(session.get("competitionId")),
+            "competition_id": competition_id,
+            "competition_event_id": competition_event_id,
+            "event_athlete_id": event_athlete_id,
             "plan_id": parse_uuid(session.get("planId")),
             "task_id": parse_uuid(session.get("taskId")),
             "action_standard_id": action_standard_id,
@@ -885,6 +1093,8 @@ def history_row(row: dict[str, Any]) -> dict[str, Any]:
         "athleteId": str(row["athlete_id"]),
         "coachId": str(row["coach_id"] or ""),
         "competitionId": str(row["competition_id"] or ""),
+        "competitionEventId": str(row["competition_event_id"] or ""),
+        "eventAthleteId": str(row["event_athlete_id"] or ""),
         "planId": str(row["plan_id"] or ""),
         "taskId": str(row["task_id"] or ""),
         "actionStandardId": str(row["action_standard_id"]),
@@ -895,6 +1105,17 @@ def history_row(row: dict[str, Any]) -> dict[str, Any]:
         "competitionDate": row["competition_date"].isoformat() if row.get("competition_date") else "",
         "competitionType": row.get("competition_type") or "",
         "competitionNotes": row.get("competition_notes") or "",
+        "raceName": row.get("race_name") or "",
+        "eventName": row.get("event_name") or "",
+        "heatName": row.get("heat_name") or "",
+        "groupName": row.get("group_name") or "",
+        "eventScheduledAt": row["event_scheduled_at"].isoformat() if row.get("event_scheduled_at") else "",
+        "eventNotes": row.get("event_notes") or "",
+        "bibNumber": row.get("bib_number") or "",
+        "laneNumber": row.get("lane_number") or "",
+        "resultScore": row.get("result_score") if row.get("result_score") is not None else -1,
+        "resultRank": row.get("result_rank") if row.get("result_rank") is not None else -1,
+        "eventAthleteNotes": row.get("event_athlete_notes") or "",
         "actionName": row["action_name"] or "",
         "actionCategory": row["action_category"] or "",
         "standardVersion": row["standard_version"],
@@ -933,6 +1154,8 @@ def search_sessions(
     coachId: str = "",
     actionStandardId: str = "",
     competitionId: str = "",
+    competitionEventId: str = "",
+    eventAthleteId: str = "",
     savedFrom: str = "",
     savedTo: str = "",
     competitionText: str = "",
@@ -952,6 +1175,8 @@ def search_sessions(
         ("coachId", "ts.coach_id"),
         ("actionStandardId", "ts.action_standard_id"),
         ("competitionId", "ts.competition_id"),
+        ("competitionEventId", "ts.competition_event_id"),
+        ("eventAthleteId", "ts.event_athlete_id"),
     ]:
         value = locals()[query_name]
         if value:
@@ -970,13 +1195,15 @@ def search_sessions(
         where.append("ts.average_score <= :maxScore")
         args["maxScore"] = maxScore
     if competitionText.strip():
-        where.append("(COALESCE(comp.name,'') ILIKE :q OR COALESCE(comp.location,'') ILIKE :q OR COALESCE(comp.competition_type,'') ILIKE :q OR COALESCE(comp.notes,'') ILIKE :q OR COALESCE(ts.site,'') ILIKE :q OR COALESCE(ts.training_phase,'') ILIKE :q OR COALESCE(ts.goal,'') ILIKE :q OR COALESCE(ts.notes,'') ILIKE :q OR COALESCE(ts.feedback,'') ILIKE :q OR COALESCE(ts.coach_comment,'') ILIKE :q)")
+        where.append("(COALESCE(comp.name,'') ILIKE :q OR COALESCE(comp.location,'') ILIKE :q OR COALESCE(comp.competition_type,'') ILIKE :q OR COALESCE(comp.notes,'') ILIKE :q OR COALESCE(ce.race_name,'') ILIKE :q OR COALESCE(ce.event_name,'') ILIKE :q OR COALESCE(ce.heat_name,'') ILIKE :q OR COALESCE(ce.group_name,'') ILIKE :q OR COALESCE(ce.notes,'') ILIKE :q OR COALESCE(ea.bib_number,'') ILIKE :q OR COALESCE(ea.lane_number,'') ILIKE :q OR COALESCE(ea.notes,'') ILIKE :q OR COALESCE(ts.site,'') ILIKE :q OR COALESCE(ts.training_phase,'') ILIKE :q OR COALESCE(ts.goal,'') ILIKE :q OR COALESCE(ts.notes,'') ILIKE :q OR COALESCE(ts.feedback,'') ILIKE :q OR COALESCE(ts.coach_comment,'') ILIKE :q)")
         args["q"] = f"%{competitionText.strip()}%"
     where_sql = "WHERE " + " AND ".join(where) if where else ""
     from_sql = (
         "FROM training_sessions ts JOIN athletes a ON a.id = ts.athlete_id "
         "LEFT JOIN coaches c ON c.id = ts.coach_id "
         "LEFT JOIN competitions comp ON comp.id = ts.competition_id "
+        "LEFT JOIN competition_events ce ON ce.id = ts.competition_event_id "
+        "LEFT JOIN event_athletes ea ON ea.id = ts.event_athlete_id "
         "JOIN action_standards s ON s.id = ts.action_standard_id "
         "JOIN action_categories ac ON ac.id = s.category_id "
     )
@@ -1000,7 +1227,13 @@ def search_sessions(
             "SELECT ts.*, a.name AS athlete_name, COALESCE(c.name, '') AS coach_name, "
             "COALESCE(comp.name, '') AS competition_name, COALESCE(comp.location, '') AS competition_location, "
             "comp.competition_date AS competition_date, COALESCE(comp.competition_type, '') AS competition_type, "
-            "COALESCE(comp.notes, '') AS competition_notes, s.name AS action_name, ac.name AS action_category "
+            "COALESCE(comp.notes, '') AS competition_notes, COALESCE(ce.race_name, '') AS race_name, "
+            "COALESCE(ce.event_name, '') AS event_name, COALESCE(ce.heat_name, '') AS heat_name, "
+            "COALESCE(ce.group_name, '') AS group_name, ce.scheduled_at AS event_scheduled_at, "
+            "COALESCE(ce.notes, '') AS event_notes, COALESCE(ea.bib_number, '') AS bib_number, "
+            "COALESCE(ea.lane_number, '') AS lane_number, ea.result_score AS result_score, "
+            "ea.result_rank AS result_rank, COALESCE(ea.notes, '') AS event_athlete_notes, "
+            "s.name AS action_name, ac.name AS action_category "
             f"{from_sql} {where_sql} ORDER BY {order} {direction}, ts.id DESC LIMIT :limit OFFSET :offset"
         ),
         args,

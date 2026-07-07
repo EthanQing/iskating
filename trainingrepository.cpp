@@ -161,6 +161,69 @@ Competition competitionFromJson(const QJsonObject &object)
     return competition;
 }
 
+QJsonObject competitionEventToJson(const CompetitionEvent &event)
+{
+    return {
+        {QStringLiteral("id"), event.id},
+        {QStringLiteral("competitionId"), event.competitionId},
+        {QStringLiteral("raceName"), event.raceName},
+        {QStringLiteral("eventName"), event.eventName},
+        {QStringLiteral("heatName"), event.heatName},
+        {QStringLiteral("groupName"), event.groupName},
+        {QStringLiteral("scheduledAt"), event.scheduledAt.isValid() ? dateTimeToIso(event.scheduledAt) : QString()},
+        {QStringLiteral("notes"), event.notes},
+        {QStringLiteral("active"), event.active}
+    };
+}
+
+CompetitionEvent competitionEventFromJson(const QJsonObject &object)
+{
+    CompetitionEvent event;
+    event.id = jsonString(object, QStringLiteral("id"));
+    event.competitionId = jsonString(object, QStringLiteral("competitionId"));
+    event.raceName = jsonString(object, QStringLiteral("raceName"));
+    event.eventName = jsonString(object, QStringLiteral("eventName"));
+    event.heatName = jsonString(object, QStringLiteral("heatName"));
+    event.groupName = jsonString(object, QStringLiteral("groupName"));
+    event.scheduledAt = dateTimeFromJson(object.value(QStringLiteral("scheduledAt")));
+    event.notes = jsonString(object, QStringLiteral("notes"));
+    event.active = object.value(QStringLiteral("active")).toBool(true);
+    return event;
+}
+
+QJsonObject eventAthleteToJson(const EventAthlete &eventAthlete)
+{
+    return {
+        {QStringLiteral("id"), eventAthlete.id},
+        {QStringLiteral("eventId"), eventAthlete.eventId},
+        {QStringLiteral("athleteId"), eventAthlete.athleteId},
+        {QStringLiteral("bibNumber"), eventAthlete.bibNumber},
+        {QStringLiteral("laneNumber"), eventAthlete.laneNumber},
+        {QStringLiteral("sortOrder"), eventAthlete.sortOrder},
+        {QStringLiteral("resultScore"), eventAthlete.resultScore},
+        {QStringLiteral("resultRank"), eventAthlete.resultRank},
+        {QStringLiteral("notes"), eventAthlete.notes},
+        {QStringLiteral("active"), eventAthlete.active}
+    };
+}
+
+EventAthlete eventAthleteFromJson(const QJsonObject &object)
+{
+    EventAthlete eventAthlete;
+    eventAthlete.id = jsonString(object, QStringLiteral("id"));
+    eventAthlete.eventId = jsonString(object, QStringLiteral("eventId"));
+    eventAthlete.athleteId = jsonString(object, QStringLiteral("athleteId"));
+    eventAthlete.athleteName = jsonString(object, QStringLiteral("athleteName"));
+    eventAthlete.bibNumber = jsonString(object, QStringLiteral("bibNumber"));
+    eventAthlete.laneNumber = jsonString(object, QStringLiteral("laneNumber"));
+    eventAthlete.sortOrder = jsonInt(object, QStringLiteral("sortOrder"));
+    eventAthlete.resultScore = jsonInt(object, QStringLiteral("resultScore"), -1);
+    eventAthlete.resultRank = jsonInt(object, QStringLiteral("resultRank"), -1);
+    eventAthlete.notes = jsonString(object, QStringLiteral("notes"));
+    eventAthlete.active = object.value(QStringLiteral("active")).toBool(true);
+    return eventAthlete;
+}
+
 QJsonObject standardToJson(const ActionStandard &standard)
 {
     return {
@@ -249,6 +312,8 @@ QJsonObject sessionToJson(const TrainingSession &session)
         {QStringLiteral("athleteId"), session.athleteId},
         {QStringLiteral("coachId"), session.coachId},
         {QStringLiteral("competitionId"), session.competitionId},
+        {QStringLiteral("competitionEventId"), session.competitionEventId},
+        {QStringLiteral("eventAthleteId"), session.eventAthleteId},
         {QStringLiteral("planId"), session.planId},
         {QStringLiteral("taskId"), session.taskId},
         {QStringLiteral("actionStandardId"), session.actionStandardId},
@@ -374,6 +439,8 @@ SessionHistoryItem historyFromJson(const QJsonObject &object)
     item.athleteId = jsonString(object, QStringLiteral("athleteId"));
     item.coachId = jsonString(object, QStringLiteral("coachId"));
     item.competitionId = jsonString(object, QStringLiteral("competitionId"));
+    item.competitionEventId = jsonString(object, QStringLiteral("competitionEventId"));
+    item.eventAthleteId = jsonString(object, QStringLiteral("eventAthleteId"));
     item.planId = jsonString(object, QStringLiteral("planId"));
     item.taskId = jsonString(object, QStringLiteral("taskId"));
     item.actionStandardId = jsonString(object, QStringLiteral("actionStandardId"));
@@ -384,6 +451,17 @@ SessionHistoryItem historyFromJson(const QJsonObject &object)
     item.competitionDate = dateFromJson(object.value(QStringLiteral("competitionDate")));
     item.competitionType = jsonString(object, QStringLiteral("competitionType"));
     item.competitionNotes = jsonString(object, QStringLiteral("competitionNotes"));
+    item.raceName = jsonString(object, QStringLiteral("raceName"));
+    item.eventName = jsonString(object, QStringLiteral("eventName"));
+    item.heatName = jsonString(object, QStringLiteral("heatName"));
+    item.groupName = jsonString(object, QStringLiteral("groupName"));
+    item.eventScheduledAt = dateTimeFromJson(object.value(QStringLiteral("eventScheduledAt")));
+    item.eventNotes = jsonString(object, QStringLiteral("eventNotes"));
+    item.bibNumber = jsonString(object, QStringLiteral("bibNumber"));
+    item.laneNumber = jsonString(object, QStringLiteral("laneNumber"));
+    item.resultScore = jsonInt(object, QStringLiteral("resultScore"), -1);
+    item.resultRank = jsonInt(object, QStringLiteral("resultRank"), -1);
+    item.eventAthleteNotes = jsonString(object, QStringLiteral("eventAthleteNotes"));
     item.actionName = jsonString(object, QStringLiteral("actionName"));
     item.actionCategory = jsonString(object, QStringLiteral("actionCategory"));
     item.standardVersion = jsonInt(object, QStringLiteral("standardVersion"), 1);
@@ -731,6 +809,48 @@ QVector<Competition> TrainingRepository::competitions(bool includeInactive, cons
     return result;
 }
 
+QVector<CompetitionEvent> TrainingRepository::competitionEvents(const QString &competitionId,
+                                                                bool includeInactive,
+                                                                const QString &query) const
+{
+    QVector<CompetitionEvent> result;
+    bool ok = false;
+    const QVariantMap params{
+        {QStringLiteral("competitionId"), competitionId},
+        {QStringLiteral("includeInactive"), includeInactive ? QStringLiteral("true") : QStringLiteral("false")},
+        {QStringLiteral("q"), query}
+    };
+    const QJsonArray array = requestArray(QStringLiteral("/competition-events"), params, &ok, nullptr);
+    if (!ok) {
+        return result;
+    }
+    for (const QJsonValue &value : array) {
+        result.append(competitionEventFromJson(value.toObject()));
+    }
+    return result;
+}
+
+QVector<EventAthlete> TrainingRepository::eventAthletes(const QString &eventId,
+                                                       const QString &athleteId,
+                                                       bool includeInactive) const
+{
+    QVector<EventAthlete> result;
+    bool ok = false;
+    const QVariantMap params{
+        {QStringLiteral("eventId"), eventId},
+        {QStringLiteral("athleteId"), athleteId},
+        {QStringLiteral("includeInactive"), includeInactive ? QStringLiteral("true") : QStringLiteral("false")}
+    };
+    const QJsonArray array = requestArray(QStringLiteral("/event-athletes"), params, &ok, nullptr);
+    if (!ok) {
+        return result;
+    }
+    for (const QJsonValue &value : array) {
+        result.append(eventAthleteFromJson(value.toObject()));
+    }
+    return result;
+}
+
 QVector<QString> TrainingRepository::athleteIdsForCoach(const QString &coachId) const
 {
     bool ok = false;
@@ -775,6 +895,8 @@ SessionSearchResult TrainingRepository::searchSessions(const SessionSearchFilter
         {QStringLiteral("coachId"), filters.coachId},
         {QStringLiteral("actionStandardId"), filters.actionStandardId},
         {QStringLiteral("competitionId"), filters.competitionId},
+        {QStringLiteral("competitionEventId"), filters.competitionEventId},
+        {QStringLiteral("eventAthleteId"), filters.eventAthleteId},
         {QStringLiteral("competitionText"), filters.competitionText},
         {QStringLiteral("pageNumber"), page.pageNumber},
         {QStringLiteral("pageSize"), page.pageSize},
@@ -1076,6 +1198,74 @@ bool TrainingRepository::archiveCompetition(const QString &competitionId, QStrin
     bool ok = false;
     requestObject(QStringLiteral("PATCH"),
                   QStringLiteral("/competitions/%1").arg(competitionId),
+                  {{QStringLiteral("active"), false}},
+                  {},
+                  &ok,
+                  errorMessage);
+    return ok;
+}
+
+bool TrainingRepository::saveCompetitionEvent(CompetitionEvent *event, QString *errorMessage)
+{
+    if (!event) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("比赛场次为空。");
+        }
+        return false;
+    }
+    event->id = ensureId(event->id);
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("POST"),
+                                               QStringLiteral("/competition-events"),
+                                               competitionEventToJson(*event),
+                                               {},
+                                               &ok,
+                                               errorMessage);
+    if (ok) {
+        *event = competitionEventFromJson(response);
+    }
+    return ok;
+}
+
+bool TrainingRepository::archiveCompetitionEvent(const QString &eventId, QString *errorMessage)
+{
+    bool ok = false;
+    requestObject(QStringLiteral("PATCH"),
+                  QStringLiteral("/competition-events/%1").arg(eventId),
+                  {{QStringLiteral("active"), false}},
+                  {},
+                  &ok,
+                  errorMessage);
+    return ok;
+}
+
+bool TrainingRepository::saveEventAthlete(EventAthlete *eventAthlete, QString *errorMessage)
+{
+    if (!eventAthlete) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("参赛运动员关系为空。");
+        }
+        return false;
+    }
+    eventAthlete->id = ensureId(eventAthlete->id);
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("POST"),
+                                               QStringLiteral("/event-athletes"),
+                                               eventAthleteToJson(*eventAthlete),
+                                               {},
+                                               &ok,
+                                               errorMessage);
+    if (ok) {
+        *eventAthlete = eventAthleteFromJson(response);
+    }
+    return ok;
+}
+
+bool TrainingRepository::archiveEventAthlete(const QString &eventAthleteId, QString *errorMessage)
+{
+    bool ok = false;
+    requestObject(QStringLiteral("PATCH"),
+                  QStringLiteral("/event-athletes/%1").arg(eventAthleteId),
                   {{QStringLiteral("active"), false}},
                   {},
                   &ok,

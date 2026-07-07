@@ -296,12 +296,14 @@ def import_data(sqlite_path: Path, database_url: str) -> dict[str, int]:
                 target.execute(
                     """
                     INSERT INTO training_sessions
-                    (id, athlete_id, coach_id, competition_id, plan_id, task_id, action_standard_id, standard_version,
+                    (id, athlete_id, coach_id, competition_id, competition_event_id, event_athlete_id,
+                     plan_id, task_id, action_standard_id, standard_version,
                      legacy_qsettings_id, started_at, saved_at, duration_sec, total_reps, valid_reps,
                      average_score, best_score, camera, model_precision, fps, scores, site, training_phase,
                      goal, target_reps, target_score, set_count, rest_seconds, video_source,
                      video_fallback_source, video_camera_name, feedback, notes, coach_comment)
-                    VALUES (%(id)s, %(athlete_id)s, %(coach_id)s, %(competition_id)s, %(plan_id)s, %(task_id)s, %(action_standard_id)s,
+                    VALUES (%(id)s, %(athlete_id)s, %(coach_id)s, %(competition_id)s, %(competition_event_id)s,
+                            %(event_athlete_id)s, %(plan_id)s, %(task_id)s, %(action_standard_id)s,
                             %(standard_version)s, %(legacy_qsettings_id)s, %(started_at)s, %(saved_at)s,
                             %(duration_sec)s, %(total_reps)s, %(valid_reps)s, %(average_score)s, %(best_score)s,
                             %(camera)s, %(model_precision)s, %(fps)s, %(scores)s, %(site)s, %(training_phase)s,
@@ -310,13 +312,16 @@ def import_data(sqlite_path: Path, database_url: str) -> dict[str, int]:
                             %(notes)s, %(coach_comment)s)
                     ON CONFLICT (id) DO UPDATE SET saved_at=excluded.saved_at, total_reps=excluded.total_reps,
                     valid_reps=excluded.valid_reps, average_score=excluded.average_score, best_score=excluded.best_score,
-                    scores=excluded.scores, coach_comment=excluded.coach_comment
+                    competition_id=excluded.competition_id, competition_event_id=excluded.competition_event_id,
+                    event_athlete_id=excluded.event_athlete_id, scores=excluded.scores, coach_comment=excluded.coach_comment
                     """,
                     {
                         "id": as_uuid(row["id"]),
                         "athlete_id": as_uuid(row["athlete_id"]),
                         "coach_id": as_uuid(row["coach_id"]),
                         "competition_id": as_uuid(row_value(row, "competition_id")),
+                        "competition_event_id": as_uuid(row_value(row, "competition_event_id")),
+                        "event_athlete_id": as_uuid(row_value(row, "event_athlete_id")),
                         "plan_id": as_uuid(row["plan_id"]),
                         "task_id": as_uuid(row["task_id"]),
                         "action_standard_id": as_uuid(row["action_standard_id"]),
