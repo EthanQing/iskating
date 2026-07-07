@@ -101,15 +101,15 @@ Observed
 
 TODO: 未确认发布包是否预置 engine，还是由目标机器首次构建。
 
-## Decision: 本地配置使用 QSettings，训练业务数据使用 SQLite
+## Decision: 本地配置使用 QSettings，训练业务数据使用 PostgreSQL
 
 ### Status
 
-Superseded by SQLite schema v3
+Superseded by FastAPI/PostgreSQL and development schema reset
 
 ### Context
 
-初始分析时未发现数据库或文件存储层，摄像头配置和训练历史均通过 `QSettings` 读写。当前实现已经把训练业务数据迁移到本地 SQLite：运动员、教练、动作标准、训练计划、训练 session、动作实例、人工复核、标准参考视频和个体基线都由 `TrainingRepository` 管理。`QSettings/trainingHistory` 仅作为旧数据迁移来源，不再写入新训练记录。
+初始分析时未发现数据库或文件存储层，摄像头配置和训练历史均通过 `QSettings` 读写。当前实现已经把训练业务数据迁移到 FastAPI/PostgreSQL：运动员、教练、动作标准、训练计划、训练 session、动作实例、人工复核、标准参考视频和个体基线都由服务端管理。开发期 schema 由 `server/app/schema.py` 维护，并通过 `tools/reset_postgres_schema.py --yes` 手动重建空库。`QSettings/trainingHistory` 和旧 SQLite 仅作为一次性导入来源，不再写入新训练记录。
 
 ### Evidence
 
@@ -122,7 +122,7 @@ Superseded by SQLite schema v3
 
 ### Consequences
 
-当前分层保留了 QSettings 对摄像头配置的轻量读写，同时用 SQLite 支撑本地产品版复盘校准、报告和趋势查询。代价是仍没有独立迁移工具、权限系统、备份恢复或云同步。
+当前分层保留了 QSettings 对摄像头配置的轻量读写，同时用 FastAPI/PostgreSQL 支撑训练业务、复盘校准、报告和趋势查询。开发期数据库可丢弃重建，代价是当前阶段仍没有正式在线迁移链、备份恢复或云同步。
 
 ### Uncertainty
 

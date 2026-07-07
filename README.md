@@ -26,7 +26,7 @@ python -m venv .venv
 .\.venv\Scripts\pip install -r requirements.txt
 $env:ISKATING_DATABASE_URL="postgresql+psycopg://iskating:password@127.0.0.1:5432/iskating"
 $env:ISKATING_JWT_SECRET="change-this"
-.\.venv\Scripts\alembic upgrade head
+python ..\tools\reset_postgres_schema.py --yes
 .\.venv\Scripts\uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 

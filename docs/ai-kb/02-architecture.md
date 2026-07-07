@@ -38,7 +38,7 @@
 
 - Qt `QSettings`: 摄像头公共配置、每路摄像头 URL、采集偏好、训练服务地址和访问令牌，继续兼容旧 key。
 - FastAPI 服务端: `server/app/main.py` 提供训练业务 REST API、基础登录和 seed。
-- PostgreSQL: 训练业务数据，schema 由 Alembic 管理，保存运动员/教练档案、教练-运动员关系、动作标准、训练计划任务、训练 session、动作实例、人工复核、标准参考视频和个体基线。
+- PostgreSQL: 训练业务数据，开发期 schema 由 `server/app/schema.py` 维护并通过 `tools/reset_postgres_schema.py` 空库重建，保存运动员/教练档案、教练-运动员关系、动作标准、训练计划任务、训练 session、动作实例、人工复核、标准参考视频和个体基线。
 
 `TrainingRepository::open()` 不再创建本机 SQLite；它读取 `server/baseUrl` 和 `auth/accessToken`，通过 QtNetwork 连接训练服务。旧 `%APPDATA%/iSkating/iSkating Coach/iskating.db` 仅由 `tools/import_sqlite_to_postgres.py` 在切换前一次性导入 PostgreSQL。
 

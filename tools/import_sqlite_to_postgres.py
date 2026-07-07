@@ -4,9 +4,10 @@
 Usage:
   python tools/import_sqlite_to_postgres.py --sqlite "%APPDATA%/iSkating/iSkating Coach/iskating.db"
 
-The target PostgreSQL connection is read from ISKATING_DATABASE_URL. Run Alembic
-migrations first. The importer is idempotent for primary keys and updates rows
-when the same legacy id already exists.
+The target PostgreSQL connection is read from ISKATING_DATABASE_URL. During the
+current empty-database development phase, run tools/reset_postgres_schema.py
+first. The importer is idempotent for primary keys and updates rows when the
+same legacy id already exists.
 """
 
 from __future__ import annotations

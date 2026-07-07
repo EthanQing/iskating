@@ -12,7 +12,8 @@
 相关文件：
 
 - `server/app/main.py`
-- `server/alembic/versions/20260630_0001_initial_postgresql.py`
+- `server/app/schema.py`
+- `tools/reset_postgres_schema.py`
 - `trainingrepository.cpp`
 
 ## 认证服务

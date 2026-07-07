@@ -80,14 +80,13 @@ C++ 项目没有独立 typecheck 命令；当前类型检查随 MSVC 编译发�
 
 TODO: 未找到单独的静态分析或 clang-tidy 配置。
 
-## 数据库迁移
+## 数据库重建
 
-PostgreSQL schema 使用 Alembic：
+开发期 PostgreSQL 数据库按空库重建处理。该命令会删除并重建当前业务表，只在可丢弃数据的开发库执行：
 
 ```powershell
-cd server
 $env:ISKATING_DATABASE_URL="postgresql+psycopg://iskating:password@127.0.0.1:5432/iskating"
-alembic upgrade head
+python tools/reset_postgres_schema.py --yes
 ```
 
 旧 SQLite 数据通过一次性工具导入：

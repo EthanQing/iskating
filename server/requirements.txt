@@ -1,4 +1,3 @@
-alembic==1.13.2
 fastapi==0.111.1
 passlib[bcrypt]==1.7.4
 psycopg[binary]==3.2.1

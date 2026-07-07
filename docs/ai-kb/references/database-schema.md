@@ -19,7 +19,8 @@
 - `trainingdomain.h`
 - `trainingrepository.cpp`
 - `server/app/main.py`
-- `server/alembic/versions/20260630_0001_initial_postgresql.py`
+- `server/app/schema.py`
+- `tools/reset_postgres_schema.py`
 - `tools/import_sqlite_to_postgres.py`
 - `main.cpp`
 
@@ -30,7 +31,7 @@ QSettings schema 仍分散在读写代码中：
 - `MainWindow::loadCameraSettings()`
 - `MainWindow::persistSystemSettings()`
 摄像头 JSON 模板 schema 位于 `cameraconfigtemplate.cpp`，作为现场导入/导出交换格式；模板导入后仍写回 QSettings，不新增数据库表或字段。
-PostgreSQL schema 由 Alembic 管理，初始迁移为 `20260630_0001_initial_postgresql.py`，比赛实体迁移为 `20260707_0002_competitions.py`，比赛场次和参赛关系迁移为 `20260707_0003_competition_events.py`，session 分析来源迁移为 `20260707_0004_session_source.py`，多人参与者与动作身份轨迹迁移为 `20260707_0005_multi_participant_identity.py`。seed 数据在 FastAPI 启动时由 `seed_defaults()` 维护。旧 SQLite 数据通过一次性导入工具迁入，不再由桌面端启动时自动补列或迁移。
+PostgreSQL schema 在开发期由 `server/app/schema.py` 集中维护，使用 `tools/reset_postgres_schema.py --yes` 对空库/可丢弃开发库执行手动重建。FastAPI 启动时只执行 `seed_defaults()`，不会自动建表或删除表。旧 SQLite 数据通过一次性导入工具导入到已重建的空库，不再由桌面端启动时自动补列或导入。
 
 ## 主要数据结构
 
@@ -232,14 +233,13 @@ P1 轨迹拼接默认把 12 路相机按 5m 一段初始化为 CAM 01: 0-5m 至 
 
 新版本不再写入该数组，也不会在桌面端启动时自动读取该数组。需要保留旧训练数据时，先使用旧版本或旧 SQLite 库作为来源，再通过一次性导入流程进入 PostgreSQL。
 
-## 迁移方式
+## 重建方式
 
-服务端 schema 使用 Alembic：
+开发期 PostgreSQL schema 使用空库重建。该命令会删除并重建所有训练业务表，只能用于可丢弃数据的开发库：
 
 ```powershell
-cd server
 $env:ISKATING_DATABASE_URL="postgresql+psycopg://iskating:password@127.0.0.1:5432/iskating"
-alembic upgrade head
+python tools/reset_postgres_schema.py --yes
 ```
 
 旧 SQLite 数据使用一次性导入工具：
@@ -251,13 +251,14 @@ python tools/import_sqlite_to_postgres.py --sqlite "$env:APPDATA/iSkating/iSkati
 相关文件：
 
 - `mainwindow.cpp`
-- `server/alembic/versions/20260630_0001_initial_postgresql.py`
+- `server/app/schema.py`
+- `tools/reset_postgres_schema.py`
 - `tools/import_sqlite_to_postgres.py`
 - `personmanagementdialog.cpp`
 
 ## seed 方式
 
-`TrainingRepository::seedDefaults()` 内置默认运动员、默认教练、动作类别和 8 条动作标准。动作标准使用 `INSERT OR IGNORE` 初始化缺失项，不覆盖用户本地编辑后的阈值、权重、提示或参考视频。
+FastAPI `seed_defaults()` 内置默认管理员、默认运动员、默认教练、动作类别和 8 条动作标准。动作标准只插入缺失项，不覆盖用户本地编辑后的阈值、权重、提示或参考视频。
 
 ## 查询入口
 

@@ -60,7 +60,7 @@ TODO: 未找到 `.github/workflows/`、其他 CI 配置、安装器脚本或发�
 
 ## 部署前检查
 
-- 确认 PostgreSQL 数据库已创建，`alembic upgrade head` 已执行。
+- 开发期确认 PostgreSQL 数据库已创建，并已手动执行 `python tools/reset_postgres_schema.py --yes` 重建空库 schema。
 - 确认 FastAPI 服务可通过内网访问，例如 `http://训练服务器:8000/health`。
 - 确认桌面端 `server/baseUrl` 指向训练服务，或设置 `ISKATING_API_BASE_URL`。
 - 如需迁移旧数据，先执行 `tools/import_sqlite_to_postgres.py` 并核对导入数量。

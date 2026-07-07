@@ -90,11 +90,13 @@
 - `QT_PLUGIN_PATH` 和 `PATH` 会在 `main.cpp` 中被进程内设置；不要依赖全局环境去修复部署问题。
 - `tensorrtrunner.cpp` 仍硬编码添加 TensorRT/CUDA 默认 DLL 路径，路径变化时需同步评估。
 
-## 数据库/迁移坑点
+## 数据库/schema 坑点
 
-PostgreSQL schema 由 Alembic 管理，桌面端 `TrainingRepository::open()` 不再建表、补列或迁移旧数据。新增字段必须同步 Alembic 迁移、FastAPI 读写、Qt JSON 映射和导入工具。
+当前仍处于空库开发阶段，PostgreSQL schema 不使用 Alembic 增量迁移；每次结构变化都更新 `server/app/schema.py`，再用 `tools/reset_postgres_schema.py --yes` 手动重建开发库。该脚本会删除业务表，不能对需要保留数据的库执行。
 
-旧 SQLite 数据不会在桌面端启动时自动迁移；切换前必须执行 `tools/import_sqlite_to_postgres.py` 并核对导入数量。
+桌面端 `TrainingRepository::open()` 不建表、不补列。新增字段必须同步当前 schema、FastAPI 读写、Qt JSON 映射和导入工具。
+
+旧 SQLite 数据不会在桌面端启动时自动导入；需要先重建空库 schema，再执行 `tools/import_sqlite_to_postgres.py` 并核对导入数量。
 
 动作标准 seed 只应插入缺失项，不能覆盖用户本地维护的阈值、权重、提示文案或参考视频路径。`saveActionStandard()` 会递增标准版本，复盘参考视频这类编辑也会形成新版本。
 

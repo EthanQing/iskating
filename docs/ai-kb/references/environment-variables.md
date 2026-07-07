@@ -12,7 +12,7 @@
 | `FFMPEG_ROOT` | 否 | 覆盖 FFmpeg shared MSVC x64 dev package 根目录 | `C:/Users/qc/zm/ffmpeg-8.0.1-full_build-shared` | `mainwindow.pro` |
 | `TENSORRT_ROOT` | 否 | 覆盖 TensorRT SDK 根目录 | `C:/Program Files/TensorRT-10.1.0.27` | `mainwindow.pro` |
 | `CUDA_ROOT` | 否 | 覆盖 CUDA Toolkit 根目录 | `C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.8` | `mainwindow.pro` |
-| `ISKATING_DATABASE_URL` | 服务端必需 | FastAPI 连接 PostgreSQL | 无 | `server/app/main.py`, `server/alembic/env.py` |
+| `ISKATING_DATABASE_URL` | 服务端必需 | FastAPI 和 schema reset 脚本连接 PostgreSQL | 无 | `server/app/main.py`, `tools/reset_postgres_schema.py` |
 | `ISKATING_JWT_SECRET` | 服务端必需 | JWT 签名密钥 | `change-me-before-production` | `server/app/main.py` |
 | `ISKATING_ADMIN_USER` | 否 | 首次 seed 默认管理员用户名 | `admin` | `server/app/main.py` |
 | `ISKATING_ADMIN_PASSWORD` | 否 | 首次 seed 默认管理员密码 | `admin123` | `server/app/main.py` |

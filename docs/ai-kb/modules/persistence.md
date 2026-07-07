@@ -16,7 +16,8 @@
 - `trainingdomain.h`: 训练领域结构，包括运动员、教练、动作标准、训练 session、动作明细和训练趋势窗口。
 - `trainingrepository.cpp`: QtNetwork API 客户端，保留原同步仓储接口，负责连接训练服务、登录、人员档案保存/归档、教练-运动员关系维护、训练记录保存、人工复核、手动动作、动作标准保存和趋势统计查询。
 - `server/app/main.py`: FastAPI 训练服务，负责认证、seed、PostgreSQL 读写和 session 汇总/个体基线刷新。
-- `server/alembic/versions/20260630_0001_initial_postgresql.py`: PostgreSQL 初始 schema。
+- `server/app/schema.py`: 当前开发期 PostgreSQL 完整 schema。
+- `tools/reset_postgres_schema.py`: 开发期空库重建工具。
 - `tools/import_sqlite_to_postgres.py`: 旧 SQLite 到 PostgreSQL 的一次性导入工具。
 - `personmanagementdialog.cpp`: 人员管理对话框，读写运动员/教练档案并维护教练可带训运动员关系。
 - `trainingreviewdialog.cpp`: 复盘校准对话框，读写动作复核字段和动作标准参考视频。
@@ -43,7 +44,7 @@
 
 系统设置支持把当前摄像头配置导出为 JSON 模板，也支持从 JSON 模板导入并预览摘要后覆盖设置对话框表单。模板只是现场批量配置交换格式，不替代 QSettings；用户点击“保存”后仍由 `persistSystemSettings()` 写入上述 key。
 
-`trainingHistory` 仅作为旧数据兼容来源。新版本启动时不会自动迁移本机 SQLite；切换前使用 `tools/import_sqlite_to_postgres.py` 将旧 `%APPDATA%/iSkating/iSkating Coach/iskating.db` 导入 PostgreSQL。
+`trainingHistory` 仅作为旧数据兼容来源。新版本启动时不会自动导入本机 SQLite；需要时先使用 `tools/reset_postgres_schema.py --yes` 重建空库 schema，再用 `tools/import_sqlite_to_postgres.py` 将旧 `%APPDATA%/iSkating/iSkating Coach/iskating.db` 导入 PostgreSQL。
 
 PostgreSQL 主要表：
 
@@ -106,14 +107,14 @@ PostgreSQL 主要表：
 ### 增加训练记录字段
 
 1. 修改 `trainingdomain.h` 中对应 session 或 repetition struct。
-2. 在 Alembic 迁移、`server/app/main.py` 的读写逻辑、`trainingrepository.cpp` 的 JSON 映射和导入工具中同步字段，并考虑迁移默认值。
+2. 在 `server/app/schema.py`、`server/app/main.py` 的读写逻辑、`trainingrepository.cpp` 的 JSON 映射和导入工具中同步字段。
 3. 更新 `mainwindow.cpp` 的保存、历史和建议页展示。
 4. 如果字段影响复盘校准，更新 `trainingreviewdialog.cpp` 和报告导出。
 
 ### 增加人员档案字段
 
 1. 修改 `trainingdomain.h` 的 `AthleteProfile` 或 `CoachProfile`。
-2. 修改 Alembic 迁移、FastAPI 读写、`trainingrepository.cpp` JSON 映射和导入工具。
+2. 修改 `server/app/schema.py`、FastAPI 读写、`trainingrepository.cpp` JSON 映射和导入工具。
 3. 修改 `personmanagementdialog.cpp` 的表格、表单和保存映射。
 4. 如果字段会出现在训练记录、报告或建议页，同步更新 `mainwindow.cpp` 的展示逻辑。
 

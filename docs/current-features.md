@@ -93,7 +93,7 @@
 - 采集偏好本地保存。
 - 训练业务数据保存到 PostgreSQL。
 - FastAPI 服务端初始化默认管理员、运动员、教练和动作标准数据。
-- 旧 SQLite 训练库可通过一次性导入工具迁移到 PostgreSQL。
+- 开发期 PostgreSQL schema 可通过 `tools/reset_postgres_schema.py --yes` 手动重建；旧 SQLite 训练库可在空库重建后通过一次性工具导入。
 
 ## 8. 当前软件形态
 
