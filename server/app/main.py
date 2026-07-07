@@ -296,6 +296,18 @@ def coach_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def competition_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row["id"]),
+        "name": row["name"] or "",
+        "location": row["location"] or "",
+        "competitionDate": row["competition_date"].isoformat() if row["competition_date"] else "",
+        "competitionType": row["competition_type"] or "",
+        "notes": row["notes"] or "",
+        "active": bool(row["active"]),
+    }
+
+
 def scores_from_payload(payload: dict[str, Any], prefix: str = "") -> dict[str, int]:
     def value(name: str) -> int:
         key = f"{prefix}{name[0].upper()}{name[1:]}Score" if prefix else f"{name}Score"
@@ -468,6 +480,64 @@ def archive_coach(coach_id: str,
                   _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
     active = bool(payload.get("active", False))
     db.execute(text("UPDATE coaches SET active = :active, updated_at = now() WHERE id = :id"), {"id": coach_id, "active": active})
+    return {"ok": True}
+
+
+@app.get("/competitions")
+def competitions(q: str = "",
+                 includeInactive: bool = False,
+                 db: Session = Depends(db_session),
+                 _: dict[str, Any] = Depends(require_user)) -> list[dict[str, Any]]:
+    where: list[str] = []
+    args: dict[str, Any] = {}
+    if not includeInactive:
+        where.append("active = true")
+    if q.strip():
+        where.append("(COALESCE(name,'') ILIKE :q OR COALESCE(location,'') ILIKE :q OR COALESCE(competition_type,'') ILIKE :q OR COALESCE(notes,'') ILIKE :q)")
+        args["q"] = f"%{q.strip()}%"
+    where_sql = "WHERE " + " AND ".join(where) if where else ""
+    rows = db.execute(
+        text(f"SELECT * FROM competitions {where_sql} ORDER BY competition_date DESC NULLS LAST, name"),
+        args,
+    ).mappings()
+    return [competition_row(dict(row)) for row in rows]
+
+
+@app.post("/competitions")
+def save_competition(payload: dict[str, Any] = Body(...),
+                     db: Session = Depends(db_session),
+                     _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    competition_id = parse_uuid(payload.get("id")) or new_uuid()
+    db.execute(
+        text(
+            "INSERT INTO competitions "
+            "(id, name, location, competition_date, competition_type, notes, active, updated_at) "
+            "VALUES (:id, :name, :location, :competition_date, :competition_type, :notes, :active, now()) "
+            "ON CONFLICT (id) DO UPDATE SET name=excluded.name, location=excluded.location, "
+            "competition_date=excluded.competition_date, competition_type=excluded.competition_type, "
+            "notes=excluded.notes, active=excluded.active, updated_at=now()"
+        ),
+        {
+            "id": competition_id,
+            "name": str(payload.get("name", "")).strip() or "未命名比赛",
+            "location": payload.get("location") or None,
+            "competition_date": parse_date(payload.get("competitionDate")) if payload.get("competitionDate") else None,
+            "competition_type": payload.get("competitionType") or None,
+            "notes": payload.get("notes") or None,
+            "active": bool(payload.get("active", True)),
+        },
+    )
+    row = db.execute(text("SELECT * FROM competitions WHERE id = :id"), {"id": competition_id}).mappings().one()
+    return competition_row(dict(row))
+
+
+@app.patch("/competitions/{competition_id}")
+def archive_competition(competition_id: str,
+                        payload: dict[str, Any] = Body(default={}),
+                        db: Session = Depends(db_session),
+                        _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    active = bool(payload.get("active", False))
+    db.execute(text("UPDATE competitions SET active = :active, updated_at = now() WHERE id = :id"), {"id": competition_id, "active": active})
     return {"ok": True}
 
 
@@ -747,16 +817,17 @@ def save_training_session(payload: dict[str, Any] = Body(...),
     db.execute(
         text(
             "INSERT INTO training_sessions "
-            "(id, athlete_id, coach_id, plan_id, task_id, action_standard_id, standard_version, legacy_qsettings_id, "
+            "(id, athlete_id, coach_id, competition_id, plan_id, task_id, action_standard_id, standard_version, legacy_qsettings_id, "
             "started_at, saved_at, duration_sec, total_reps, valid_reps, average_score, best_score, camera, "
             "model_precision, fps, scores, site, training_phase, goal, target_reps, target_score, set_count, rest_seconds, "
             "video_source, video_fallback_source, video_camera_name, feedback, notes, coach_comment) "
-            "VALUES (:id, :athlete_id, :coach_id, :plan_id, :task_id, :action_standard_id, :standard_version, "
+            "VALUES (:id, :athlete_id, :coach_id, :competition_id, :plan_id, :task_id, :action_standard_id, :standard_version, "
             ":legacy_qsettings_id, :started_at, :saved_at, :duration_sec, :total_reps, :valid_reps, :average_score, "
             ":best_score, :camera, :model_precision, :fps, CAST(:scores AS jsonb), :site, :training_phase, :goal, "
             ":target_reps, :target_score, :set_count, :rest_seconds, :video_source, :video_fallback_source, "
             ":video_camera_name, :feedback, :notes, :coach_comment) "
-            "ON CONFLICT (id) DO UPDATE SET coach_id=excluded.coach_id, plan_id=excluded.plan_id, task_id=excluded.task_id, "
+            "ON CONFLICT (id) DO UPDATE SET coach_id=excluded.coach_id, competition_id=excluded.competition_id, "
+            "plan_id=excluded.plan_id, task_id=excluded.task_id, "
             "saved_at=excluded.saved_at, duration_sec=excluded.duration_sec, total_reps=excluded.total_reps, "
             "valid_reps=excluded.valid_reps, average_score=excluded.average_score, best_score=excluded.best_score, "
             "scores=excluded.scores, feedback=excluded.feedback, notes=excluded.notes, coach_comment=excluded.coach_comment"
@@ -765,6 +836,7 @@ def save_training_session(payload: dict[str, Any] = Body(...),
             "id": session_id,
             "athlete_id": athlete_id,
             "coach_id": parse_uuid(session.get("coachId")),
+            "competition_id": parse_uuid(session.get("competitionId")),
             "plan_id": parse_uuid(session.get("planId")),
             "task_id": parse_uuid(session.get("taskId")),
             "action_standard_id": action_standard_id,
@@ -812,11 +884,17 @@ def history_row(row: dict[str, Any]) -> dict[str, Any]:
         "id": str(row["id"]),
         "athleteId": str(row["athlete_id"]),
         "coachId": str(row["coach_id"] or ""),
+        "competitionId": str(row["competition_id"] or ""),
         "planId": str(row["plan_id"] or ""),
         "taskId": str(row["task_id"] or ""),
         "actionStandardId": str(row["action_standard_id"]),
         "athleteName": row["athlete_name"] or "",
         "coachName": row["coach_name"] or "",
+        "competitionName": row.get("competition_name") or "",
+        "competitionLocation": row.get("competition_location") or "",
+        "competitionDate": row["competition_date"].isoformat() if row.get("competition_date") else "",
+        "competitionType": row.get("competition_type") or "",
+        "competitionNotes": row.get("competition_notes") or "",
         "actionName": row["action_name"] or "",
         "actionCategory": row["action_category"] or "",
         "standardVersion": row["standard_version"],
@@ -854,6 +932,7 @@ def search_sessions(
     athleteId: str = "",
     coachId: str = "",
     actionStandardId: str = "",
+    competitionId: str = "",
     savedFrom: str = "",
     savedTo: str = "",
     competitionText: str = "",
@@ -868,7 +947,12 @@ def search_sessions(
 ) -> dict[str, Any]:
     where: list[str] = []
     args: dict[str, Any] = {}
-    for query_name, column in [("athleteId", "ts.athlete_id"), ("coachId", "ts.coach_id"), ("actionStandardId", "ts.action_standard_id")]:
+    for query_name, column in [
+        ("athleteId", "ts.athlete_id"),
+        ("coachId", "ts.coach_id"),
+        ("actionStandardId", "ts.action_standard_id"),
+        ("competitionId", "ts.competition_id"),
+    ]:
         value = locals()[query_name]
         if value:
             where.append(f"{column} = :{query_name}")
@@ -886,12 +970,13 @@ def search_sessions(
         where.append("ts.average_score <= :maxScore")
         args["maxScore"] = maxScore
     if competitionText.strip():
-        where.append("(COALESCE(ts.site,'') ILIKE :q OR COALESCE(ts.training_phase,'') ILIKE :q OR COALESCE(ts.goal,'') ILIKE :q OR COALESCE(ts.notes,'') ILIKE :q OR COALESCE(ts.feedback,'') ILIKE :q OR COALESCE(ts.coach_comment,'') ILIKE :q)")
+        where.append("(COALESCE(comp.name,'') ILIKE :q OR COALESCE(comp.location,'') ILIKE :q OR COALESCE(comp.competition_type,'') ILIKE :q OR COALESCE(comp.notes,'') ILIKE :q OR COALESCE(ts.site,'') ILIKE :q OR COALESCE(ts.training_phase,'') ILIKE :q OR COALESCE(ts.goal,'') ILIKE :q OR COALESCE(ts.notes,'') ILIKE :q OR COALESCE(ts.feedback,'') ILIKE :q OR COALESCE(ts.coach_comment,'') ILIKE :q)")
         args["q"] = f"%{competitionText.strip()}%"
     where_sql = "WHERE " + " AND ".join(where) if where else ""
     from_sql = (
         "FROM training_sessions ts JOIN athletes a ON a.id = ts.athlete_id "
         "LEFT JOIN coaches c ON c.id = ts.coach_id "
+        "LEFT JOIN competitions comp ON comp.id = ts.competition_id "
         "JOIN action_standards s ON s.id = ts.action_standard_id "
         "JOIN action_categories ac ON ac.id = s.category_id "
     )
@@ -913,7 +998,9 @@ def search_sessions(
     rows = db.execute(
         text(
             "SELECT ts.*, a.name AS athlete_name, COALESCE(c.name, '') AS coach_name, "
-            "s.name AS action_name, ac.name AS action_category "
+            "COALESCE(comp.name, '') AS competition_name, COALESCE(comp.location, '') AS competition_location, "
+            "comp.competition_date AS competition_date, COALESCE(comp.competition_type, '') AS competition_type, "
+            "COALESCE(comp.notes, '') AS competition_notes, s.name AS action_name, ac.name AS action_category "
             f"{from_sql} {where_sql} ORDER BY {order} {direction}, ts.id DESC LIMIT :limit OFFSET :offset"
         ),
         args,

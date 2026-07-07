@@ -1,6 +1,6 @@
 # iSkating Coach
 
-Windows Qt/C++ 滑冰训练辅助应用，包含多路 RTSP/离线视频采集、人体姿态分析、动作评分、训练复盘和报告导出。
+Windows Qt/C++ 滑冰训练辅助应用，包含多路 RTSP/离线视频采集、人体姿态分析、动作评分、比赛归属、训练复盘和报告导出。
 
 RTSP 视频接入支持 UDP 优先、TCP fallback 和断流自动重连；界面会显示连接中、断流重连、长时间断流、编码/硬解不兼容等状态，日志中的 RTSP 密码会脱敏。
 
@@ -13,6 +13,8 @@ RTSP 视频接入支持 UDP 优先、TCP fallback 和断流自动重连；界面
 - 桌面端：Qt Widgets + QtNetwork
 - 服务端：FastAPI
 - 数据库：PostgreSQL
+
+训练记录可关联比赛基础信息（名称、地点、日期、类型、备注），历史页支持比赛管理、按比赛筛选和报告导出展示比赛信息。
 
 桌面端默认连接 `http://127.0.0.1:8000`，可通过 `QSettings server/baseUrl` 或环境变量 `ISKATING_API_BASE_URL` 覆盖。默认开发登录可用 `ISKATING_API_USERNAME` / `ISKATING_API_PASSWORD` 覆盖。
 

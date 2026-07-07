@@ -82,6 +82,10 @@ def sqlite_rows(db: sqlite3.Connection, table: str) -> list[sqlite3.Row]:
         return []
 
 
+def row_value(row: sqlite3.Row, key: str, default: Any = None) -> Any:
+    return row[key] if key in row.keys() else default
+
+
 def import_data(sqlite_path: Path, database_url: str) -> dict[str, int]:
     source = sqlite3.connect(sqlite_path)
     source.row_factory = sqlite3.Row
@@ -292,12 +296,12 @@ def import_data(sqlite_path: Path, database_url: str) -> dict[str, int]:
                 target.execute(
                     """
                     INSERT INTO training_sessions
-                    (id, athlete_id, coach_id, plan_id, task_id, action_standard_id, standard_version,
+                    (id, athlete_id, coach_id, competition_id, plan_id, task_id, action_standard_id, standard_version,
                      legacy_qsettings_id, started_at, saved_at, duration_sec, total_reps, valid_reps,
                      average_score, best_score, camera, model_precision, fps, scores, site, training_phase,
                      goal, target_reps, target_score, set_count, rest_seconds, video_source,
                      video_fallback_source, video_camera_name, feedback, notes, coach_comment)
-                    VALUES (%(id)s, %(athlete_id)s, %(coach_id)s, %(plan_id)s, %(task_id)s, %(action_standard_id)s,
+                    VALUES (%(id)s, %(athlete_id)s, %(coach_id)s, %(competition_id)s, %(plan_id)s, %(task_id)s, %(action_standard_id)s,
                             %(standard_version)s, %(legacy_qsettings_id)s, %(started_at)s, %(saved_at)s,
                             %(duration_sec)s, %(total_reps)s, %(valid_reps)s, %(average_score)s, %(best_score)s,
                             %(camera)s, %(model_precision)s, %(fps)s, %(scores)s, %(site)s, %(training_phase)s,
@@ -312,6 +316,7 @@ def import_data(sqlite_path: Path, database_url: str) -> dict[str, int]:
                         "id": as_uuid(row["id"]),
                         "athlete_id": as_uuid(row["athlete_id"]),
                         "coach_id": as_uuid(row["coach_id"]),
+                        "competition_id": as_uuid(row_value(row, "competition_id")),
                         "plan_id": as_uuid(row["plan_id"]),
                         "task_id": as_uuid(row["task_id"]),
                         "action_standard_id": as_uuid(row["action_standard_id"]),

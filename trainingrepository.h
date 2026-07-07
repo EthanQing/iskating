@@ -24,6 +24,7 @@ public:
 
     QVector<AthleteProfile> athletes() const;
     QVector<CoachProfile> coaches() const;
+    QVector<Competition> competitions(bool includeInactive = false, const QString &query = QString()) const;
     QVector<QString> athleteIdsForCoach(const QString &coachId) const;
     QVector<ActionStandard> actionStandards() const;
     SessionSearchResult searchSessions(const SessionSearchFilters &filters,
@@ -60,6 +61,10 @@ public:
                           QString *errorMessage = nullptr);
     bool archiveCoach(const QString &coachId,
                       QString *errorMessage = nullptr);
+    bool saveCompetition(Competition *competition,
+                         QString *errorMessage = nullptr);
+    bool archiveCompetition(const QString &competitionId,
+                            QString *errorMessage = nullptr);
     bool ensureDailyTask(const QString &athleteId,
                          const QString &coachId,
                          const QString &actionStandardId,

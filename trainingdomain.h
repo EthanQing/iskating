@@ -1,6 +1,7 @@
 #ifndef TRAININGDOMAIN_H
 #define TRAININGDOMAIN_H
 
+#include <QDate>
 #include <QDateTime>
 #include <QString>
 #include <QVector>
@@ -19,6 +20,7 @@ struct SessionSearchFilters
     QString athleteId;
     QString coachId;
     QString actionStandardId;
+    QString competitionId;
     QDateTime savedFrom;
     QDateTime savedTo;
     QString competitionText;
@@ -62,6 +64,17 @@ struct CoachProfile
     QString code;
     QString specialty;
     QString phone;
+    QString notes;
+    bool active = true;
+};
+
+struct Competition
+{
+    QString id;
+    QString name;
+    QString location;
+    QDate competitionDate;
+    QString competitionType;
     QString notes;
     bool active = true;
 };
@@ -220,6 +233,7 @@ struct TrainingSession
     QString id;
     QString athleteId;
     QString coachId;
+    QString competitionId;
     QString planId;
     QString taskId;
     QString actionStandardId;
@@ -260,11 +274,17 @@ struct SessionHistoryItem
     QString id;
     QString athleteId;
     QString coachId;
+    QString competitionId;
     QString planId;
     QString taskId;
     QString actionStandardId;
     QString athleteName;
     QString coachName;
+    QString competitionName;
+    QString competitionLocation;
+    QDate competitionDate;
+    QString competitionType;
+    QString competitionNotes;
     QString actionName;
     QString actionCategory;
     int standardVersion = 1;

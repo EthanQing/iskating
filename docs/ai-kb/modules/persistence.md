@@ -7,7 +7,7 @@
 
 ## 作用
 
-负责保存和读取摄像头配置、采集偏好、训练业务数据和人员档案。摄像头与采集偏好仍使用 Qt `QSettings`；运动员/教练档案、训练动作标准、训练复盘校准和报告数据通过 FastAPI 服务端写入 PostgreSQL。
+负责保存和读取摄像头配置、采集偏好、训练业务数据、比赛基础信息和人员档案。摄像头与采集偏好仍使用 Qt `QSettings`；运动员/教练档案、比赛、训练动作标准、训练复盘校准和报告数据通过 FastAPI 服务端写入 PostgreSQL。
 
 ## 关键文件
 
@@ -48,12 +48,13 @@
 PostgreSQL 主要表：
 
 - `athletes`, `coaches`, `coach_athletes`
+- `competitions`
 - `action_categories`, `action_standards`
 - `training_plans`, `training_tasks`
 - `training_sessions`, `action_repetitions`
 - `athlete_action_baselines`
 
-`athletes` 保存运动员档案并用 `active` 做归档；`coaches` 保存教练档案、专项、电话、备注并用 `active` 做归档；`coach_athletes` 保存教练可带训运动员关系。人员删除不会硬删历史外键，只从训练选择与人员管理列表中隐藏。`training_sessions` 记录训练上下文、任务/计划归属、分项分、视频源引用、回退视频源、机位名称、反馈、备注和单次训练教练批注；历史回放可结合 `started_at`、`duration_sec`、`camera` 和 QSettings 中的 NVR 模板生成回放 URL，不新增数据库字段。`action_repetitions` 保留 AI 原始起止时间、有效性、总分/分项分、错误项、反馈、关键帧时间和视频片段，同时保存人工复核字段：来源、复核状态、复核教练、复核时间、人工起止时间、人工有效性、人工总分/分项分、人工错误项、人工反馈、教练备注和关键帧姿态 JSON。`action_standards` 保存本地标准参考视频路径、参考动作实例和参考说明，用于复盘中的标准动作对比。
+`athletes` 保存运动员档案并用 `active` 做归档；`coaches` 保存教练档案、专项、电话、备注并用 `active` 做归档；`coach_athletes` 保存教练可带训运动员关系。人员删除不会硬删历史外键，只从训练选择与人员管理列表中隐藏。`competitions` 保存比赛名称、地点、日期、类型、备注并用 `active` 做归档；归档后不再出现在新训练选择中，历史 session 仍保留外键和联查展示。`training_sessions` 记录训练上下文、可选比赛归属、任务/计划归属、分项分、视频源引用、回退视频源、机位名称、反馈、备注和单次训练教练批注；历史回放可结合 `started_at`、`duration_sec`、`camera` 和 QSettings 中的 NVR 模板生成回放 URL，不新增数据库字段。`action_repetitions` 保留 AI 原始起止时间、有效性、总分/分项分、错误项、反馈、关键帧时间和视频片段，同时保存人工复核字段：来源、复核状态、复核教练、复核时间、人工起止时间、人工有效性、人工总分/分项分、人工错误项、人工反馈、教练备注和关键帧姿态 JSON。`action_standards` 保存本地标准参考视频路径、参考动作实例和参考说明，用于复盘中的标准动作对比。
 
 复盘、趋势和报告默认使用“人工优先”的有效值：动作有人工复核时使用人工字段，否则使用 AI 原始字段。保存复核或新增手动动作后，`TrainingRepository::recalculateSessionSummary()` 会重算 `training_sessions` 汇总分、动作数和个体基线。
 
@@ -78,6 +79,7 @@ PostgreSQL 主要表：
 
 - `open()`
 - `athletes()`, `coaches()`, `actionStandards()`
+- `competitions()`, `saveCompetition()`, `archiveCompetition()`
 - `athleteIdsForCoach()`
 - `saveAthleteProfile()`, `archiveAthlete()`
 - `saveCoachProfile()`, `archiveCoach()`
@@ -91,7 +93,7 @@ PostgreSQL 主要表：
 - `recalculateSessionSummary()`
 - `searchSessions()`, `recentSessions()`, `repetitionsForSession()`, `trendForRecentDays()`, `baselineFor()`
 
-`searchSessions(filters, page, sort)` 是历史页组合检索入口，按运动员、教练、动作标准、保存时间、分数区间和比赛关键词分页查询 `training_sessions`。比赛关键词不新增字段，复用匹配 `site/training_phase/goal/notes/feedback/coach_comment`。`recentSessions(limit)` 保留兼容，内部按保存时间倒序读取第一页。
+`searchSessions(filters, page, sort)` 是历史页组合检索入口，按运动员、教练、比赛、动作标准、保存时间、分数区间和比赛关键词分页查询 `training_sessions`。比赛关键词匹配 `competitions.name/location/competition_type/notes` 以及 `training_sessions.site/training_phase/goal/notes/feedback/coach_comment`。`recentSessions(limit)` 保留兼容，内部按保存时间倒序读取第一页。
 
 `trendForRecentDays(days)` 用 `training_sessions.saved_at` 做最近 N 天窗口统计，返回训练次数、session 均分、最佳分和动作完成数；动作完成数优先来自 `action_repetitions` 数量，旧记录没有动作明细时退回 `training_sessions.total_reps`。弱项分项均值优先来自动作实例的人工有效分项分，没有动作实例分项时退回 session 分项分。
 

@@ -32,3 +32,4 @@
 ## 2026-07-07
 
 - 完成 F-01 Release 产物盘点：在部署 Runbook 中明确 `x64/Release` 发布目录的必要交付物、条件交付物和不应作为必要交付物的构建/临时文件边界。
+- 完成 F-16 比赛基础信息：新增 `competitions` PostgreSQL 表和 `training_sessions.competition_id`，桌面端支持比赛管理、训练归属比赛、历史按比赛筛选，以及 Markdown/CSV/PDF 报告展示比赛信息。

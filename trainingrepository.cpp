@@ -39,6 +39,17 @@ QDateTime dateTimeFromJson(const QJsonValue &value)
     return parsed.isValid() ? parsed : QDateTime();
 }
 
+QString dateToIso(const QDate &value)
+{
+    return value.isValid() ? value.toString(Qt::ISODate) : QString();
+}
+
+QDate dateFromJson(const QJsonValue &value)
+{
+    const QDate parsed = QDate::fromString(value.toString(), Qt::ISODate);
+    return parsed.isValid() ? parsed : QDate();
+}
+
 int jsonInt(const QJsonObject &object, const QString &key, int fallback = 0)
 {
     return object.contains(key) ? object.value(key).toInt(fallback) : fallback;
@@ -122,6 +133,32 @@ CoachProfile coachFromJson(const QJsonObject &object)
     coach.notes = jsonString(object, QStringLiteral("notes"));
     coach.active = object.value(QStringLiteral("active")).toBool(true);
     return coach;
+}
+
+QJsonObject competitionToJson(const Competition &competition)
+{
+    return {
+        {QStringLiteral("id"), competition.id},
+        {QStringLiteral("name"), competition.name},
+        {QStringLiteral("location"), competition.location},
+        {QStringLiteral("competitionDate"), dateToIso(competition.competitionDate)},
+        {QStringLiteral("competitionType"), competition.competitionType},
+        {QStringLiteral("notes"), competition.notes},
+        {QStringLiteral("active"), competition.active}
+    };
+}
+
+Competition competitionFromJson(const QJsonObject &object)
+{
+    Competition competition;
+    competition.id = jsonString(object, QStringLiteral("id"));
+    competition.name = jsonString(object, QStringLiteral("name"));
+    competition.location = jsonString(object, QStringLiteral("location"));
+    competition.competitionDate = dateFromJson(object.value(QStringLiteral("competitionDate")));
+    competition.competitionType = jsonString(object, QStringLiteral("competitionType"));
+    competition.notes = jsonString(object, QStringLiteral("notes"));
+    competition.active = object.value(QStringLiteral("active")).toBool(true);
+    return competition;
 }
 
 QJsonObject standardToJson(const ActionStandard &standard)
@@ -211,6 +248,7 @@ QJsonObject sessionToJson(const TrainingSession &session)
         {QStringLiteral("id"), session.id},
         {QStringLiteral("athleteId"), session.athleteId},
         {QStringLiteral("coachId"), session.coachId},
+        {QStringLiteral("competitionId"), session.competitionId},
         {QStringLiteral("planId"), session.planId},
         {QStringLiteral("taskId"), session.taskId},
         {QStringLiteral("actionStandardId"), session.actionStandardId},
@@ -335,11 +373,17 @@ SessionHistoryItem historyFromJson(const QJsonObject &object)
     item.id = jsonString(object, QStringLiteral("id"));
     item.athleteId = jsonString(object, QStringLiteral("athleteId"));
     item.coachId = jsonString(object, QStringLiteral("coachId"));
+    item.competitionId = jsonString(object, QStringLiteral("competitionId"));
     item.planId = jsonString(object, QStringLiteral("planId"));
     item.taskId = jsonString(object, QStringLiteral("taskId"));
     item.actionStandardId = jsonString(object, QStringLiteral("actionStandardId"));
     item.athleteName = jsonString(object, QStringLiteral("athleteName"));
     item.coachName = jsonString(object, QStringLiteral("coachName"));
+    item.competitionName = jsonString(object, QStringLiteral("competitionName"));
+    item.competitionLocation = jsonString(object, QStringLiteral("competitionLocation"));
+    item.competitionDate = dateFromJson(object.value(QStringLiteral("competitionDate")));
+    item.competitionType = jsonString(object, QStringLiteral("competitionType"));
+    item.competitionNotes = jsonString(object, QStringLiteral("competitionNotes"));
     item.actionName = jsonString(object, QStringLiteral("actionName"));
     item.actionCategory = jsonString(object, QStringLiteral("actionCategory"));
     item.standardVersion = jsonInt(object, QStringLiteral("standardVersion"), 1);
@@ -669,6 +713,24 @@ QVector<CoachProfile> TrainingRepository::coaches() const
     return result;
 }
 
+QVector<Competition> TrainingRepository::competitions(bool includeInactive, const QString &query) const
+{
+    QVector<Competition> result;
+    bool ok = false;
+    const QVariantMap params{
+        {QStringLiteral("includeInactive"), includeInactive ? QStringLiteral("true") : QStringLiteral("false")},
+        {QStringLiteral("q"), query}
+    };
+    const QJsonArray array = requestArray(QStringLiteral("/competitions"), params, &ok, nullptr);
+    if (!ok) {
+        return result;
+    }
+    for (const QJsonValue &value : array) {
+        result.append(competitionFromJson(value.toObject()));
+    }
+    return result;
+}
+
 QVector<QString> TrainingRepository::athleteIdsForCoach(const QString &coachId) const
 {
     bool ok = false;
@@ -712,6 +774,7 @@ SessionSearchResult TrainingRepository::searchSessions(const SessionSearchFilter
         {QStringLiteral("athleteId"), filters.athleteId},
         {QStringLiteral("coachId"), filters.coachId},
         {QStringLiteral("actionStandardId"), filters.actionStandardId},
+        {QStringLiteral("competitionId"), filters.competitionId},
         {QStringLiteral("competitionText"), filters.competitionText},
         {QStringLiteral("pageNumber"), page.pageNumber},
         {QStringLiteral("pageSize"), page.pageSize},
@@ -979,6 +1042,40 @@ bool TrainingRepository::archiveCoach(const QString &coachId, QString *errorMess
     bool ok = false;
     requestObject(QStringLiteral("PATCH"),
                   QStringLiteral("/coaches/%1").arg(coachId),
+                  {{QStringLiteral("active"), false}},
+                  {},
+                  &ok,
+                  errorMessage);
+    return ok;
+}
+
+bool TrainingRepository::saveCompetition(Competition *competition, QString *errorMessage)
+{
+    if (!competition) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("比赛信息为空。");
+        }
+        return false;
+    }
+    competition->id = ensureId(competition->id);
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("POST"),
+                                               QStringLiteral("/competitions"),
+                                               competitionToJson(*competition),
+                                               {},
+                                               &ok,
+                                               errorMessage);
+    if (ok) {
+        *competition = competitionFromJson(response);
+    }
+    return ok;
+}
+
+bool TrainingRepository::archiveCompetition(const QString &competitionId, QString *errorMessage)
+{
+    bool ok = false;
+    requestObject(QStringLiteral("PATCH"),
+                  QStringLiteral("/competitions/%1").arg(competitionId),
                   {{QStringLiteral("active"), false}},
                   {},
                   &ok,
