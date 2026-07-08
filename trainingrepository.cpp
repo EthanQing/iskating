@@ -55,6 +55,20 @@ int jsonInt(const QJsonObject &object, const QString &key, int fallback = 0)
     return object.contains(key) ? object.value(key).toInt(fallback) : fallback;
 }
 
+qint64 jsonInt64(const QJsonObject &object, const QString &key, qint64 fallback = 0)
+{
+    if (!object.contains(key)) {
+        return fallback;
+    }
+    const QJsonValue value = object.value(key);
+    if (value.isString()) {
+        bool ok = false;
+        const qint64 parsed = value.toString().toLongLong(&ok);
+        return ok ? parsed : fallback;
+    }
+    return static_cast<qint64>(value.toDouble(fallback));
+}
+
 double jsonDouble(const QJsonObject &object, const QString &key, double fallback = 0.0)
 {
     return object.contains(key) ? object.value(key).toDouble(fallback) : fallback;
@@ -342,6 +356,13 @@ QJsonObject sessionToJson(const TrainingSession &session)
             {QStringLiteral("filePath"), file.filePath},
             {QStringLiteral("metadataPath"), file.metadataPath},
             {QStringLiteral("status"), file.status},
+            {QStringLiteral("sessionStartMs"), file.sessionStartMs},
+            {QStringLiteral("sessionEndMs"), file.sessionEndMs},
+            {QStringLiteral("durationMs"), file.durationMs},
+            {QStringLiteral("fileSizeBytes"), QString::number(file.fileSizeBytes)},
+            {QStringLiteral("fileModifiedAt"), file.fileModifiedAt.isValid() ? file.fileModifiedAt.toUTC().toString(Qt::ISODateWithMs) : QString()},
+            {QStringLiteral("checksumAlgorithm"), file.checksumAlgorithm},
+            {QStringLiteral("checksumValue"), file.checksumValue},
             {QStringLiteral("metadata"), metadata}
         });
     }
@@ -413,6 +434,8 @@ QJsonObject repetitionToJson(const ActionRepetition &repetition)
         {QStringLiteral("errorCodes"), repetition.errorCodes},
         {QStringLiteral("feedback"), repetition.feedback},
         {QStringLiteral("keyFrameMs"), repetition.keyFrameMs},
+        {QStringLiteral("videoFileId"), repetition.videoFileId},
+        {QStringLiteral("videoIndex"), repetition.videoIndex},
         {QStringLiteral("videoClipStartMs"), repetition.videoClipStartMs},
         {QStringLiteral("videoClipEndMs"), repetition.videoClipEndMs},
         {QStringLiteral("source"), repetition.source},
@@ -463,6 +486,8 @@ ActionRepetition repetitionFromJson(const QJsonObject &object)
     repetition.errorCodes = jsonString(object, QStringLiteral("errorCodes"));
     repetition.feedback = jsonString(object, QStringLiteral("feedback"));
     repetition.keyFrameMs = jsonInt(object, QStringLiteral("keyFrameMs"));
+    repetition.videoFileId = jsonString(object, QStringLiteral("videoFileId"));
+    repetition.videoIndex = jsonInt(object, QStringLiteral("videoIndex"), 1);
     repetition.videoClipStartMs = jsonInt(object, QStringLiteral("videoClipStartMs"));
     repetition.videoClipEndMs = jsonInt(object, QStringLiteral("videoClipEndMs"));
     repetition.source = jsonString(object, QStringLiteral("source"));
@@ -534,6 +559,13 @@ TrainingVideoFile videoFileFromJson(const QJsonObject &object)
     if (file.status.trimmed().isEmpty()) {
         file.status = QStringLiteral("planned");
     }
+    file.sessionStartMs = jsonInt(object, QStringLiteral("sessionStartMs"));
+    file.sessionEndMs = jsonInt(object, QStringLiteral("sessionEndMs"));
+    file.durationMs = jsonInt(object, QStringLiteral("durationMs"));
+    file.fileSizeBytes = jsonInt64(object, QStringLiteral("fileSizeBytes"), -1);
+    file.fileModifiedAt = dateTimeFromJson(object.value(QStringLiteral("fileModifiedAt")));
+    file.checksumAlgorithm = jsonString(object, QStringLiteral("checksumAlgorithm"));
+    file.checksumValue = jsonString(object, QStringLiteral("checksumValue"));
     const QJsonValue metadata = object.value(QStringLiteral("metadata"));
     if (metadata.isObject()) {
         file.metadataJson = QString::fromUtf8(QJsonDocument(metadata.toObject()).toJson(QJsonDocument::Compact));
@@ -569,6 +601,8 @@ RepetitionSearchItem repetitionSearchItemFromJson(const QJsonObject &object)
     item.videoSource = jsonString(object, QStringLiteral("videoSource"));
     item.videoFallbackSource = jsonString(object, QStringLiteral("videoFallbackSource"));
     item.videoCameraName = jsonString(object, QStringLiteral("videoCameraName"));
+    item.videoFileStatus = jsonString(object, QStringLiteral("videoFileStatus"));
+    item.videoFilePath = jsonString(object, QStringLiteral("videoFilePath"));
     item.sessionSourceType = jsonString(object, QStringLiteral("sessionSourceType"));
     item.sessionSourceRef = jsonString(object, QStringLiteral("sessionSourceRef"));
     item.effectiveStartedMsValue = jsonInt(object, QStringLiteral("effectiveStartedMs"));
@@ -1549,14 +1583,26 @@ bool TrainingRepository::saveTrainingSession(TrainingSession *session,
         return false;
     }
     session->id = ensureId(session->id);
+    QString defaultVideoFileId;
+    int defaultVideoIndex = 1;
     for (TrainingVideoFile &file : session->videoFiles) {
         file.id = ensureId(file.id);
         file.sessionId = session->id;
+        if (defaultVideoFileId.isEmpty() || file.videoIndex == 1) {
+            defaultVideoFileId = file.id;
+            defaultVideoIndex = file.videoIndex > 0 ? file.videoIndex : 1;
+        }
     }
     QJsonArray reps;
     for (ActionRepetition repetition : repetitions) {
         repetition.id = ensureId(repetition.id);
         repetition.sessionId = session->id;
+        if (repetition.videoIndex <= 0) {
+            repetition.videoIndex = defaultVideoIndex;
+        }
+        if (repetition.videoFileId.trimmed().isEmpty()) {
+            repetition.videoFileId = defaultVideoFileId;
+        }
         reps.append(repetitionToJson(repetition));
     }
     const QJsonObject body{{QStringLiteral("session"), sessionToJson(*session)}, {QStringLiteral("repetitions"), reps}};

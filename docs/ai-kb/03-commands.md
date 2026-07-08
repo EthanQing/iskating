@@ -95,6 +95,12 @@ python tools/reset_postgres_schema.py --yes
 python tools/import_sqlite_to_postgres.py --sqlite "$env:APPDATA/iSkating/iSkating Coach/iskating.db"
 ```
 
+已有 PostgreSQL 开发库保留数据并补齐视频索引字段：
+
+```powershell
+python tools/backfill_video_indexes.py
+```
+
 ## seed 数据
 
 FastAPI 服务启动时会 seed 默认管理员、默认运动员、默认教练、8 个动作类别和 8 条动作标准。

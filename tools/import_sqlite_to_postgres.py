@@ -74,6 +74,9 @@ def legacy_video_file(row: sqlite3.Row) -> dict[str, Any] | None:
     camera = int(row["camera"] or 0)
     status = "planned" if has_media_url_scheme(video_source) or camera > 0 else "external"
     file_path = video_source if status == "external" else ""
+    source_file = Path(file_path) if file_path else None
+    source_exists = bool(source_file and source_file.exists() and source_file.is_file())
+    duration_ms = int(row["duration_sec"] or 0) * 1000
     metadata = {
         "sessionId": session_id,
         "videoIndex": 1,
@@ -82,6 +85,9 @@ def legacy_video_file(row: sqlite3.Row) -> dict[str, Any] | None:
         "sourceUrl": video_source,
         "fallbackUrl": fallback_source,
         "status": status,
+        "sessionStartMs": 0,
+        "sessionEndMs": duration_ms,
+        "durationMs": duration_ms,
         "legacyImport": True,
     }
     return {
@@ -98,6 +104,13 @@ def legacy_video_file(row: sqlite3.Row) -> dict[str, Any] | None:
         "file_path": file_path or None,
         "metadata_path": None,
         "status": status,
+        "session_start_ms": 0,
+        "session_end_ms": duration_ms,
+        "duration_ms": duration_ms,
+        "file_size_bytes": source_file.stat().st_size if source_exists else None,
+        "file_modified_at": datetime.fromtimestamp(source_file.stat().st_mtime, timezone.utc) if source_exists else None,
+        "checksum_algorithm": None,
+        "checksum_value": None,
         "metadata": Jsonb(metadata),
     }
 
@@ -405,14 +418,21 @@ def import_data(sqlite_path: Path, database_url: str) -> dict[str, int]:
                         """
                         INSERT INTO training_video_files
                         (id, session_id, video_index, camera, camera_name, source_url, fallback_url, storage_root,
-                         relative_dir, file_name, file_path, metadata_path, status, metadata, updated_at)
+                         relative_dir, file_name, file_path, metadata_path, status, session_start_ms, session_end_ms,
+                         duration_ms, file_size_bytes, file_modified_at, checksum_algorithm, checksum_value, metadata, updated_at)
                         VALUES (%(id)s, %(session_id)s, %(video_index)s, %(camera)s, %(camera_name)s,
                                 %(source_url)s, %(fallback_url)s, %(storage_root)s, %(relative_dir)s,
-                                %(file_name)s, %(file_path)s, %(metadata_path)s, %(status)s, %(metadata)s, now())
+                                %(file_name)s, %(file_path)s, %(metadata_path)s, %(status)s, %(session_start_ms)s,
+                                %(session_end_ms)s, %(duration_ms)s, %(file_size_bytes)s, %(file_modified_at)s,
+                                %(checksum_algorithm)s, %(checksum_value)s, %(metadata)s, now())
                         ON CONFLICT (session_id, video_index) DO UPDATE SET
                         camera=excluded.camera, camera_name=excluded.camera_name, source_url=excluded.source_url,
                         fallback_url=excluded.fallback_url, file_name=excluded.file_name, file_path=excluded.file_path,
-                        status=excluded.status, metadata=excluded.metadata, updated_at=now()
+                        status=excluded.status, session_start_ms=excluded.session_start_ms,
+                        session_end_ms=excluded.session_end_ms, duration_ms=excluded.duration_ms,
+                        file_size_bytes=excluded.file_size_bytes, file_modified_at=excluded.file_modified_at,
+                        checksum_algorithm=excluded.checksum_algorithm, checksum_value=excluded.checksum_value,
+                        metadata=excluded.metadata, updated_at=now()
                         """,
                         video_file,
                     )
@@ -425,19 +445,22 @@ def import_data(sqlite_path: Path, database_url: str) -> dict[str, int]:
                     INSERT INTO action_repetitions
                     (id, session_id, action_standard_id, standard_version, started_ms, ended_ms, valid, score,
                      scores, error_codes, feedback, key_frame_ms, video_clip_start_ms, video_clip_end_ms,
+                     video_file_id, video_index,
                      source, review_status, reviewer_coach_id, reviewed_at, manual_started_ms, manual_ended_ms,
                      manual_valid, manual_score, manual_scores, manual_error_codes, manual_feedback, coach_note,
                      key_frame_pose, participant_id, athlete_id, track_id, camera_id, frame_time_ms,
                      identity_status, identity_confidence, identity_source)
                     VALUES (%(id)s, %(session_id)s, %(action_standard_id)s, %(standard_version)s, %(started_ms)s,
                             %(ended_ms)s, %(valid)s, %(score)s, %(scores)s, %(error_codes)s, %(feedback)s,
-                            %(key_frame_ms)s, %(video_clip_start_ms)s, %(video_clip_end_ms)s, %(source)s,
-                            %(review_status)s, %(reviewer_coach_id)s, %(reviewed_at)s, %(manual_started_ms)s,
+                            %(key_frame_ms)s, %(video_clip_start_ms)s, %(video_clip_end_ms)s,
+                            (SELECT id FROM training_video_files WHERE session_id=%(session_id)s AND video_index=1), 1,
+                            %(source)s, %(review_status)s, %(reviewer_coach_id)s, %(reviewed_at)s, %(manual_started_ms)s,
                             %(manual_ended_ms)s, %(manual_valid)s, %(manual_score)s, %(manual_scores)s,
                             %(manual_error_codes)s, %(manual_feedback)s, %(coach_note)s, %(key_frame_pose)s,
                             %(participant_id)s, %(athlete_id)s, %(track_id)s, %(camera_id)s, %(frame_time_ms)s,
                             %(identity_status)s, %(identity_confidence)s, %(identity_source)s)
                     ON CONFLICT (id) DO UPDATE SET review_status=excluded.review_status,
+                    video_file_id=excluded.video_file_id, video_index=excluded.video_index,
                     manual_started_ms=excluded.manual_started_ms, manual_ended_ms=excluded.manual_ended_ms,
                     manual_valid=excluded.manual_valid, manual_score=excluded.manual_score,
                     manual_scores=excluded.manual_scores, manual_error_codes=excluded.manual_error_codes,

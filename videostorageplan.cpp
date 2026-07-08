@@ -7,6 +7,8 @@
 #include <QSettings>
 #include <QStandardPaths>
 
+#include <algorithm>
+
 namespace {
 
 QString shortId(const QString &value)
@@ -72,7 +74,12 @@ QString metadataJson(const VideoStoragePlanInput &input,
                      const QString &fileName,
                      const QString &filePath,
                      const QString &metadataPath,
-                     const QString &status)
+                     const QString &status,
+                     int sessionStartMs,
+                     int sessionEndMs,
+                     int durationMs,
+                     qint64 fileSizeBytes,
+                     const QDateTime &fileModifiedAt)
 {
     QJsonObject object{
         {QStringLiteral("sessionId"), input.sessionId},
@@ -89,7 +96,12 @@ QString metadataJson(const VideoStoragePlanInput &input,
         {QStringLiteral("fileName"), fileName},
         {QStringLiteral("filePath"), filePath},
         {QStringLiteral("metadataPath"), metadataPath},
-        {QStringLiteral("status"), status}
+        {QStringLiteral("status"), status},
+        {QStringLiteral("sessionStartMs"), sessionStartMs},
+        {QStringLiteral("sessionEndMs"), sessionEndMs},
+        {QStringLiteral("durationMs"), durationMs},
+        {QStringLiteral("fileSizeBytes"), QString::number(fileSizeBytes)},
+        {QStringLiteral("fileModifiedAt"), fileModifiedAt.isValid() ? fileModifiedAt.toUTC().toString(Qt::ISODateWithMs) : QString()}
     };
     return QString::fromUtf8(QJsonDocument(object).toJson(QJsonDocument::Compact));
 }
@@ -105,6 +117,10 @@ TrainingVideoFile buildTrainingVideoFilePlan(const VideoStoragePlanInput &input)
     const QString metadataPath = QDir(storageRoot).absoluteFilePath(relativeDir + QLatin1Char('/') + QFileInfo(fileName).completeBaseName() + QStringLiteral(".metadata.json"));
     const QString status = input.externalFile ? QStringLiteral("external") : QStringLiteral("planned");
     const QString filePath = input.externalFile ? QFileInfo(input.sourceUrl).absoluteFilePath() : plannedPath;
+    const QFileInfo sourceFile(filePath);
+    const int durationMs = std::max(0, input.durationSec * 1000);
+    const qint64 fileSizeBytes = input.externalFile && sourceFile.exists() && sourceFile.isFile() ? sourceFile.size() : -1;
+    const QDateTime fileModifiedAt = input.externalFile && sourceFile.exists() && sourceFile.isFile() ? sourceFile.lastModified() : QDateTime();
 
     TrainingVideoFile file;
     file.sessionId = input.sessionId;
@@ -119,6 +135,22 @@ TrainingVideoFile buildTrainingVideoFilePlan(const VideoStoragePlanInput &input)
     file.filePath = filePath;
     file.metadataPath = metadataPath;
     file.status = status;
-    file.metadataJson = metadataJson(input, storageRoot, relativeDir, fileName, filePath, metadataPath, status);
+    file.sessionStartMs = 0;
+    file.sessionEndMs = durationMs;
+    file.durationMs = durationMs;
+    file.fileSizeBytes = fileSizeBytes;
+    file.fileModifiedAt = fileModifiedAt;
+    file.metadataJson = metadataJson(input,
+                                     storageRoot,
+                                     relativeDir,
+                                     fileName,
+                                     filePath,
+                                     metadataPath,
+                                     status,
+                                     file.sessionStartMs,
+                                     file.sessionEndMs,
+                                     file.durationMs,
+                                     file.fileSizeBytes,
+                                     file.fileModifiedAt);
     return file;
 }

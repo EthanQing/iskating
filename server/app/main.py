@@ -958,20 +958,28 @@ def ensure_daily_task(payload: dict[str, Any] = Body(...),
     return {"planId": plan_id, "taskId": task_id}
 
 
-def insert_repetition(db: Session, session_id: str, action_standard_id: str, repetition: dict[str, Any]) -> str:
+def insert_repetition(db: Session,
+                      session_id: str,
+                      action_standard_id: str,
+                      repetition: dict[str, Any],
+                      video_file_by_index: dict[int, str] | None = None) -> str:
     rep_id = parse_uuid(repetition.get("id")) or new_uuid()
     import json
+    video_index = int(repetition.get("videoIndex") or 1)
+    video_file_id = parse_uuid(repetition.get("videoFileId"))
+    if not video_file_id and video_file_by_index:
+        video_file_id = parse_uuid(video_file_by_index.get(video_index))
 
     db.execute(
         text(
             "INSERT INTO action_repetitions "
             "(id, session_id, action_standard_id, standard_version, started_ms, ended_ms, valid, score, scores, "
-            "error_codes, feedback, key_frame_ms, video_clip_start_ms, video_clip_end_ms, source, review_status, "
+            "error_codes, feedback, key_frame_ms, video_file_id, video_index, video_clip_start_ms, video_clip_end_ms, source, review_status, "
             "reviewer_coach_id, reviewed_at, manual_started_ms, manual_ended_ms, manual_valid, manual_score, manual_scores, "
             "manual_error_codes, manual_feedback, coach_note, key_frame_pose, participant_id, athlete_id, track_id, "
             "camera_id, frame_time_ms, identity_status, identity_confidence, identity_source) "
             "VALUES (:id, :session_id, :action_standard_id, :standard_version, :started_ms, :ended_ms, :valid, :score, "
-            "CAST(:scores AS jsonb), CAST(:error_codes AS jsonb), :feedback, :key_frame_ms, :video_clip_start_ms, "
+            "CAST(:scores AS jsonb), CAST(:error_codes AS jsonb), :feedback, :key_frame_ms, :video_file_id, :video_index, :video_clip_start_ms, "
             ":video_clip_end_ms, :source, :review_status, :reviewer_coach_id, :reviewed_at, :manual_started_ms, "
             ":manual_ended_ms, :manual_valid, :manual_score, CAST(:manual_scores AS jsonb), CAST(:manual_error_codes AS jsonb), "
             ":manual_feedback, :coach_note, CAST(:key_frame_pose AS jsonb), :participant_id, :athlete_id, :track_id, "
@@ -990,6 +998,8 @@ def insert_repetition(db: Session, session_id: str, action_standard_id: str, rep
             "error_codes": json.dumps(repetition.get("errorCodes") or "", ensure_ascii=False),
             "feedback": repetition.get("feedback") or None,
             "key_frame_ms": int(repetition.get("keyFrameMs", 0)),
+            "video_file_id": video_file_id,
+            "video_index": video_index,
             "video_clip_start_ms": int(repetition.get("videoClipStartMs", 0)),
             "video_clip_end_ms": int(repetition.get("videoClipEndMs", 0)),
             "source": repetition.get("source") or "ai",
@@ -1071,6 +1081,13 @@ def video_file_row(row: dict[str, Any]) -> dict[str, Any]:
         "filePath": row["file_path"] or "",
         "metadataPath": row["metadata_path"] or "",
         "status": row["status"] or "planned",
+        "sessionStartMs": row["session_start_ms"],
+        "sessionEndMs": row["session_end_ms"],
+        "durationMs": row["duration_ms"],
+        "fileSizeBytes": row["file_size_bytes"] if row["file_size_bytes"] is not None else -1,
+        "fileModifiedAt": row["file_modified_at"].isoformat() if row["file_modified_at"] else "",
+        "checksumAlgorithm": row["checksum_algorithm"] or "",
+        "checksumValue": row["checksum_value"] or "",
         "metadata": metadata,
     }
 
@@ -1089,12 +1106,15 @@ def video_files_for_sessions(db: Session, session_ids: list[str]) -> dict[str, l
     return grouped
 
 
-def save_training_video_files(db: Session, session_id: str, files: list[dict[str, Any]]) -> None:
+def save_training_video_files(db: Session, session_id: str, files: list[dict[str, Any]]) -> dict[int, str]:
     db.execute(text("DELETE FROM training_video_files WHERE session_id = :session_id"), {"session_id": session_id})
+    video_file_by_index: dict[int, str] = {}
     for index, item in enumerate(files, start=1):
         status_value = item.get("status") or "planned"
         if status_value not in {"planned", "external", "recorded"}:
             status_value = "planned"
+        video_index = int(item.get("videoIndex") or index)
+        file_id = parse_uuid(item.get("id")) or new_uuid()
         metadata = item.get("metadata") or {}
         if isinstance(metadata, str):
             try:
@@ -1105,14 +1125,16 @@ def save_training_video_files(db: Session, session_id: str, files: list[dict[str
             text(
                 "INSERT INTO training_video_files "
                 "(id, session_id, video_index, camera, camera_name, source_url, fallback_url, storage_root, relative_dir, "
-                "file_name, file_path, metadata_path, status, metadata, updated_at) "
+                "file_name, file_path, metadata_path, status, session_start_ms, session_end_ms, duration_ms, "
+                "file_size_bytes, file_modified_at, checksum_algorithm, checksum_value, metadata, updated_at) "
                 "VALUES (:id, :session_id, :video_index, :camera, :camera_name, :source_url, :fallback_url, :storage_root, "
-                ":relative_dir, :file_name, :file_path, :metadata_path, :status, CAST(:metadata AS jsonb), now())"
+                ":relative_dir, :file_name, :file_path, :metadata_path, :status, :session_start_ms, :session_end_ms, "
+                ":duration_ms, :file_size_bytes, :file_modified_at, :checksum_algorithm, :checksum_value, CAST(:metadata AS jsonb), now())"
             ),
             {
-                "id": parse_uuid(item.get("id")) or new_uuid(),
+                "id": file_id,
                 "session_id": session_id,
-                "video_index": int(item.get("videoIndex") or index),
+                "video_index": video_index,
                 "camera": int(item.get("camera") or 0),
                 "camera_name": item.get("cameraName") or None,
                 "source_url": item.get("sourceUrl") or None,
@@ -1123,9 +1145,18 @@ def save_training_video_files(db: Session, session_id: str, files: list[dict[str
                 "file_path": item.get("filePath") or None,
                 "metadata_path": item.get("metadataPath") or None,
                 "status": status_value,
+                "session_start_ms": int(item.get("sessionStartMs") or 0),
+                "session_end_ms": int(item.get("sessionEndMs") or 0),
+                "duration_ms": int(item.get("durationMs") or 0),
+                "file_size_bytes": int(item.get("fileSizeBytes")) if str(item.get("fileSizeBytes", "")).strip() not in {"", "-1"} else None,
+                "file_modified_at": parse_dt(item.get("fileModifiedAt")) if item.get("fileModifiedAt") else None,
+                "checksum_algorithm": item.get("checksumAlgorithm") or None,
+                "checksum_value": item.get("checksumValue") or None,
                 "metadata": json.dumps(metadata, ensure_ascii=False),
             },
         )
+        video_file_by_index[video_index] = str(file_id)
+    return video_file_by_index
 
 
 def save_session_participants(db: Session, session_id: str, primary_athlete_id: str, participants: list[dict[str, Any]]) -> dict[str, str]:
@@ -1252,13 +1283,13 @@ def save_training_session(payload: dict[str, Any] = Body(...),
         },
     )
     participant_by_athlete = save_session_participants(db, session_id, athlete_id, session.get("participants", []))
-    save_training_video_files(db, session_id, session.get("videoFiles", []))
+    video_file_by_index = save_training_video_files(db, session_id, session.get("videoFiles", []))
     db.execute(text("DELETE FROM action_repetitions WHERE session_id = :session_id"), {"session_id": session_id})
     for repetition in repetitions:
         rep_athlete_id = parse_uuid(repetition.get("athleteId"))
         if rep_athlete_id and not parse_uuid(repetition.get("participantId")):
             repetition["participantId"] = participant_by_athlete.get(str(rep_athlete_id), "")
-        insert_repetition(db, session_id, action_standard_id, repetition)
+        insert_repetition(db, session_id, action_standard_id, repetition, video_file_by_index)
     if session.get("taskId"):
         status_value = "completed" if int(session.get("validReps", 0)) >= int(session.get("targetReps", 0)) else "active"
         db.execute(text("UPDATE training_tasks SET status = :status, updated_at = now() WHERE id = :id"), {"id": parse_uuid(session.get("taskId")), "status": status_value})
@@ -1465,6 +1496,8 @@ def repetition_row(row: dict[str, Any]) -> dict[str, Any]:
         "errorCodes": row["error_codes"] if isinstance(row["error_codes"], str) else "",
         "feedback": row["feedback"] or "",
         "keyFrameMs": row["key_frame_ms"],
+        "videoFileId": str(row["video_file_id"] or ""),
+        "videoIndex": row["video_index"],
         "videoClipStartMs": row["video_clip_start_ms"],
         "videoClipEndMs": row["video_clip_end_ms"],
         "source": row["source"],
@@ -1521,6 +1554,8 @@ def effective_repetition_row(row: dict[str, Any]) -> dict[str, Any]:
         "videoSource": row.get("video_source") or "",
         "videoFallbackSource": row.get("video_fallback_source") or "",
         "videoCameraName": row.get("video_camera_name") or "",
+        "videoFileStatus": row.get("video_file_status") or "",
+        "videoFilePath": row.get("video_file_path") or "",
         "sessionSourceType": row.get("source_type") or "training",
         "sessionSourceRef": row.get("source_ref") or "",
         "effectiveStartedMs": row["effective_started_ms"],
@@ -1622,6 +1657,7 @@ def search_repetitions(
         "ts.athlete_id, ts.coach_id, ts.competition_id, ts.competition_event_id, ts.event_athlete_id, "
         "ts.saved_at, ts.started_at AS session_started_at, ts.video_source, ts.video_fallback_source, "
         "ts.video_camera_name, ts.source_type, ts.source_ref, "
+        "COALESCE(tvf.status, '') AS video_file_status, COALESCE(tvf.file_path, '') AS video_file_path, "
         "a.name AS athlete_name, COALESCE(c.name, '') AS coach_name, COALESCE(comp.name, '') AS competition_name, "
         "COALESCE(ce.race_name, '') AS race_name, COALESCE(ce.event_name, '') AS event_name, "
         "COALESCE(ce.heat_name, '') AS heat_name, COALESCE(ce.group_name, '') AS group_name, "
@@ -1640,6 +1676,7 @@ def search_repetitions(
         "COALESCE(NULLIF(ar.manual_feedback, ''), ar.feedback, '') AS effective_feedback "
         "FROM action_repetitions ar JOIN training_sessions ts ON ts.id = ar.session_id "
         "JOIN athletes a ON a.id = ts.athlete_id LEFT JOIN athletes ra ON ra.id = ar.athlete_id LEFT JOIN coaches c ON c.id = ts.coach_id "
+        "LEFT JOIN training_video_files tvf ON tvf.id = ar.video_file_id "
         "LEFT JOIN competitions comp ON comp.id = ts.competition_id "
         "LEFT JOIN competition_events ce ON ce.id = ts.competition_event_id "
         "LEFT JOIN event_athletes ea ON ea.id = ts.event_athlete_id "
@@ -1762,7 +1799,12 @@ def manual_repetition(session_id: str,
     payload["sessionId"] = session_id
     payload["actionStandardId"] = payload.get("actionStandardId") or session["action_standard_id"]
     payload["standardVersion"] = payload.get("standardVersion") or session["standard_version"]
-    rep_id = insert_repetition(db, session_id, session["action_standard_id"], payload)
+    video_rows = db.execute(
+        text("SELECT video_index, id::text FROM training_video_files WHERE session_id = :session_id"),
+        {"session_id": session_id},
+    ).mappings()
+    video_file_by_index = {int(row["video_index"]): row["id"] for row in video_rows}
+    rep_id = insert_repetition(db, session_id, session["action_standard_id"], payload, video_file_by_index)
     recalculate_session_summary(db, session_id)
     return {"id": rep_id}
 

@@ -352,6 +352,39 @@ QString videoFileDisplayPath(const TrainingVideoFile &file)
     return QStringLiteral("未记录");
 }
 
+QString compactMilliseconds(int milliseconds)
+{
+    const int safeMs = std::max(0, milliseconds);
+    const int totalSeconds = safeMs / 1000;
+    const int minutes = totalSeconds / 60;
+    const int seconds = totalSeconds % 60;
+    const int millis = safeMs % 1000;
+    return QStringLiteral("%1:%2.%3")
+        .arg(minutes, 2, 10, QLatin1Char('0'))
+        .arg(seconds, 2, 10, QLatin1Char('0'))
+        .arg(millis, 3, 10, QLatin1Char('0'));
+}
+
+QString videoFileTimeRange(const TrainingVideoFile &file)
+{
+    if (file.sessionEndMs <= file.sessionStartMs && file.durationMs <= 0) {
+        return QStringLiteral("时间未索引");
+    }
+    const int endMs = file.sessionEndMs > file.sessionStartMs ? file.sessionEndMs : file.durationMs;
+    return QStringLiteral("%1-%2")
+        .arg(compactMilliseconds(file.sessionStartMs),
+             compactMilliseconds(endMs));
+}
+
+QString videoFileSizeLabel(const TrainingVideoFile &file)
+{
+    if (file.fileSizeBytes < 0) {
+        return QStringLiteral("大小未记录");
+    }
+    const double mb = static_cast<double>(file.fileSizeBytes) / 1024.0 / 1024.0;
+    return QStringLiteral("%1 MB").arg(mb, 0, 'f', 1);
+}
+
 QString videoFilesSummary(const QVector<TrainingVideoFile> &files)
 {
     if (files.isEmpty()) {
@@ -360,12 +393,14 @@ QString videoFilesSummary(const QVector<TrainingVideoFile> &files)
 
     QStringList lines;
     for (const TrainingVideoFile &file : files) {
-        lines << QStringLiteral("#%1 %2 · %3 · %4")
+        lines << QStringLiteral("#%1 %2 · %3 · %4 · %5 · %6")
                      .arg(file.videoIndex)
                      .arg(videoFileStatusLabel(file.status))
                      .arg(file.cameraName.trimmed().isEmpty()
                               ? QStringLiteral("CAM %1").arg(file.camera, 2, 10, QLatin1Char('0'))
                               : file.cameraName.trimmed())
+                     .arg(videoFileTimeRange(file))
+                     .arg(videoFileSizeLabel(file))
                      .arg(videoFileDisplayPath(file));
     }
     return lines.join(QLatin1Char('\n'));
@@ -396,6 +431,39 @@ QString videoFilePaths(const QVector<TrainingVideoFile> &files)
         values << videoFileDisplayPath(file);
     }
     return values.join(QLatin1Char('|'));
+}
+
+QString videoFileRanges(const QVector<TrainingVideoFile> &files)
+{
+    QStringList values;
+    for (const TrainingVideoFile &file : files) {
+        values << videoFileTimeRange(file);
+    }
+    return values.join(QLatin1Char('|'));
+}
+
+QString videoFileSizes(const QVector<TrainingVideoFile> &files)
+{
+    QStringList values;
+    for (const TrainingVideoFile &file : files) {
+        values << (file.fileSizeBytes >= 0 ? QString::number(file.fileSizeBytes) : QString());
+    }
+    return values.join(QLatin1Char('|'));
+}
+
+const TrainingVideoFile *videoFileForRepetition(const SessionHistoryItem &record, const QString &videoFileId, int videoIndex)
+{
+    for (const TrainingVideoFile &file : record.videoFiles) {
+        if (!videoFileId.trimmed().isEmpty() && file.id == videoFileId) {
+            return &file;
+        }
+    }
+    for (const TrainingVideoFile &file : record.videoFiles) {
+        if (videoIndex > 0 && file.videoIndex == videoIndex) {
+            return &file;
+        }
+    }
+    return nullptr;
 }
 
 QString offlineVideoDisplayName(const QString &filePath)
@@ -564,8 +632,9 @@ QString repetitionIdentityLabel(const ActionRepetition &repetition)
 QString repetitionReportLine(const ActionRepetition &repetition, int index, const std::function<QString(int)> &formatMs)
 {
     const QString reviewTag = repetition.hasManualReview() ? QStringLiteral("  复核") : QString();
-    return QStringLiteral("%1. %2-%3  %4分  %5%6  错误：%7  反馈：%8")
+    return QStringLiteral("%1. 视频#%2  %3-%4  %5分  %6%7  错误：%8  反馈：%9")
         .arg(index + 1)
+        .arg(repetition.videoIndex)
         .arg(formatMs(repetition.effectiveStartedMs()))
         .arg(formatMs(repetition.effectiveEndedMs()))
         .arg(repetition.effectiveScore())
@@ -688,6 +757,10 @@ QStringList repetitionExportHeaders()
         QStringLiteral("bib_number"),
         QStringLiteral("lane_number"),
         QStringLiteral("action"),
+        QStringLiteral("video_index"),
+        QStringLiteral("video_file_id"),
+        QStringLiteral("video_file_status"),
+        QStringLiteral("video_file_path"),
         QStringLiteral("clip_start_ms"),
         QStringLiteral("clip_end_ms"),
         QStringLiteral("effective_start_ms"),
@@ -726,6 +799,10 @@ QStringList repetitionExportRow(const RepetitionSearchItem &item)
         item.bibNumber,
         item.laneNumber,
         QStringLiteral("%1/%2").arg(item.actionCategory, item.actionName),
+        QString::number(item.videoIndex),
+        item.videoFileId,
+        item.videoFileStatus,
+        item.videoFilePath,
         QString::number(item.videoClipStartMs),
         QString::number(item.videoClipEndMs),
         QString::number(item.effectiveStartedMsValue),
@@ -3876,7 +3953,7 @@ void MainWindow::openRepetitionSearchDialog()
     buttonRow->addWidget(exportXlsxButton);
     layout->addLayout(buttonRow);
 
-    table->setColumnCount(13);
+    table->setColumnCount(14);
     table->setHorizontalHeaderLabels({QStringLiteral("时间"),
                                       QStringLiteral("运动员"),
                                       QStringLiteral("身份"),
@@ -3884,12 +3961,13 @@ void MainWindow::openRepetitionSearchDialog()
                                       QStringLiteral("机位"),
                                       QStringLiteral("动作"),
                                       QStringLiteral("比赛/场次"),
+                                      QStringLiteral("视频"),
                                       QStringLiteral("片段"),
                                       QStringLiteral("有效分"),
                                       QStringLiteral("有效性"),
                                       QStringLiteral("错误项"),
                                       QStringLiteral("反馈"),
-                                      QStringLiteral("视频")});
+                                      QStringLiteral("视频源")});
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->setAlternatingRowColors(true);
@@ -3941,6 +4019,11 @@ void MainWindow::openRepetitionSearchDialog()
             const QString clip = QStringLiteral("%1-%2")
                                      .arg(formatMilliseconds(item.effectiveStartedMsValue),
                                           formatMilliseconds(item.effectiveEndedMsValue));
+            const QString videoIndex = QStringLiteral("#%1 %2")
+                                           .arg(item.videoIndex)
+                                           .arg(item.videoFileStatus.trimmed().isEmpty()
+                                                    ? QStringLiteral("未登记")
+                                                    : videoFileStatusLabel(item.videoFileStatus));
             const QStringList values = {item.time,
                                         item.athleteName,
                                         identityStatusLabel(item.identityStatus),
@@ -3948,6 +4031,7 @@ void MainWindow::openRepetitionSearchDialog()
                                         item.cameraId >= 0 ? QString::number(item.cameraId) : QStringLiteral("-"),
                                         QStringLiteral("%1/%2").arg(item.actionCategory, item.actionName),
                                         competition,
+                                        videoIndex,
                                         clip,
                                         QString::number(item.effectiveScoreValue),
                                         boolText(item.effectiveValidValue),
@@ -3956,7 +4040,7 @@ void MainWindow::openRepetitionSearchDialog()
                                         displayMediaSource(item.videoSource)};
             for (int col = 0; col < values.size(); ++col) {
                 auto *cell = new QTableWidgetItem(values.at(col));
-                if (col == 8) {
+                if (col == 9) {
                     cell->setTextAlignment(Qt::AlignCenter);
                 }
                 table->setItem(row, col, cell);
@@ -4086,7 +4170,13 @@ void MainWindow::openRepetitionSearchDialog()
         record.videoSource = item.videoSource;
         record.videoFallbackSource = item.videoFallbackSource;
         record.videoCameraName = item.videoCameraName;
-        openSessionVideo(record, item.videoClipStartMs, item.videoClipEndMs);
+        TrainingVideoFile videoFile;
+        videoFile.id = item.videoFileId;
+        videoFile.videoIndex = item.videoIndex;
+        videoFile.status = item.videoFileStatus;
+        videoFile.filePath = item.videoFilePath;
+        record.videoFiles.append(videoFile);
+        openSessionVideo(record, item.videoClipStartMs, item.videoClipEndMs, item.videoFileId, item.videoIndex);
     });
 
     runQuery();
@@ -4229,6 +4319,7 @@ void MainWindow::saveRecord()
     videoPlan.sourceUrl = session.videoSource;
     videoPlan.fallbackUrl = session.videoFallbackSource;
     videoPlan.externalFile = offlineSession;
+    videoPlan.durationSec = session.durationSec;
     session.videoFiles = {buildTrainingVideoFilePlan(videoPlan)};
     if (!competitionEventId.isEmpty()) {
         session.sourceType = QStringLiteral("competition");
@@ -4252,6 +4343,8 @@ void MainWindow::saveRecord()
         repetition.sessionId = session.id;
         repetition.actionStandardId = standard.id;
         repetition.standardVersion = standard.version;
+        repetition.videoFileId = session.videoFiles.isEmpty() ? QString() : session.videoFiles.first().id;
+        repetition.videoIndex = session.videoFiles.isEmpty() ? 1 : session.videoFiles.first().videoIndex;
         repetition.videoClipStartMs = std::max(0, repetition.startedMs - 1500);
         repetition.videoClipEndMs = std::max(repetition.endedMs + 1500, repetition.videoClipStartMs);
         if (repetition.identityStatus.trimmed().isEmpty()) {
@@ -4684,7 +4777,7 @@ void MainWindow::refreshHistory()
                                        || !record.videoSource.trimmed().isEmpty()
                                        || !record.videoFallbackSource.trimmed().isEmpty());
                 connect(clipButton, &QPushButton::clicked, this, [this, record, repetition]() {
-                    openSessionVideo(record, repetition.videoClipStartMs, repetition.videoClipEndMs);
+                    openSessionVideo(record, repetition.videoClipStartMs, repetition.videoClipEndMs, repetition.videoFileId, repetition.videoIndex);
                 });
 
                 rowLayout->addWidget(detailLabel, 1);
@@ -4848,7 +4941,11 @@ void MainWindow::refreshSuggestions()
                       nextTrainingText);
 }
 
-void MainWindow::openSessionVideo(const SessionHistoryItem &record, int offsetMs, int endOffsetMs)
+void MainWindow::openSessionVideo(const SessionHistoryItem &record,
+                                  int offsetMs,
+                                  int endOffsetMs,
+                                  const QString &videoFileId,
+                                  int videoIndex)
 {
     const NvrPlaybackResult nvr = buildNvrPlaybackUrl(m_sharedCameraSettings,
                                                       m_cameraSlotSettings,
@@ -4856,20 +4953,35 @@ void MainWindow::openSessionVideo(const SessionHistoryItem &record, int offsetMs
                                                       offsetMs > 0 ? offsetMs : -1,
                                                       endOffsetMs);
     const bool useNvr = !nvr.url.trimmed().isEmpty();
+    const TrainingVideoFile *indexedVideo = videoFileForRepetition(record, videoFileId, videoIndex);
+    QString indexedLocalFile;
+    if (indexedVideo && !indexedVideo->filePath.trimmed().isEmpty()) {
+        const QFileInfo candidate(indexedVideo->filePath.trimmed());
+        if (candidate.exists() && candidate.isFile()) {
+            indexedLocalFile = candidate.absoluteFilePath();
+        }
+    }
     const QString source = useNvr
                                ? nvr.url.trimmed()
-                               : (!record.videoSource.trimmed().isEmpty()
-                                      ? record.videoSource.trimmed()
-                                      : record.videoFallbackSource.trimmed());
+                               : (!indexedLocalFile.isEmpty()
+                                      ? indexedLocalFile
+                                      : (!record.videoSource.trimmed().isEmpty()
+                                             ? record.videoSource.trimmed()
+                                             : record.videoFallbackSource.trimmed()));
     if (source.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("暂无视频引用"), QStringLiteral("这条训练记录没有保存可回看的视频引用。"));
         return;
     }
 
     const bool sourceIsUrl = hasMediaUrlScheme(source);
+    const QString indexedTitle = indexedVideo && indexedVideo->videoIndex > 0
+                                     ? QStringLiteral("视频 #%1").arg(indexedVideo->videoIndex)
+                                     : QString();
     const QString sourceTitle = record.videoCameraName.trimmed().isEmpty()
                                     ? (sourceIsUrl ? QStringLiteral("训练回看") : offlineVideoDisplayName(source))
-                                    : record.videoCameraName.trimmed();
+                                    : (indexedTitle.isEmpty()
+                                           ? record.videoCameraName.trimmed()
+                                           : QStringLiteral("%1 · %2").arg(record.videoCameraName.trimmed(), indexedTitle));
     ui->mainImageLabel->setPlaceholderText(sourceTitle);
 
     if (!sourceIsUrl) {
@@ -5348,11 +5460,12 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
         if (repetitions.isEmpty()) {
             out << "本次未保存动作实例。\n";
         } else {
-            out << "| # | 来源 | 复核状态 | 时间 | AI原始 | 复核后 | 错误项 | 反馈 | 教练备注 |\n";
-            out << "|---|---|---|---|---|---|---|---|---|\n";
+            out << "| # | 视频 | 来源 | 复核状态 | 时间 | AI原始 | 复核后 | 错误项 | 反馈 | 教练备注 |\n";
+            out << "|---|---|---|---|---|---|---|---|---|---|\n";
             for (int i = 0; i < repetitions.size(); ++i) {
                 const ActionRepetition &rep = repetitions.at(i);
                 out << "| " << (i + 1)
+                    << " | #" << rep.videoIndex
                     << " | " << sourceLabel(rep)
                     << " | " << reviewStatusLabel(rep)
                     << " | " << formatMilliseconds(rep.effectiveStartedMs()) << "-" << formatMilliseconds(rep.effectiveEndedMs())
@@ -5402,7 +5515,11 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
             QStringLiteral("video_file_indexes"),
             QStringLiteral("video_file_statuses"),
             QStringLiteral("video_file_paths"),
+            QStringLiteral("video_file_ranges"),
+            QStringLiteral("video_file_size_bytes"),
             QStringLiteral("rep_index"),
+            QStringLiteral("rep_video_index"),
+            QStringLiteral("rep_video_file_id"),
             QStringLiteral("source"),
             QStringLiteral("review_status"),
             QStringLiteral("ai_start_ms"),
@@ -5466,15 +5583,19 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
                 << csvField(displayMediaSource(record.videoSource))
                 << csvField(videoFileIndexes(record.videoFiles))
                 << csvField(videoFileStatuses(record.videoFiles))
-                << csvField(videoFilePaths(record.videoFiles));
+                << csvField(videoFilePaths(record.videoFiles))
+                << csvField(videoFileRanges(record.videoFiles))
+                << csvField(videoFileSizes(record.videoFiles));
             if (!rep) {
-                for (int i = 0; i < 29; ++i) {
+                for (int i = 0; i < 31; ++i) {
                     row << csvField(QString());
                 }
                 out << row.join(QLatin1Char(',')) << "\n";
                 return;
             }
             row << csvField(QString::number(index + 1))
+                << csvField(QString::number(rep->videoIndex))
+                << csvField(rep->videoFileId)
                 << csvField(sourceLabel(*rep))
                 << csvField(reviewStatusLabel(*rep))
                 << csvField(QString::number(rep->startedMs))
@@ -5580,10 +5701,11 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
         if (repetitions.isEmpty()) {
             out << "<p>本次未保存动作实例。</p>";
         } else {
-            out << "<table><tr><th>#</th><th>来源</th><th>复核</th><th>时间</th><th>AI原始</th><th>复核后</th><th>错误项</th><th>反馈/备注</th></tr>";
+            out << "<table><tr><th>#</th><th>视频</th><th>来源</th><th>复核</th><th>时间</th><th>AI原始</th><th>复核后</th><th>错误项</th><th>反馈/备注</th></tr>";
             for (int i = 0; i < repetitions.size(); ++i) {
                 const ActionRepetition &rep = repetitions.at(i);
                 out << "<tr><td>" << (i + 1) << "</td>"
+                    << "<td>#" << rep.videoIndex << "</td>"
                     << "<td>" << sourceLabel(rep).toHtmlEscaped() << "</td>"
                     << "<td>" << reviewStatusLabel(rep).toHtmlEscaped() << "</td>"
                     << "<td>" << QStringLiteral("%1-%2")

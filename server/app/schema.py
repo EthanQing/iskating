@@ -251,6 +251,13 @@ CREATE TABLE training_video_files (
     file_path text,
     metadata_path text,
     status text NOT NULL DEFAULT 'planned',
+    session_start_ms integer NOT NULL DEFAULT 0,
+    session_end_ms integer NOT NULL DEFAULT 0,
+    duration_ms integer NOT NULL DEFAULT 0,
+    file_size_bytes bigint,
+    file_modified_at timestamptz,
+    checksum_algorithm text,
+    checksum_value text,
     metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
@@ -273,6 +280,8 @@ CREATE TABLE action_repetitions (
     error_codes jsonb,
     feedback text,
     key_frame_ms integer NOT NULL DEFAULT 0,
+    video_file_id uuid REFERENCES training_video_files(id) ON DELETE SET NULL,
+    video_index integer NOT NULL DEFAULT 1,
     video_clip_start_ms integer NOT NULL DEFAULT 0,
     video_clip_end_ms integer NOT NULL DEFAULT 0,
     source text NOT NULL DEFAULT 'ai',
@@ -324,6 +333,7 @@ CREATE INDEX ix_training_session_participants_session ON training_session_partic
 CREATE INDEX ix_training_session_participants_athlete ON training_session_participants(athlete_id);
 CREATE INDEX ix_training_video_files_session ON training_video_files(session_id);
 CREATE INDEX ix_action_repetitions_session ON action_repetitions(session_id);
+CREATE INDEX ix_action_repetitions_video_file ON action_repetitions(video_file_id);
 CREATE INDEX ix_action_repetitions_review ON action_repetitions(review_status);
 CREATE INDEX ix_action_repetitions_participant ON action_repetitions(participant_id);
 CREATE INDEX ix_action_repetitions_athlete ON action_repetitions(athlete_id);

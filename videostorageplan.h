@@ -17,6 +17,7 @@ struct VideoStoragePlanInput
     QString sourceUrl;
     QString fallbackUrl;
     bool externalFile = false;
+    int durationSec = 0;
 };
 
 TrainingVideoFile buildTrainingVideoFilePlan(const VideoStoragePlanInput &input);

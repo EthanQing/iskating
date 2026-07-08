@@ -39,7 +39,7 @@
 - 本地文件回放使用独立 `RtspStream`，不经过 `StreamRegistry` 共享；RTSP/网络源继续走共享低延迟流。
 - `D3DFrame::mediaTimeMs` 保存媒体时间戳，供 UI 查询当前位置、片段定位和逐帧回放使用。
 - 系统设置可配置 `cameraDefaults/nvrPlaybackTemplate`，支持 `{user}`、`{password}`、`{ip}`、`{port}`、`{channel}`、`{start}`、`{end}` 占位符。历史回看和复盘校准会优先按训练开始时间、训练时长和动作片段窗口生成 NVR RTSP 回放 URL；模板不可用时回退到保存的实时主码流/预览码流或离线文件。
-- 保存训练记录时会通过 `videostorageplan.h/.cpp` 登记主视频/主机位的 session 级视频资产。目录默认来自 `QSettings videoStorage/rootDir`，未配置时使用应用本机数据目录下的 `recordings`；当前只生成可反查的规范路径和元数据，不启动 RTSP 录制。
+- 保存训练记录时会通过 `videostorageplan.h/.cpp` 登记主视频/主机位的 session 级视频资产。目录默认来自 `QSettings videoStorage/rootDir`，未配置时使用应用本机数据目录下的 `recordings`；当前只生成可反查的规范路径、时间覆盖范围和元数据，不启动 RTSP 录制。动作实例会通过 `video_file_id/video_index` 关联到该视频资产，历史定位片段时优先使用该索引查找本地文件。
 - 系统设置可导入/导出 JSON 摄像头配置模板，批量交换公共 RTSP 参数、预览/主码流路径、NVR 回放模板、12 路 IP 和场地标定。导入只更新设置表单，点击“保存”后才写入 QSettings 并刷新视频控件。
 - 系统设置可对当前表单中的 12 路 IP 执行一次性连通测试；测试只使用预览路径，优先 UDP、失败后 TCP，不复用 `VideoOpenGLWidget`，不会启动或修改正在播放的小窗，也不会把结果写回配置。
 
@@ -126,7 +126,7 @@
 - ⚠️ 高风险区域：当前没有通用软件解码 fallback。
 - 离线视频仍要求解码器支持 D3D11VA；导入前会校验并提前提示不兼容编码，但历史回看仍依赖实际播放链路。
 - 离线训练记录只保存本地文件引用并登记 `external` 视频资产，不复制视频文件；后续回看依赖原文件仍在本机可访问。
-- RTSP 训练记录会登记 `planned` 视频资产，表示规范化录像路径已生成但本次未实际录制文件。
+- RTSP 训练记录会登记 `planned` 视频资产，表示规范化录像路径和片段索引已生成但本次未实际录制文件。
 - 历史复盘的精确 seek、慢放和逐帧仅对本地离线视频可用；NVR/RTSP 网络回放按模板生成对应时间窗口的 RTSP 源，是否可 seek 取决于 NVR 能力。
 - ⚠️ 高风险区域：D3D11 设备是全局共享的，修改线程/生命周期要谨慎。
 - 不要在日志中直接打印未脱敏 RTSP URL。

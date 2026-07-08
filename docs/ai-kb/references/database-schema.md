@@ -22,6 +22,7 @@
 - `server/app/schema.py`
 - `tools/reset_postgres_schema.py`
 - `tools/import_sqlite_to_postgres.py`
+- `tools/backfill_video_indexes.py`
 - `main.cpp`
 
 ## schema 位置
@@ -31,7 +32,7 @@ QSettings schema 仍分散在读写代码中：
 - `MainWindow::loadCameraSettings()`
 - `MainWindow::persistSystemSettings()`
 摄像头 JSON 模板 schema 位于 `cameraconfigtemplate.cpp`，作为现场导入/导出交换格式；模板导入后仍写回 QSettings，不新增数据库表或字段。
-PostgreSQL schema 在开发期由 `server/app/schema.py` 集中维护，使用 `tools/reset_postgres_schema.py --yes` 对空库/可丢弃开发库执行手动重建。FastAPI 启动时只执行 `seed_defaults()`，不会自动建表或删除表。旧 SQLite 数据通过一次性导入工具导入到已重建的空库，不再由桌面端启动时自动补列或导入。
+PostgreSQL schema 在开发期由 `server/app/schema.py` 集中维护，使用 `tools/reset_postgres_schema.py --yes` 对空库/可丢弃开发库执行手动重建。FastAPI 启动时只执行 `seed_defaults()`，不会自动建表或删除表。旧 SQLite 数据通过一次性导入工具导入到已重建的空库，不再由桌面端启动时自动补列或导入。已有 PostgreSQL 开发库如需保留数据，可用 `tools/backfill_video_indexes.py` 幂等补齐 F-10 视频索引字段和旧记录关联。
 
 ## 主要数据结构
 
@@ -175,6 +176,9 @@ P1 轨迹拼接默认把 12 路相机按 5m 一段初始化为 CAM 01: 0-5m 至 
 - `source_url`, `fallback_url`: 保存时的主视频/回退视频引用。
 - `storage_root`, `relative_dir`, `file_name`, `file_path`, `metadata_path`: 规范化录像根目录、相对目录、文件名、完整文件路径和元数据路径。
 - `status`: `planned`, `external`, `recorded`。当前 RTSP 训练为 `planned`，离线导入为 `external`，`recorded` 预留给后续真实录制。
+- `session_start_ms`, `session_end_ms`, `duration_ms`: 该视频资产覆盖的 session 相对时间范围，当前主视频默认为 `0 ~ durationSec * 1000`。
+- `file_size_bytes`, `file_modified_at`: 离线文件存在时记录文件大小和修改时间；RTSP planned 资产通常为空。
+- `checksum_algorithm`, `checksum_value`: 预留给后续真实录制或异步校验，当前保存训练时不计算大文件哈希。
 - `metadata`: JSONB 元数据，包含 session、运动员、开始时间、机位、视频序号和路径信息。
 
 默认根目录来自 `QSettings videoStorage/rootDir`；未配置时桌面端使用应用本机数据目录下的 `recordings`。当前不会创建真实录像文件。
@@ -222,6 +226,8 @@ P1 轨迹拼接默认把 12 路相机按 5m 一段初始化为 CAM 01: 0-5m 至 
 - `manual_feedback`: 人工反馈。
 - `coach_note`: 动作级教练备注。
 - `key_frame_ms`: 当前动作中最低分或关键错误帧的相对训练时间。
+- `video_file_id`: 可空，关联 `training_video_files.id`，用于定位该动作片段对应的 session 视频资产。
+- `video_index`: session 内视频序号，当前默认 `1`，兼容旧数据和后续多机位/分段扩展。
 - `video_clip_start_ms`: 回看片段起点，当前保存为动作开始前约 1.5 秒；离线视频复盘会用该值请求播放器初始 seek。
 - `video_clip_end_ms`: 回看片段终点，当前保存为动作结束后约 1.5 秒。
 - `key_frame_pose_json`: 关键帧姿态 JSON。旧记录可为空，UI 应禁用姿态叠加但保留复盘能力。
@@ -264,6 +270,12 @@ python tools/reset_postgres_schema.py --yes
 
 ```powershell
 python tools/import_sqlite_to_postgres.py --sqlite "$env:APPDATA/iSkating/iSkating Coach/iskating.db"
+```
+
+已有 PostgreSQL 开发库保留数据并补齐 F-10 视频索引字段：
+
+```powershell
+python tools/backfill_video_indexes.py
 ```
 
 相关文件：

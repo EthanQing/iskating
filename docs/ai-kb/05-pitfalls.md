@@ -46,6 +46,8 @@
 
 `training_video_files` 只是视频资产规范和反查索引。`planned` 状态不代表磁盘上已经有录像文件；当前版本不会从 RTSP 实际录制、分段或复制视频。回放仍依赖 NVR 模板、保存的 RTSP 引用或离线原文件。
 
+F-10 的 `action_repetitions.video_file_id/video_index` 只是把动作片段时间窗口关联到 session 视频资产。它能提升历史定位和报告反查能力，但不保证 planned 文件已经存在，也不让普通 RTSP 实时流获得通用 seek 能力。
+
 相关文件：
 
 - `rtspstream.cpp`

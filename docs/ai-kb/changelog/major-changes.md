@@ -44,3 +44,5 @@
 
 - 完成 F-09 视频存储规范与训练记录关联：新增 `training_video_files`，训练保存时登记主视频/主机位的视频序号、规范目录、文件名、元数据路径和 `planned/external/recorded` 状态。
 - 历史卡片和 Markdown/CSV/PDF 报告展示视频资产信息；当前不从 RTSP 实际录制或复制视频文件，回放仍沿用 NVR、RTSP 引用或离线原文件。
+- 完成 F-10 录像索引入库：`training_video_files` 增加时间覆盖范围、文件大小/修改时间和校验预留字段，`action_repetitions` 通过 `video_file_id/video_index` 关联动作片段到视频资产。
+- 新增 `tools/backfill_video_indexes.py`，用于已有 PostgreSQL 开发库幂等补齐视频索引字段和旧记录关联；报告和动作检索展示视频序号、状态、路径和片段时间。

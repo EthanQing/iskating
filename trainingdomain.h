@@ -212,6 +212,13 @@ struct TrainingVideoFile
     QString filePath;
     QString metadataPath;
     QString status = QStringLiteral("planned");
+    int sessionStartMs = 0;
+    int sessionEndMs = 0;
+    int durationMs = 0;
+    qint64 fileSizeBytes = -1;
+    QDateTime fileModifiedAt;
+    QString checksumAlgorithm;
+    QString checksumValue;
     QString metadataJson;
 };
 
@@ -236,6 +243,8 @@ struct ActionRepetition
     QString errorCodes;
     QString feedback;
     int keyFrameMs = 0;
+    QString videoFileId;
+    int videoIndex = 1;
     int videoClipStartMs = 0;
     int videoClipEndMs = 0;
     QString source = QStringLiteral("ai");
@@ -489,6 +498,8 @@ struct RepetitionSearchItem : ActionRepetition
     QString videoSource;
     QString videoFallbackSource;
     QString videoCameraName;
+    QString videoFileStatus;
+    QString videoFilePath;
     QString sessionSourceType;
     QString sessionSourceRef;
     int effectiveStartedMsValue = 0;
