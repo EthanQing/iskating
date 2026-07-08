@@ -41,6 +41,9 @@ public:
     QVector<SessionHistoryItem> recentSessions(int limit) const;
     QVector<ActionRepetition> repetitionsForSession(const QString &sessionId) const;
     QVector<ActionRepetition> reviewedRepetitionsForSession(const QString &sessionId) const;
+    QVector<VideoFileCleanupCandidate> videoFiles(const QString &status = QString(),
+                                                  bool withLocalPathOnly = false,
+                                                  const QDateTime &modifiedBefore = QDateTime()) const;
     TrainingTrendWindow trendForRecentDays(int days) const;
     TrainingBaseline baselineFor(const QString &athleteId, const QString &actionStandardId) const;
     bool saveCoachComment(const QString &sessionId,
@@ -57,6 +60,9 @@ public:
                             QString *errorMessage = nullptr);
     bool recalculateSessionSummary(const QString &sessionId,
                                    QString *errorMessage = nullptr);
+    bool markVideoFileCleaned(const QString &videoFileId,
+                              const QString &reason,
+                              QString *errorMessage = nullptr);
 
     bool createAthlete(const QString &name, QString *athleteId, QString *errorMessage = nullptr);
     bool createCoach(const QString &name, QString *coachId, QString *errorMessage = nullptr);

@@ -61,9 +61,12 @@
 #include <QScrollArea>
 #include <QShortcut>
 #include <QSpinBox>
+#include <QStandardPaths>
 #include <QStringConverter>
 #include <QStringList>
+#include <QStorageInfo>
 #include <QStyle>
+#include <QSet>
 #include <QTextDocument>
 #include <QTextStream>
 #include <QTime>
@@ -115,6 +118,45 @@ QString cameraSettingsGroup(int cameraIndex)
 QString defaultCameraChannelName(int cameraIndex)
 {
     return QStringLiteral("CAM %1").arg(cameraIndex + 1, 2, 10, QLatin1Char('0'));
+}
+
+QString defaultVideoStorageRoot()
+{
+    const QString appData = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+    if (!appData.trimmed().isEmpty()) {
+        return QDir(appData).absoluteFilePath(QStringLiteral("recordings"));
+    }
+    return QDir::home().absoluteFilePath(QStringLiteral("iSkating/recordings"));
+}
+
+QString normalizedAbsolutePath(const QString &path)
+{
+    return QDir::cleanPath(QFileInfo(path).absoluteFilePath());
+}
+
+bool isPathUnderRoot(const QString &path, const QString &root)
+{
+    const QString normalizedPath = normalizedAbsolutePath(path);
+    QString normalizedRoot = normalizedAbsolutePath(root);
+    while (normalizedRoot.endsWith(QLatin1Char('/')) || normalizedRoot.endsWith(QLatin1Char('\\'))) {
+        normalizedRoot.chop(1);
+    }
+    return normalizedPath == normalizedRoot
+           || normalizedPath.startsWith(normalizedRoot + QLatin1Char('/'), Qt::CaseInsensitive)
+           || normalizedPath.startsWith(normalizedRoot + QLatin1Char('\\'), Qt::CaseInsensitive);
+}
+
+QString storageSizeLabel(qint64 bytes)
+{
+    if (bytes < 0) {
+        return QStringLiteral("未知");
+    }
+    const double gb = static_cast<double>(bytes) / 1024.0 / 1024.0 / 1024.0;
+    if (gb >= 1.0) {
+        return QStringLiteral("%1 GB").arg(gb, 0, 'f', 2);
+    }
+    const double mb = static_cast<double>(bytes) / 1024.0 / 1024.0;
+    return QStringLiteral("%1 MB").arg(mb, 0, 'f', 1);
 }
 
 QString configuredCameraChannelName(int cameraIndex, const QString &ip)
@@ -1864,6 +1906,18 @@ void MainWindow::loadCameraSettings()
     }
     m_capturePreferenceSettings.fps = m_sharedCameraSettings.mainFps;
 
+    settings.beginGroup(QStringLiteral("videoStorage"));
+    m_videoStorageSettings.rootDir = settings.value(QStringLiteral("rootDir")).toString().trimmed();
+    m_videoStorageSettings.capacityLimitGb = settings.value(QStringLiteral("capacityLimitGb"), 50).toInt();
+    m_videoStorageSettings.retentionDays = settings.value(QStringLiteral("retentionDays"), 60).toInt();
+    settings.endGroup();
+    if (m_videoStorageSettings.capacityLimitGb <= 0) {
+        m_videoStorageSettings.capacityLimitGb = 50;
+    }
+    if (m_videoStorageSettings.retentionDays <= 0) {
+        m_videoStorageSettings.retentionDays = 60;
+    }
+
     applyCameraSettingsToWidgets(false);
 }
 
@@ -1912,6 +1966,16 @@ void MainWindow::persistSystemSettings() const
     settings.setValue(QStringLiteral("fps"), m_sharedCameraSettings.mainFps > 0
                                                 ? m_sharedCameraSettings.mainFps
                                                 : kDefaultMainStreamFps);
+    settings.endGroup();
+
+    settings.beginGroup(QStringLiteral("videoStorage"));
+    settings.setValue(QStringLiteral("rootDir"), m_videoStorageSettings.rootDir.trimmed());
+    settings.setValue(QStringLiteral("capacityLimitGb"), m_videoStorageSettings.capacityLimitGb > 0
+                                                            ? m_videoStorageSettings.capacityLimitGb
+                                                            : 50);
+    settings.setValue(QStringLiteral("retentionDays"), m_videoStorageSettings.retentionDays > 0
+                                                          ? m_videoStorageSettings.retentionDays
+                                                          : 60);
     settings.endGroup();
 
     const QString normalizedPort = m_sharedCameraSettings.port.trimmed().isEmpty()
@@ -2163,6 +2227,26 @@ void MainWindow::openSystemSettings()
     dialog.setSharedCameraSettings(m_sharedCameraSettings);
     dialog.setCameraSlotSettings(m_cameraSlotSettings);
     dialog.setCapturePreferenceSettings(m_capturePreferenceSettings);
+    dialog.setVideoStorageSettings(m_videoStorageSettings);
+    dialog.setVideoStorageStatus(videoStorageStatusSummary(m_videoStorageSettings));
+    dialog.setVideoStorageActionsEnabled(m_trainingRepository && m_trainingRepository->isOpen());
+    dialog.onBrowseVideoStorageRoot = [&dialog]() {
+        const QString selected = QFileDialog::getExistingDirectory(&dialog,
+                                                                   QStringLiteral("选择录像根目录"),
+                                                                   dialog.videoStorageSettings().rootDir);
+        if (selected.trimmed().isEmpty()) {
+            return;
+        }
+        VideoStorageSettings settings = dialog.videoStorageSettings();
+        settings.rootDir = QFileInfo(selected).absoluteFilePath();
+        dialog.setVideoStorageSettings(settings);
+    };
+    dialog.onScanVideoStorage = [this, &dialog]() {
+        dialog.setVideoStorageStatus(videoStorageStatusSummary(dialog.videoStorageSettings()));
+    };
+    dialog.onShowVideoCleanupCandidates = [this, &dialog]() {
+        showVideoCleanupCandidates(&dialog);
+    };
 
     if (dialog.exec() != QDialog::Accepted) {
         return;
@@ -2171,10 +2255,240 @@ void MainWindow::openSystemSettings()
     m_sharedCameraSettings = dialog.sharedCameraSettings();
     m_cameraSlotSettings = dialog.cameraSlotSettings();
     m_capturePreferenceSettings = dialog.capturePreferenceSettings();
+    m_videoStorageSettings = dialog.videoStorageSettings();
     m_capturePreferenceSettings.fps = m_sharedCameraSettings.mainFps;
     applyCapturePreferencesToUi();
     applyCameraSettingsToWidgets(true);
     saveCameraSettings();
+}
+
+QString MainWindow::videoStorageRootDir() const
+{
+    const QString configured = m_videoStorageSettings.rootDir.trimmed();
+    return configured.isEmpty() ? defaultVideoStorageRoot() : QFileInfo(configured).absoluteFilePath();
+}
+
+QVector<VideoFileCleanupCandidate> MainWindow::videoCleanupCandidates(const VideoStorageSettings &settings,
+                                                                      qint64 *existingBytes) const
+{
+    if (existingBytes) {
+        *existingBytes = 0;
+    }
+    if (!m_trainingRepository || !m_trainingRepository->isOpen()) {
+        return {};
+    }
+
+    const QString root = settings.rootDir.trimmed().isEmpty()
+                             ? defaultVideoStorageRoot()
+                             : QFileInfo(settings.rootDir.trimmed()).absoluteFilePath();
+    const QVector<VideoFileCleanupCandidate> indexedFiles = m_trainingRepository->videoFiles(QString(), true);
+    QVector<VideoFileCleanupCandidate> existingFiles;
+    existingFiles.reserve(indexedFiles.size());
+    for (VideoFileCleanupCandidate item : indexedFiles) {
+        if (item.filePath.trimmed().isEmpty() || !isPathUnderRoot(item.filePath, root)) {
+            continue;
+        }
+        const QFileInfo fileInfo(item.filePath);
+        if (!fileInfo.exists() || !fileInfo.isFile()) {
+            continue;
+        }
+        item.filePath = fileInfo.absoluteFilePath();
+        item.fileSizeBytes = fileInfo.size();
+        item.fileModifiedAt = fileInfo.lastModified();
+        if (existingBytes) {
+            *existingBytes += item.fileSizeBytes;
+        }
+        existingFiles.append(item);
+    }
+
+    const QDateTime retentionCutoff = QDateTime::currentDateTime().addDays(-std::max(1, settings.retentionDays));
+    QVector<VideoFileCleanupCandidate> candidates;
+    qint64 candidateBytes = 0;
+    for (const VideoFileCleanupCandidate &item : std::as_const(existingFiles)) {
+        const QDateTime modifiedAt = item.fileModifiedAt.isValid() ? item.fileModifiedAt : item.sessionStartedAt;
+        if (modifiedAt.isValid() && modifiedAt < retentionCutoff) {
+            candidates.append(item);
+            candidateBytes += item.fileSizeBytes;
+        }
+    }
+
+    const qint64 capacityBytes = static_cast<qint64>(std::max(1, settings.capacityLimitGb)) * 1024LL * 1024LL * 1024LL;
+    if (existingBytes && *existingBytes > capacityBytes) {
+        QVector<VideoFileCleanupCandidate> sortedFiles = existingFiles;
+        std::sort(sortedFiles.begin(), sortedFiles.end(), [](const VideoFileCleanupCandidate &left,
+                                                             const VideoFileCleanupCandidate &right) {
+            return left.fileModifiedAt < right.fileModifiedAt;
+        });
+        QSet<QString> selectedIds;
+        for (const VideoFileCleanupCandidate &item : std::as_const(candidates)) {
+            selectedIds.insert(item.id);
+        }
+        for (const VideoFileCleanupCandidate &item : std::as_const(sortedFiles)) {
+            if (*existingBytes - candidateBytes <= capacityBytes) {
+                break;
+            }
+            if (selectedIds.contains(item.id)) {
+                continue;
+            }
+            candidates.append(item);
+            selectedIds.insert(item.id);
+            candidateBytes += item.fileSizeBytes;
+        }
+    }
+
+    std::sort(candidates.begin(), candidates.end(), [](const VideoFileCleanupCandidate &left,
+                                                       const VideoFileCleanupCandidate &right) {
+        return left.fileModifiedAt < right.fileModifiedAt;
+    });
+    return candidates;
+}
+
+QString MainWindow::videoStorageStatusSummary(const VideoStorageSettings &settings) const
+{
+    qint64 indexedBytes = 0;
+    const QVector<VideoFileCleanupCandidate> candidates = videoCleanupCandidates(settings, &indexedBytes);
+    const QString root = settings.rootDir.trimmed().isEmpty()
+                             ? defaultVideoStorageRoot()
+                             : QFileInfo(settings.rootDir.trimmed()).absoluteFilePath();
+    QStorageInfo storage(root);
+    const QString diskText = storage.isValid()
+                                 ? QStringLiteral("磁盘可用 %1 / 总计 %2")
+                                       .arg(storageSizeLabel(storage.bytesAvailable()),
+                                            storageSizeLabel(storage.bytesTotal()))
+                                 : QStringLiteral("磁盘容量未知");
+    return QStringLiteral("容量状态：已登记本机文件 %1，清理候选 %2 个；阈值 %3 GB，保留 %4 天；%5。")
+        .arg(storageSizeLabel(indexedBytes))
+        .arg(candidates.size())
+        .arg(settings.capacityLimitGb)
+        .arg(settings.retentionDays)
+        .arg(diskText);
+}
+
+void MainWindow::showVideoCleanupCandidates(SystemSettingsDialog *dialog)
+{
+    if (!dialog || !m_trainingRepository || !m_trainingRepository->isOpen()) {
+        QMessageBox::warning(dialog, QStringLiteral("训练服务不可用"), QStringLiteral("训练服务未连接，无法读取视频资产索引。"));
+        return;
+    }
+
+    const VideoStorageSettings settings = dialog->videoStorageSettings();
+    qint64 existingBytes = 0;
+    const QVector<VideoFileCleanupCandidate> candidates = videoCleanupCandidates(settings, &existingBytes);
+    if (candidates.isEmpty()) {
+        dialog->setVideoStorageStatus(videoStorageStatusSummary(settings));
+        QMessageBox::information(dialog, QStringLiteral("暂无清理候选"), QStringLiteral("当前没有符合保留天数或容量阈值的已登记本机视频文件。"));
+        return;
+    }
+
+    QDialog cleanupDialog(dialog);
+    cleanupDialog.setWindowTitle(QStringLiteral("视频清理候选"));
+    cleanupDialog.resize(980, 520);
+    auto *layout = new QVBoxLayout(&cleanupDialog);
+    auto *tipLabel = new QLabel(QStringLiteral("只会删除勾选的本机视频文件；训练记录、动作片段索引和报告数据会保留。"), &cleanupDialog);
+    tipLabel->setWordWrap(true);
+    layout->addWidget(tipLabel);
+
+    auto *table = new QTableWidget(candidates.size(), 8, &cleanupDialog);
+    table->setHorizontalHeaderLabels({
+        QStringLiteral("删除"),
+        QStringLiteral("训练时间"),
+        QStringLiteral("运动员"),
+        QStringLiteral("状态"),
+        QStringLiteral("视频序号"),
+        QStringLiteral("文件路径"),
+        QStringLiteral("大小"),
+        QStringLiteral("动作片段")
+    });
+    table->horizontalHeader()->setStretchLastSection(true);
+    table->setAlternatingRowColors(true);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    for (int row = 0; row < candidates.size(); ++row) {
+        const VideoFileCleanupCandidate &item = candidates.at(row);
+        auto *checkItem = new QTableWidgetItem();
+        checkItem->setFlags((checkItem->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable);
+        checkItem->setCheckState(Qt::Checked);
+        table->setItem(row, 0, checkItem);
+        table->setItem(row, 1, new QTableWidgetItem(item.sessionStartedAt.isValid()
+                                                        ? item.sessionStartedAt.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))
+                                                        : QStringLiteral("-")));
+        table->setItem(row, 2, new QTableWidgetItem(item.athleteName));
+        table->setItem(row, 3, new QTableWidgetItem(videoFileStatusLabel(item.status)));
+        table->setItem(row, 4, new QTableWidgetItem(QStringLiteral("#%1").arg(item.videoIndex)));
+        table->setItem(row, 5, new QTableWidgetItem(QDir::toNativeSeparators(item.filePath)));
+        table->setItem(row, 6, new QTableWidgetItem(storageSizeLabel(item.fileSizeBytes)));
+        table->setItem(row, 7, new QTableWidgetItem(QString::number(item.actionCount)));
+    }
+    table->resizeColumnsToContents();
+    layout->addWidget(table, 1);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &cleanupDialog);
+    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("删除勾选文件"));
+    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &cleanupDialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &cleanupDialog, &QDialog::reject);
+    if (cleanupDialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    QVector<VideoFileCleanupCandidate> selected;
+    qint64 selectedBytes = 0;
+    for (int row = 0; row < candidates.size(); ++row) {
+        const QTableWidgetItem *checkItem = table->item(row, 0);
+        if (!checkItem || checkItem->checkState() != Qt::Checked) {
+            continue;
+        }
+        selected.append(candidates.at(row));
+        selectedBytes += candidates.at(row).fileSizeBytes;
+    }
+    if (selected.isEmpty()) {
+        return;
+    }
+
+    const int answer = QMessageBox::warning(dialog,
+                                            QStringLiteral("确认删除视频文件"),
+                                            QStringLiteral("将删除 %1 个本机视频文件，合计约 %2。训练记录不会删除。是否继续？")
+                                                .arg(selected.size())
+                                                .arg(storageSizeLabel(selectedBytes)),
+                                            QMessageBox::Yes | QMessageBox::No,
+                                            QMessageBox::No);
+    if (answer != QMessageBox::Yes) {
+        return;
+    }
+
+    int deleted = 0;
+    QStringList failures;
+    for (const VideoFileCleanupCandidate &item : std::as_const(selected)) {
+        const QFileInfo fileInfo(item.filePath);
+        if (!fileInfo.exists() || !fileInfo.isFile()) {
+            continue;
+        }
+        if (!QFile::remove(fileInfo.absoluteFilePath())) {
+            failures << QDir::toNativeSeparators(fileInfo.absoluteFilePath());
+            continue;
+        }
+        QString error;
+        if (!m_trainingRepository->markVideoFileCleaned(item.id, QStringLiteral("manual_cleanup"), &error)) {
+            failures << QStringLiteral("%1（索引标记失败：%2）")
+                            .arg(QDir::toNativeSeparators(fileInfo.absoluteFilePath()), error);
+            continue;
+        }
+        ++deleted;
+    }
+
+    dialog->setVideoStorageStatus(videoStorageStatusSummary(settings));
+    if (!failures.isEmpty()) {
+        QMessageBox::warning(dialog,
+                             QStringLiteral("部分清理失败"),
+                             QStringLiteral("已删除 %1 个文件，以下项目失败：\n%2")
+                                 .arg(deleted)
+                                 .arg(failures.join(QLatin1Char('\n'))));
+    } else {
+        QMessageBox::information(dialog,
+                                 QStringLiteral("清理完成"),
+                                 QStringLiteral("已删除 %1 个本机视频文件，训练记录已保留。").arg(deleted));
+    }
 }
 
 void MainWindow::loadTrainingRecords()
@@ -4952,19 +5266,23 @@ void MainWindow::openSessionVideo(const SessionHistoryItem &record,
                                                       record,
                                                       offsetMs > 0 ? offsetMs : -1,
                                                       endOffsetMs);
-    const bool useNvr = !nvr.url.trimmed().isEmpty();
     const TrainingVideoFile *indexedVideo = videoFileForRepetition(record, videoFileId, videoIndex);
     QString indexedLocalFile;
+    QString indexedMissingFile;
     if (indexedVideo && !indexedVideo->filePath.trimmed().isEmpty()) {
         const QFileInfo candidate(indexedVideo->filePath.trimmed());
         if (candidate.exists() && candidate.isFile()) {
             indexedLocalFile = candidate.absoluteFilePath();
+        } else {
+            indexedMissingFile = candidate.absoluteFilePath();
         }
     }
-    const QString source = useNvr
-                               ? nvr.url.trimmed()
-                               : (!indexedLocalFile.isEmpty()
-                                      ? indexedLocalFile
+    const bool useIndexedLocal = !indexedLocalFile.isEmpty();
+    const bool useNvr = indexedLocalFile.isEmpty() && !nvr.url.trimmed().isEmpty();
+    const QString source = useIndexedLocal
+                               ? indexedLocalFile
+                               : (useNvr
+                                      ? nvr.url.trimmed()
                                       : (!record.videoSource.trimmed().isEmpty()
                                              ? record.videoSource.trimmed()
                                              : record.videoFallbackSource.trimmed()));
@@ -5021,16 +5339,20 @@ void MainWindow::openSessionVideo(const SessionHistoryItem &record,
     switchPage(kCapturePage);
 
     QString offsetTip;
+    if (!indexedMissingFile.isEmpty() && !useIndexedLocal) {
+        offsetTip += QStringLiteral("。索引视频文件已清理或移动，请恢复文件后可精确定位：%1")
+                         .arg(QDir::toNativeSeparators(indexedMissingFile));
+    }
     if (offsetMs > 0) {
         if (useNvr) {
-            offsetTip = QStringLiteral("。已打开 NVR 片段窗口 %1-%2。")
-                            .arg(formatMilliseconds(nvr.startOffsetMs),
-                                 formatMilliseconds(nvr.endOffsetMs));
+            offsetTip += QStringLiteral("。已打开 NVR 片段窗口 %1-%2；RTSP 回放无法保证精确 seek。")
+                             .arg(formatMilliseconds(nvr.startOffsetMs),
+                                  formatMilliseconds(nvr.endOffsetMs));
         } else if (sourceIsUrl) {
-            offsetTip = QStringLiteral("。RTSP/网络视频暂不支持自动定位，已打开视频源；片段起点 %1 可作为人工回看参考。")
-                            .arg(formatMilliseconds(offsetMs));
+            offsetTip += QStringLiteral("。RTSP/网络视频暂不支持自动定位，已打开视频源；片段起点 %1 可作为人工回看参考。")
+                             .arg(formatMilliseconds(offsetMs));
         } else {
-            offsetTip = QStringLiteral("。已请求定位到片段起点 %1。").arg(formatMilliseconds(offsetMs));
+            offsetTip += QStringLiteral("。已请求定位到片段起点 %1。").arg(formatMilliseconds(offsetMs));
         }
     }
     const QString sourceKind = useNvr ? QStringLiteral("NVR 回放") : displayMediaSource(source);

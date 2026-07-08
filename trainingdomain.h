@@ -222,6 +222,21 @@ struct TrainingVideoFile
     QString metadataJson;
 };
 
+struct VideoFileCleanupCandidate
+{
+    QString id;
+    QString sessionId;
+    int videoIndex = 1;
+    QString athleteName;
+    QDateTime sessionStartedAt;
+    QString status;
+    QString filePath;
+    qint64 fileSizeBytes = -1;
+    QDateTime fileModifiedAt;
+    int actionCount = 0;
+    QString metadataJson;
+};
+
 struct ActionRepetition
 {
     QString id;

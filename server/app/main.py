@@ -1106,6 +1106,80 @@ def video_files_for_sessions(db: Session, session_ids: list[str]) -> dict[str, l
     return grouped
 
 
+def video_file_cleanup_row(row: dict[str, Any]) -> dict[str, Any]:
+    item = video_file_row(row)
+    item.update({
+        "athleteName": row.get("athlete_name") or "",
+        "sessionStartedAt": row["session_started_at"].isoformat() if row.get("session_started_at") else "",
+        "actionCount": int(row.get("action_count") or 0),
+    })
+    return item
+
+
+@app.get("/training/video-files")
+def training_video_files(status: str = "",
+                         withLocalPathOnly: bool = False,
+                         modifiedBefore: str = "",
+                         db: Session = Depends(db_session),
+                         _: dict[str, Any] = Depends(require_user)) -> list[dict[str, Any]]:
+    where: list[str] = []
+    args: dict[str, Any] = {}
+    if status.strip():
+        where.append("tvf.status = :status")
+        args["status"] = status.strip()
+    if withLocalPathOnly:
+        where.append("COALESCE(tvf.file_path, '') <> ''")
+    if modifiedBefore.strip():
+        where.append("COALESCE(tvf.file_modified_at, tvf.created_at) <= :modified_before")
+        args["modified_before"] = parse_dt(modifiedBefore)
+    where_sql = "WHERE " + " AND ".join(where) if where else ""
+    rows = db.execute(
+        text(
+            "SELECT tvf.*, ts.started_at AS session_started_at, COALESCE(a.name, '') AS athlete_name, "
+            "COUNT(ar.id) AS action_count "
+            "FROM training_video_files tvf "
+            "JOIN training_sessions ts ON ts.id = tvf.session_id "
+            "JOIN athletes a ON a.id = ts.athlete_id "
+            "LEFT JOIN action_repetitions ar ON ar.video_file_id = tvf.id "
+            f"{where_sql} "
+            "GROUP BY tvf.id, ts.started_at, a.name "
+            "ORDER BY COALESCE(tvf.file_modified_at, tvf.created_at) ASC, tvf.created_at ASC"
+        ),
+        args,
+    ).mappings()
+    return [video_file_cleanup_row(dict(row)) for row in rows]
+
+
+@app.post("/training/video-files/{video_file_id}/cleanup")
+def cleanup_video_file(video_file_id: str,
+                       payload: dict[str, Any] = Body(default={}),
+                       db: Session = Depends(db_session),
+                       _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    row = db.execute(
+        text("SELECT metadata FROM training_video_files WHERE id = :id"),
+        {"id": parse_uuid(video_file_id)},
+    ).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Video file not found")
+    metadata = row["metadata"] or {}
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except json.JSONDecodeError:
+            metadata = {}
+    metadata["cleanupDeletedAt"] = now().isoformat()
+    metadata["cleanupReason"] = payload.get("reason") or "manual_cleanup"
+    metadata["cleanupMissing"] = True
+    db.execute(
+        text(
+            "UPDATE training_video_files SET metadata = CAST(:metadata AS jsonb), updated_at = now() "
+            "WHERE id = :id"
+        ),
+        {"id": parse_uuid(video_file_id), "metadata": json.dumps(metadata, ensure_ascii=False)},
+    )
+    return {"ok": True}
+
+
 def save_training_video_files(db: Session, session_id: str, files: list[dict[str, Any]]) -> dict[int, str]:
     db.execute(text("DELETE FROM training_video_files WHERE session_id = :session_id"), {"session_id": session_id})
     video_file_by_index: dict[int, str] = {}

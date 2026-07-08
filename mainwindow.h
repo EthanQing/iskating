@@ -100,6 +100,11 @@ private:
     void openSystemSettings();
     void persistSystemSettings() const;
     CapturePreferenceSettings capturePreferenceSettingsFromUi() const;
+    QString videoStorageRootDir() const;
+    QString videoStorageStatusSummary(const VideoStorageSettings &settings) const;
+    QVector<VideoFileCleanupCandidate> videoCleanupCandidates(const VideoStorageSettings &settings,
+                                                              qint64 *existingBytes = nullptr) const;
+    void showVideoCleanupCandidates(SystemSettingsDialog *dialog);
 
     void switchPage(int pageIndex);
     void toggleSidebar();
@@ -254,6 +259,7 @@ private:
     SharedCameraSettings m_sharedCameraSettings;
     QVector<CameraSlotSettings> m_cameraSlotSettings;
     CapturePreferenceSettings m_capturePreferenceSettings;
+    VideoStorageSettings m_videoStorageSettings;
 };
 
 #endif // MAINWINDOW_H

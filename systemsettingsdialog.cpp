@@ -16,6 +16,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSpinBox>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QThread>
@@ -255,6 +256,54 @@ SystemSettingsDialog::SystemSettingsDialog(int cameraCount, QWidget *parent)
 
     layout->addLayout(captureForm);
 
+    auto *storageTitle = new QLabel(QStringLiteral("视频存储"), this);
+    layout->addWidget(storageTitle);
+
+    auto *storageTipLabel = new QLabel(QStringLiteral("只管理已登记的视频资产；清理会删除本机文件并保留训练记录。"), this);
+    storageTipLabel->setWordWrap(true);
+    layout->addWidget(storageTipLabel);
+
+    auto *storageForm = new QFormLayout();
+    storageForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    storageForm->setFormAlignment(Qt::AlignTop);
+    storageForm->setHorizontalSpacing(12);
+    storageForm->setVerticalSpacing(10);
+
+    auto *rootLayout = new QHBoxLayout();
+    m_videoStorageRootEdit = new QLineEdit(this);
+    m_videoStorageRootEdit->setClearButtonEnabled(true);
+    m_videoStorageRootEdit->setPlaceholderText(QStringLiteral("默认：应用数据目录/recordings"));
+    auto *browseStorageButton = new QPushButton(QStringLiteral("选择"), this);
+    browseStorageButton->setProperty("role", "secondaryButton");
+    rootLayout->addWidget(m_videoStorageRootEdit, 1);
+    rootLayout->addWidget(browseStorageButton);
+    storageForm->addRow(QStringLiteral("录像根目录"), rootLayout);
+
+    m_videoStorageCapacitySpinBox = new QSpinBox(this);
+    m_videoStorageCapacitySpinBox->setRange(1, 10240);
+    m_videoStorageCapacitySpinBox->setSuffix(QStringLiteral(" GB"));
+    storageForm->addRow(QStringLiteral("容量阈值"), m_videoStorageCapacitySpinBox);
+
+    m_videoStorageRetentionSpinBox = new QSpinBox(this);
+    m_videoStorageRetentionSpinBox->setRange(1, 3650);
+    m_videoStorageRetentionSpinBox->setSuffix(QStringLiteral(" 天"));
+    storageForm->addRow(QStringLiteral("保留天数"), m_videoStorageRetentionSpinBox);
+
+    layout->addLayout(storageForm);
+
+    auto *storageActionLayout = new QHBoxLayout();
+    m_videoStorageStatusLabel = new QLabel(QStringLiteral("容量状态：未扫描"), this);
+    m_videoStorageStatusLabel->setWordWrap(true);
+    m_videoStorageStatusLabel->setProperty("role", "muted");
+    m_videoStorageScanButton = new QPushButton(QStringLiteral("扫描容量"), this);
+    m_videoStorageCleanupButton = new QPushButton(QStringLiteral("清理候选"), this);
+    m_videoStorageScanButton->setProperty("role", "secondaryButton");
+    m_videoStorageCleanupButton->setProperty("role", "secondaryButton");
+    storageActionLayout->addWidget(m_videoStorageStatusLabel, 1);
+    storageActionLayout->addWidget(m_videoStorageScanButton);
+    storageActionLayout->addWidget(m_videoStorageCleanupButton);
+    layout->addLayout(storageActionLayout);
+
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("保存"));
     buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
@@ -274,6 +323,21 @@ SystemSettingsDialog::SystemSettingsDialog(int cameraCount, QWidget *parent)
     });
     connect(m_connectivityTestButton, &QPushButton::clicked, this, [this]() {
         testCameraConnectivity();
+    });
+    connect(browseStorageButton, &QPushButton::clicked, this, [this]() {
+        if (onBrowseVideoStorageRoot) {
+            onBrowseVideoStorageRoot();
+        }
+    });
+    connect(m_videoStorageScanButton, &QPushButton::clicked, this, [this]() {
+        if (onScanVideoStorage) {
+            onScanVideoStorage();
+        }
+    });
+    connect(m_videoStorageCleanupButton, &QPushButton::clicked, this, [this]() {
+        if (onShowVideoCleanupCandidates) {
+            onShowVideoCleanupCandidates();
+        }
     });
     connect(m_mainFpsComboBox,
             &QComboBox::currentIndexChanged,
@@ -460,6 +524,53 @@ CapturePreferenceSettings SystemSettingsDialog::capturePreferenceSettings() cons
     return settings;
 }
 
+void SystemSettingsDialog::setVideoStorageSettings(const VideoStorageSettings &settings)
+{
+    if (m_videoStorageRootEdit) {
+        m_videoStorageRootEdit->setText(settings.rootDir.trimmed());
+    }
+    if (m_videoStorageCapacitySpinBox) {
+        m_videoStorageCapacitySpinBox->setValue(settings.capacityLimitGb > 0 ? settings.capacityLimitGb : 50);
+    }
+    if (m_videoStorageRetentionSpinBox) {
+        m_videoStorageRetentionSpinBox->setValue(settings.retentionDays > 0 ? settings.retentionDays : 60);
+    }
+}
+
+VideoStorageSettings SystemSettingsDialog::videoStorageSettings() const
+{
+    VideoStorageSettings settings;
+    settings.rootDir = m_videoStorageRootEdit ? m_videoStorageRootEdit->text().trimmed() : QString();
+    settings.capacityLimitGb = m_videoStorageCapacitySpinBox ? m_videoStorageCapacitySpinBox->value() : 50;
+    settings.retentionDays = m_videoStorageRetentionSpinBox ? m_videoStorageRetentionSpinBox->value() : 60;
+    if (settings.capacityLimitGb <= 0) {
+        settings.capacityLimitGb = 50;
+    }
+    if (settings.retentionDays <= 0) {
+        settings.retentionDays = 60;
+    }
+    return settings;
+}
+
+void SystemSettingsDialog::setVideoStorageStatus(const QString &status)
+{
+    if (m_videoStorageStatusLabel) {
+        m_videoStorageStatusLabel->setText(status.trimmed().isEmpty()
+                                               ? QStringLiteral("容量状态：未扫描")
+                                               : status.trimmed());
+    }
+}
+
+void SystemSettingsDialog::setVideoStorageActionsEnabled(bool enabled)
+{
+    if (m_videoStorageScanButton) {
+        m_videoStorageScanButton->setEnabled(enabled);
+    }
+    if (m_videoStorageCleanupButton) {
+        m_videoStorageCleanupButton->setEnabled(enabled);
+    }
+}
+
 bool SystemSettingsDialog::validateAndAccept()
 {
     bool hasConfiguredCamera = false;
@@ -534,6 +645,23 @@ bool SystemSettingsDialog::validateAndAccept()
             return false;
         }
         m_nvrPlaybackTemplateEdit->setText(templ);
+    }
+    if (m_videoStorageCapacitySpinBox && m_videoStorageCapacitySpinBox->value() <= 0) {
+        QMessageBox::warning(this,
+                             QStringLiteral("容量阈值无效"),
+                             QStringLiteral("视频存储容量阈值必须大于 0。"));
+        m_videoStorageCapacitySpinBox->setFocus();
+        return false;
+    }
+    if (m_videoStorageRetentionSpinBox && m_videoStorageRetentionSpinBox->value() <= 0) {
+        QMessageBox::warning(this,
+                             QStringLiteral("保留天数无效"),
+                             QStringLiteral("视频保留天数必须大于 0。"));
+        m_videoStorageRetentionSpinBox->setFocus();
+        return false;
+    }
+    if (m_videoStorageRootEdit) {
+        m_videoStorageRootEdit->setText(m_videoStorageRootEdit->text().trimmed());
     }
     return true;
 }

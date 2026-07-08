@@ -41,6 +41,8 @@ private:
     void loadMainVideo(int offsetMs = 0);
     void loadReferenceVideo();
     ActionRepetition formRepetition() const;
+    const TrainingVideoFile *videoFileForRepetition(const ActionRepetition &repetition) const;
+    QString localVideoFileForRepetition(const ActionRepetition &repetition) const;
     QString videoSource() const;
     bool videoSourceIsUrl() const;
     bool hasLocalVideo() const;
@@ -50,6 +52,8 @@ private:
     TrainingRepository *m_repository = nullptr;
     QVector<ActionRepetition> m_repetitions;
     int m_currentRow = -1;
+    QString m_loadedMainVideoSource;
+    bool m_loadedMainVideoIsLocal = false;
 
     VideoOpenGLWidget *m_mainVideo = nullptr;
     VideoOpenGLWidget *m_referenceVideo = nullptr;

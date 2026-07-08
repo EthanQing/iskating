@@ -3,6 +3,7 @@
 
 #include "framelessdialog.h"
 
+#include <functional>
 #include <QString>
 #include <QVector>
 
@@ -39,10 +40,18 @@ struct CapturePreferenceSettings
     int fps = 120;
 };
 
+struct VideoStorageSettings
+{
+    QString rootDir;
+    int capacityLimitGb = 50;
+    int retentionDays = 60;
+};
+
 class QComboBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
+class QSpinBox;
 class QTableWidget;
 
 class SystemSettingsDialog : public FramelessDialog
@@ -58,6 +67,15 @@ public:
 
     void setCapturePreferenceSettings(const CapturePreferenceSettings &settings);
     CapturePreferenceSettings capturePreferenceSettings() const;
+
+    void setVideoStorageSettings(const VideoStorageSettings &settings);
+    VideoStorageSettings videoStorageSettings() const;
+    void setVideoStorageStatus(const QString &status);
+    void setVideoStorageActionsEnabled(bool enabled);
+
+    std::function<void()> onBrowseVideoStorageRoot;
+    std::function<void()> onScanVideoStorage;
+    std::function<void()> onShowVideoCleanupCandidates;
 
 private:
     bool validateAndAccept();
@@ -76,6 +94,12 @@ private:
     QLineEdit *m_nvrPlaybackTemplateEdit = nullptr;
     QComboBox *m_precisionComboBox = nullptr;
     QComboBox *m_fpsComboBox = nullptr;
+    QLineEdit *m_videoStorageRootEdit = nullptr;
+    QSpinBox *m_videoStorageCapacitySpinBox = nullptr;
+    QSpinBox *m_videoStorageRetentionSpinBox = nullptr;
+    QLabel *m_videoStorageStatusLabel = nullptr;
+    QPushButton *m_videoStorageScanButton = nullptr;
+    QPushButton *m_videoStorageCleanupButton = nullptr;
     QPushButton *m_connectivityTestButton = nullptr;
     QVector<QLineEdit *> m_ipEdits;
     QTableWidget *m_cameraFieldTable = nullptr;

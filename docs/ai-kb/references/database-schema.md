@@ -57,6 +57,8 @@ PostgreSQL schema 在开发期由 `server/app/schema.py` 集中维护，使用 `
 ### `videoStorage`
 
 - `rootDir`: session 级视频资产的默认根目录；未配置时使用应用本机数据目录下的 `recordings`。
+- `capacityLimitGb`: 系统设置中的本机视频存储容量阈值，默认 50。
+- `retentionDays`: 系统设置中的视频保留天数，默认 60。
 
 ### `cameras/cameraXX`
 
@@ -183,6 +185,8 @@ P1 轨迹拼接默认把 12 路相机按 5m 一段初始化为 CAM 01: 0-5m 至 
 
 默认根目录来自 `QSettings videoStorage/rootDir`；未配置时桌面端使用应用本机数据目录下的 `recordings`。当前不会创建真实录像文件。
 
+系统设置清理本机文件后不扩展 `status` 枚举，而是在 `metadata` 中写入 `cleanupDeletedAt`、`cleanupReason` 和 `cleanupMissing=true`。训练记录、动作实例和视频资产行保留，历史回看负责提示本地文件已清理或移动并回退 NVR/RTSP。
+
 #### `training_session_participants`
 
 保存单次训练的参与运动员，最多 4 名：
@@ -292,7 +296,7 @@ FastAPI `seed_defaults()` 内置默认管理员、默认运动员、默认教练
 
 ## 查询入口
 
-训练历史通过 `TrainingRepository::searchSessions(filters, page, sort)` 查询，支持运动员、教练、比赛、场次、参赛关系、分析来源、动作标准、保存时间、平均分区间和比赛关键词组合检索，并返回总数和当前页结果；运动员筛选会匹配 session 主运动员和 `training_session_participants`。比赛关键词匹配 `competitions.name/location/competition_type/notes`、`competition_events.race_name/event_name/heat_name/group_name/notes`、`event_athletes.bib_number/lane_number/notes`、`training_sessions.source_type/source_ref` 以及 `training_sessions.site/training_phase/goal/notes/feedback/coach_comment`。`recentSessions(limit)` 仍保留为兼容入口，内部调用默认查询。跨 session 动作实例通过 `searchRepetitions(filters, page)` 联查 `training_sessions` 和 `action_repetitions`，支持按 session、人员、比赛/场次、动作、来源、有效性、复核状态、分数区间、训练时间、片段时间和错误项关键词查询；人员筛选优先匹配动作级 `action_repetitions.athlete_id`，旧记录没有动作级身份时回退到 session 主运动员；有效性、分数、错误项和反馈默认使用人工优先值。单 session 动作明细通过 `repetitionsForSession()` / `reviewedRepetitionsForSession()` 查询；人员档案通过 `athletes()`、`coaches()`、`athleteIdsForCoach()` 查询；比赛基础信息通过 `competitions()`、`saveCompetition()`、`archiveCompetition()` 查询和维护；比赛场次通过 `competitionEvents()`、`saveCompetitionEvent()`、`archiveCompetitionEvent()` 查询和维护；参赛关系通过 `eventAthletes()`、`saveEventAthlete()`、`archiveEventAthlete()` 查询和维护；最近 7/30 天趋势通过 `trendForRecentDays()` 聚合 `training_sessions` 和 `action_repetitions` 查询；教练批注通过 `saveCoachComment()` 更新；个体基线通过 `baselineFor()` 查询。
+训练历史通过 `TrainingRepository::searchSessions(filters, page, sort)` 查询，支持运动员、教练、比赛、场次、参赛关系、分析来源、动作标准、保存时间、平均分区间和比赛关键词组合检索，并返回总数和当前页结果；运动员筛选会匹配 session 主运动员和 `training_session_participants`。比赛关键词匹配 `competitions.name/location/competition_type/notes`、`competition_events.race_name/event_name/heat_name/group_name/notes`、`event_athletes.bib_number/lane_number/notes`、`training_sessions.source_type/source_ref` 以及 `training_sessions.site/training_phase/goal/notes/feedback/coach_comment`。`recentSessions(limit)` 仍保留为兼容入口，内部调用默认查询。跨 session 动作实例通过 `searchRepetitions(filters, page)` 联查 `training_sessions` 和 `action_repetitions`，支持按 session、人员、比赛/场次、动作、来源、有效性、复核状态、分数区间、训练时间、片段时间和错误项关键词查询；人员筛选优先匹配动作级 `action_repetitions.athlete_id`，旧记录没有动作级身份时回退到 session 主运动员；有效性、分数、错误项和反馈默认使用人工优先值。单 session 动作明细通过 `repetitionsForSession()` / `reviewedRepetitionsForSession()` 查询；视频资产清理候选通过 `GET /training/video-files` 查询，支持 `status`、`withLocalPathOnly` 和 `modifiedBefore` 过滤并返回 session、运动员、文件大小/修改时间和动作引用数量；本机文件删除后通过 `POST /training/video-files/{id}/cleanup` 只更新 metadata。人员档案通过 `athletes()`、`coaches()`、`athleteIdsForCoach()` 查询；比赛基础信息通过 `competitions()`、`saveCompetition()`、`archiveCompetition()` 查询和维护；比赛场次通过 `competitionEvents()`、`saveCompetitionEvent()`、`archiveCompetitionEvent()` 查询和维护；参赛关系通过 `eventAthletes()`、`saveEventAthlete()`、`archiveEventAthlete()` 查询和维护；最近 7/30 天趋势通过 `trendForRecentDays()` 聚合 `training_sessions` 和 `action_repetitions` 查询；教练批注通过 `saveCoachComment()` 更新；个体基线通过 `baselineFor()` 查询。
 
 人员管理写入口：
 

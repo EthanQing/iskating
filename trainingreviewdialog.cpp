@@ -192,8 +192,8 @@ TrainingReviewDialog::TrainingReviewDialog(const SessionHistoryItem &record,
     setWindowTitle(QStringLiteral("训练复盘校准"));
     resize(1180, 780);
     buildUi();
-    loadRepetitions();
     loadMainVideo();
+    loadRepetitions();
     loadReferenceVideo();
 }
 
@@ -443,25 +443,59 @@ void TrainingReviewDialog::seekToRepetition(const ActionRepetition &repetition, 
     const int target = keyFrame && repetition.keyFrameMs > 0
                            ? repetition.keyFrameMs
                            : repetition.videoClipStartMs;
-    if (m_mainVideo->isSeekable()) {
-        m_mainVideo->seekTo(std::max(0, target));
-    } else if (hasLocalVideo()) {
-        loadMainVideo(std::max(0, target));
-    } else {
-        const NvrPlaybackResult nvr = buildNvrPlaybackUrl(loadSharedCameraSettings(),
-                                                          loadCameraSlotSettings(12),
-                                                          m_record,
-                                                          std::max(0, target),
-                                                          repetition.videoClipEndMs);
-        if (!nvr.url.trimmed().isEmpty()) {
-            m_mainVideo->playMainUrlWithFallback(nvr.url.trimmed(), m_record.videoFallbackSource);
-            m_statusLabel->setText(QStringLiteral("已打开 NVR 片段窗口：%1-%2。")
-                                       .arg(formatMilliseconds(nvr.startOffsetMs),
-                                            formatMilliseconds(nvr.endOffsetMs)));
+    const int startMs = std::max(0, target);
+    const QString indexedLocalFile = localVideoFileForRepetition(repetition);
+    if (!indexedLocalFile.isEmpty()) {
+        if (m_loadedMainVideoSource != indexedLocalFile || !m_loadedMainVideoIsLocal) {
+            m_mainVideo->playFile(indexedLocalFile, startMs);
+            m_loadedMainVideoSource = indexedLocalFile;
+            m_loadedMainVideoIsLocal = true;
+        } else if (m_mainVideo->isSeekable()) {
+            m_mainVideo->seekTo(startMs);
         } else {
-            m_statusLabel->setText(QStringLiteral("RTSP/网络记录无法精确定位，片段起点：%1。")
-                                       .arg(formatMilliseconds(target)));
+            m_mainVideo->playFile(indexedLocalFile, startMs);
         }
+        m_statusLabel->setText(QStringLiteral("已按视频 #%1 精确定位到片段起点：%2。")
+                                   .arg(repetition.videoIndex)
+                                   .arg(formatMilliseconds(startMs)));
+        if (m_overlayCheckBox->isChecked()) {
+            applyPoseOverlay(repetition);
+        }
+        return;
+    }
+
+    const TrainingVideoFile *indexedVideo = videoFileForRepetition(repetition);
+    QString missingHint;
+    if (indexedVideo && !indexedVideo->filePath.trimmed().isEmpty()) {
+        missingHint = QStringLiteral("索引视频文件已清理或移动，请恢复文件后可精确定位；");
+    }
+
+    const NvrPlaybackResult nvr = buildNvrPlaybackUrl(loadSharedCameraSettings(),
+                                                      loadCameraSlotSettings(12),
+                                                      m_record,
+                                                      startMs,
+                                                      repetition.videoClipEndMs);
+    if (!nvr.url.trimmed().isEmpty()) {
+        m_mainVideo->playMainUrlWithFallback(nvr.url.trimmed(), m_record.videoFallbackSource);
+        m_loadedMainVideoSource = nvr.url.trimmed();
+        m_loadedMainVideoIsLocal = false;
+        m_statusLabel->setText(QStringLiteral("%1已打开 NVR 片段窗口：%2-%3；RTSP 回放无法保证精确 seek。")
+                                   .arg(missingHint,
+                                        formatMilliseconds(nvr.startOffsetMs),
+                                        formatMilliseconds(nvr.endOffsetMs)));
+    } else if (hasLocalVideo()) {
+        loadMainVideo(startMs);
+        m_statusLabel->setText(QStringLiteral("%1已按本地视频定位到片段起点：%2。")
+                                   .arg(missingHint, formatMilliseconds(startMs)));
+    } else {
+        const QString source = videoSource();
+        if (!source.trimmed().isEmpty()) {
+            m_mainVideo->playMainUrlWithFallback(source, m_record.videoFallbackSource);
+            m_loadedMainVideoSource = source;
+            m_loadedMainVideoIsLocal = false;
+        }
+        m_statusLabel->setText(QStringLiteral("%1RTSP/网络记录无法精确定位，仅显示片段起点时间：%2。")
+                                   .arg(missingHint, formatMilliseconds(startMs)));
     }
     if (m_overlayCheckBox->isChecked()) {
         applyPoseOverlay(repetition);
@@ -569,6 +603,8 @@ void TrainingReviewDialog::loadMainVideo(int offsetMs)
     }
     if (videoSourceIsUrl()) {
         m_mainVideo->playMainUrlWithFallback(source, m_record.videoFallbackSource);
+        m_loadedMainVideoSource = source;
+        m_loadedMainVideoIsLocal = false;
     } else {
         const QFileInfo fileInfo(source);
         if (!fileInfo.exists() || !fileInfo.isFile()) {
@@ -576,6 +612,8 @@ void TrainingReviewDialog::loadMainVideo(int offsetMs)
             return;
         }
         m_mainVideo->playFile(fileInfo.absoluteFilePath(), offsetMs);
+        m_loadedMainVideoSource = fileInfo.absoluteFilePath();
+        m_loadedMainVideoIsLocal = true;
     }
 }
 
@@ -619,16 +657,54 @@ ActionRepetition TrainingReviewDialog::formRepetition() const
     rep.manualFeedback = m_feedbackEdit->toPlainText().trimmed();
     rep.coachNote = m_noteEdit->toPlainText().trimmed();
     rep.keyFrameMs = rep.manualStartedMs;
+    rep.videoClipStartMs = std::max(0, rep.manualStartedMs - 1500);
+    rep.videoClipEndMs = rep.manualEndedMs + 1500;
+    if (m_currentRow >= 0 && m_currentRow < m_repetitions.size()) {
+        const ActionRepetition &current = m_repetitions.at(m_currentRow);
+        rep.videoFileId = current.videoFileId;
+        rep.videoIndex = current.videoIndex > 0 ? current.videoIndex : 1;
+    } else if (!m_record.videoFiles.isEmpty()) {
+        rep.videoFileId = m_record.videoFiles.first().id;
+        rep.videoIndex = m_record.videoFiles.first().videoIndex > 0 ? m_record.videoFiles.first().videoIndex : 1;
+    }
     return rep;
+}
+
+const TrainingVideoFile *TrainingReviewDialog::videoFileForRepetition(const ActionRepetition &repetition) const
+{
+    for (const TrainingVideoFile &file : m_record.videoFiles) {
+        if (!repetition.videoFileId.trimmed().isEmpty() && file.id == repetition.videoFileId) {
+            return &file;
+        }
+    }
+    for (const TrainingVideoFile &file : m_record.videoFiles) {
+        if (repetition.videoIndex > 0 && file.videoIndex == repetition.videoIndex) {
+            return &file;
+        }
+    }
+    return nullptr;
+}
+
+QString TrainingReviewDialog::localVideoFileForRepetition(const ActionRepetition &repetition) const
+{
+    const TrainingVideoFile *file = videoFileForRepetition(repetition);
+    if (!file || file->filePath.trimmed().isEmpty()) {
+        return {};
+    }
+    const QFileInfo fileInfo(file->filePath.trimmed());
+    return fileInfo.exists() && fileInfo.isFile() ? fileInfo.absoluteFilePath() : QString();
 }
 
 QString TrainingReviewDialog::videoSource() const
 {
-    const NvrPlaybackResult nvr = buildNvrPlaybackUrl(loadSharedCameraSettings(),
-                                                      loadCameraSlotSettings(12),
-                                                      m_record);
-    if (!nvr.url.trimmed().isEmpty()) {
-        return nvr.url.trimmed();
+    for (const TrainingVideoFile &file : m_record.videoFiles) {
+        if (file.filePath.trimmed().isEmpty()) {
+            continue;
+        }
+        const QFileInfo fileInfo(file.filePath.trimmed());
+        if (fileInfo.exists() && fileInfo.isFile()) {
+            return fileInfo.absoluteFilePath();
+        }
     }
     return !m_record.videoSource.trimmed().isEmpty()
                ? m_record.videoSource.trimmed()

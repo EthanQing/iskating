@@ -575,6 +575,28 @@ TrainingVideoFile videoFileFromJson(const QJsonObject &object)
     return file;
 }
 
+VideoFileCleanupCandidate cleanupCandidateFromJson(const QJsonObject &object)
+{
+    VideoFileCleanupCandidate item;
+    item.id = jsonString(object, QStringLiteral("id"));
+    item.sessionId = jsonString(object, QStringLiteral("sessionId"));
+    item.videoIndex = jsonInt(object, QStringLiteral("videoIndex"), 1);
+    item.athleteName = jsonString(object, QStringLiteral("athleteName"));
+    item.sessionStartedAt = dateTimeFromJson(object.value(QStringLiteral("sessionStartedAt")));
+    item.status = jsonString(object, QStringLiteral("status"));
+    item.filePath = jsonString(object, QStringLiteral("filePath"));
+    item.fileSizeBytes = jsonInt64(object, QStringLiteral("fileSizeBytes"), -1);
+    item.fileModifiedAt = dateTimeFromJson(object.value(QStringLiteral("fileModifiedAt")));
+    item.actionCount = jsonInt(object, QStringLiteral("actionCount"));
+    const QJsonValue metadata = object.value(QStringLiteral("metadata"));
+    if (metadata.isObject()) {
+        item.metadataJson = QString::fromUtf8(QJsonDocument(metadata.toObject()).toJson(QJsonDocument::Compact));
+    } else {
+        item.metadataJson = jsonString(object, QStringLiteral("metadata"));
+    }
+    return item;
+}
+
 RepetitionSearchItem repetitionSearchItemFromJson(const QJsonObject &object)
 {
     RepetitionSearchItem item;
@@ -1213,6 +1235,30 @@ QVector<ActionRepetition> TrainingRepository::reviewedRepetitionsForSession(cons
     return repetitionsForSession(sessionId);
 }
 
+QVector<VideoFileCleanupCandidate> TrainingRepository::videoFiles(const QString &status,
+                                                                  bool withLocalPathOnly,
+                                                                  const QDateTime &modifiedBefore) const
+{
+    QVector<VideoFileCleanupCandidate> result;
+    QVariantMap query{
+        {QStringLiteral("status"), status},
+        {QStringLiteral("withLocalPathOnly"), withLocalPathOnly ? QStringLiteral("true") : QStringLiteral("false")}
+    };
+    if (modifiedBefore.isValid()) {
+        query.insert(QStringLiteral("modifiedBefore"), dateTimeToIso(modifiedBefore));
+    }
+
+    bool ok = false;
+    const QJsonArray array = requestArray(QStringLiteral("/training/video-files"), query, &ok, nullptr);
+    if (!ok) {
+        return result;
+    }
+    for (const QJsonValue &value : array) {
+        result.append(cleanupCandidateFromJson(value.toObject()));
+    }
+    return result;
+}
+
 TrainingTrendWindow TrainingRepository::trendForRecentDays(int days) const
 {
     TrainingTrendWindow trend;
@@ -1341,6 +1387,20 @@ bool TrainingRepository::recalculateSessionSummary(const QString &sessionId, QSt
     Q_UNUSED(sessionId)
     Q_UNUSED(errorMessage)
     return true;
+}
+
+bool TrainingRepository::markVideoFileCleaned(const QString &videoFileId,
+                                              const QString &reason,
+                                              QString *errorMessage)
+{
+    bool ok = false;
+    requestObject(QStringLiteral("POST"),
+                  QStringLiteral("/training/video-files/%1/cleanup").arg(videoFileId),
+                  {{QStringLiteral("reason"), reason}},
+                  {},
+                  &ok,
+                  errorMessage);
+    return ok;
 }
 
 bool TrainingRepository::createAthlete(const QString &name, QString *athleteId, QString *errorMessage)

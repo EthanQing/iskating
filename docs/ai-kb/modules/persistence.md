@@ -41,12 +41,14 @@
 - `capture/modelPrecision`
 - `capture/fps`
 - `videoStorage/rootDir`
+- `videoStorage/capacityLimitGb`
+- `videoStorage/retentionDays`
 - `cameras/camera01` 到 `cameras/camera12`
 - `trainingHistory` 数组
 
 系统设置支持把当前摄像头配置导出为 JSON 模板，也支持从 JSON 模板导入并预览摘要后覆盖设置对话框表单。模板只是现场批量配置交换格式，不替代 QSettings；用户点击“保存”后仍由 `persistSystemSettings()` 写入上述 key。
 
-`videoStorage/rootDir` 当前没有系统设置 UI 入口，可由外部写入 QSettings；未配置时桌面端使用 `QStandardPaths::AppLocalDataLocation/recordings` 作为视频资产默认根目录。
+系统设置的“视频存储”区域会读写 `videoStorage/rootDir`、`capacityLimitGb` 和 `retentionDays`。未配置根目录时桌面端使用 `QStandardPaths::AppLocalDataLocation/recordings` 作为视频资产默认根目录；容量阈值默认 50GB，保留天数默认 60 天。
 
 `trainingHistory` 仅作为旧数据兼容来源。新版本启动时不会自动导入本机 SQLite；需要时先使用 `tools/reset_postgres_schema.py --yes` 重建空库 schema，再用 `tools/import_sqlite_to_postgres.py` 将旧 `%APPDATA%/iSkating/iSkating Coach/iskating.db` 导入 PostgreSQL。
 
@@ -104,6 +106,8 @@ PostgreSQL 主要表：
 
 `searchRepetitions(filters, page)` 是跨 session 动作实例检索入口，通过 `training_sessions` 与 `action_repetitions` 联查，支持按 session、人员、比赛/场次、动作、来源、有效性、复核状态、分数区间、训练时间、动作片段时间和错误项关键词检索。人员筛选优先匹配动作级 `action_repetitions.athlete_id`，旧记录没有动作级身份时回退到 session 主运动员。筛选和展示默认使用“人工优先”的有效值；历史页动作明细检索对话框可将当前筛选结果导出为 CSV 或 XLSX。
 
+`videoFiles(status, withLocalPathOnly, modifiedBefore)` 查询 `training_video_files` 并联查 session、运动员和动作引用数量，供系统设置生成本机视频清理候选列表。桌面端只会把“已登记、路径在配置根目录下、文件实际存在”的视频列为可删除候选；删除本机文件后调用 `markVideoFileCleaned(videoFileId, reason)` 在视频资产 metadata 写入 `cleanupDeletedAt/cleanupReason/cleanupMissing`，不删除训练记录、动作实例或视频资产行，也不扩展 `status` 枚举。
+
 `trendForRecentDays(days)` 用 `training_sessions.saved_at` 做最近 N 天窗口统计，返回训练次数、session 均分、最佳分和动作完成数；动作完成数优先来自 `action_repetitions` 数量，旧记录没有动作明细时退回 `training_sessions.total_reps`。弱项分项均值优先来自动作实例的人工有效分项分，没有动作实例分项时退回 session 分项分。
 
 ## 常见修改任务
@@ -140,6 +144,7 @@ PostgreSQL 主要表：
 - 摄像头配置模板会包含 RTSP 密码，导入确认摘要和日志不得展示明文完整 RTSP URL。
 - 不再向 `trainingHistory` 写入新训练记录。
 - 复盘校准保存的是主码流/回退码流引用、session 级视频资产、动作片段到视频资产的索引、动作片段时间窗口和关键帧姿态 JSON。`training_video_files` 当前只登记规范化录像路径和元数据，不会录制、剪辑或复制视频文件；离线回看依赖原文件仍在本机，NVR 回看依赖 `cameraDefaults/nvrPlaybackTemplate` 能按机位和时间生成可访问 RTSP 回放 URL。
+- 视频存储清理只删除用户确认勾选的本机文件，并在视频资产 metadata 记录清理信息；训练记录和动作片段索引继续保留，历史回看会提示文件已清理或移动并回退 NVR/RTSP。
 - 默认动作标准 seed 只插入缺失项，不应覆盖用户本地编辑的阈值、权重、提示文案或参考视频。
 - 人员“删除”是归档：`active=0` 后不再出现在选择列表，但历史训练记录仍保留原外键和姓名联查能力；不要硬删被训练记录引用的人员。
 

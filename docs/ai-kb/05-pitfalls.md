@@ -48,6 +48,8 @@
 
 F-10 的 `action_repetitions.video_file_id/video_index` 只是把动作片段时间窗口关联到 session 视频资产。它能提升历史定位和报告反查能力，但不保证 planned 文件已经存在，也不让普通 RTSP 实时流获得通用 seek 能力。
 
+视频存储容量清理只处理已登记、路径位于配置根目录下且本机实际存在的文件。清理前必须用户勾选并二次确认；清理后只删除本机文件并写入 `training_video_files.metadata.cleanupDeletedAt/cleanupReason`，不会删除训练记录、动作实例或未登记文件。清理后的历史记录仍可查看摘要，但本地精确 seek 需要恢复原文件或改用 NVR/RTSP 回看。
+
 相关文件：
 
 - `rtspstream.cpp`
