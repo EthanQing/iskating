@@ -42,6 +42,7 @@
 #include <QLayout>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QJsonDocument>
 #include <QMessageBox>
 #include <QPainter>
 #include <QPainterPath>
@@ -542,6 +543,44 @@ QString offlineProbeSummary(const OfflineVideoProbeResult &probe)
     return parts.join(QStringLiteral("，"));
 }
 
+QString offlineProbeMetadataJson(const OfflineVideoProbeResult &probe)
+{
+    QJsonObject object{
+        {QStringLiteral("codecName"), probe.codecName},
+        {QStringLiteral("resolution"), probe.resolution},
+        {QStringLiteral("durationMs"), QString::number(probe.durationMs)},
+        {QStringLiteral("seekable"), probe.seekable},
+        {QStringLiteral("d3d11vaReady"), probe.d3d11vaReady},
+        {QStringLiteral("fileSize"), QString::number(probe.fileSize)},
+        {QStringLiteral("lastModified"), probe.lastModified.isValid() ? probe.lastModified.toUTC().toString(Qt::ISODateWithMs) : QString()},
+        {QStringLiteral("message"), probe.message}
+    };
+    return QString::fromUtf8(QJsonDocument(object).toJson(QJsonDocument::Compact));
+}
+
+QString analysisTaskSummary(const SessionHistoryItem &record)
+{
+    if (record.analysisTaskId.trimmed().isEmpty()) {
+        return QStringLiteral("未关联离线任务");
+    }
+    QStringList parts{
+        QStringLiteral("任务 %1").arg(record.analysisTaskId.left(8)),
+        QStringLiteral("状态 %1").arg(record.analysisTaskStatus.trimmed().isEmpty()
+                                     ? QStringLiteral("未知")
+                                     : record.analysisTaskStatus.trimmed())
+    };
+    if (!record.analysisTaskBatchId.trimmed().isEmpty()) {
+        parts << QStringLiteral("批次 %1").arg(record.analysisTaskBatchId.left(8));
+    }
+    if (record.analysisTaskCameraId > 0) {
+        parts << QStringLiteral("机位 %1").arg(record.analysisTaskCameraId);
+    }
+    if (record.analysisTaskTimeOffsetMs != 0) {
+        parts << QStringLiteral("偏移 %1ms").arg(record.analysisTaskTimeOffsetMs);
+    }
+    return parts.join(QStringLiteral(" · "));
+}
+
 bool sameOfflineProbeFile(const OfflineVideoProbeResult &probe, const QFileInfo &fileInfo)
 {
     return probe.success
@@ -718,9 +757,6 @@ QString sessionSourceTypeLabel(const QString &sourceType)
 
 QString sessionSourceDisplay(const SessionHistoryItem &record)
 {
-    if (!record.sourceLabel.trimmed().isEmpty()) {
-        return record.sourceLabel.trimmed();
-    }
     if (record.sourceType == QStringLiteral("competition")) {
         if (!record.raceName.trimmed().isEmpty()) {
             return record.raceName.trimmed();
@@ -731,7 +767,15 @@ QString sessionSourceDisplay(const SessionHistoryItem &record)
         return QStringLiteral("比赛");
     }
     if (record.sourceType == QStringLiteral("offline_import")) {
-        return displayMediaSource(record.sourceRef.trimmed().isEmpty() ? record.videoSource : record.sourceRef);
+        if (!record.analysisTaskId.trimmed().isEmpty()) {
+            return QStringLiteral("离线任务 %1 · %2")
+                .arg(record.analysisTaskId.left(8),
+                     displayMediaSource(record.videoSource));
+        }
+        return displayMediaSource(record.videoSource);
+    }
+    if (!record.sourceLabel.trimmed().isEmpty()) {
+        return record.sourceLabel.trimmed();
     }
     return QStringLiteral("训练");
 }
@@ -3710,10 +3754,41 @@ void MainWindow::importOfflineVideo()
         return;
     }
 
+    OfflineAnalysisTask task;
+    task.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    task.batchId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    task.cameraId = 0;
+    task.timeOffsetMs = 0;
+    task.videoPath = fileInfo.absoluteFilePath();
+    task.fileName = fileInfo.fileName();
+    task.fileSizeBytes = fileInfo.size();
+    task.fileModifiedAt = fileInfo.lastModified();
+    task.durationMs = static_cast<int>(std::max<qint64>(0, probe.durationMs));
+    task.status = QStringLiteral("imported");
+    task.probeMetadataJson = offlineProbeMetadataJson(probe);
+    task.summaryMetadataJson = QString::fromUtf8(QJsonDocument(QJsonObject{
+        {QStringLiteral("mode"), QStringLiteral("single_video")},
+        {QStringLiteral("multiVideoReserved"), true}
+    }).toJson(QJsonDocument::Compact));
+    if (!m_trainingRepository || !m_trainingRepository->isOpen()) {
+        QMessageBox::warning(this,
+                             QStringLiteral("导入失败"),
+                             QStringLiteral("训练服务未连接，无法创建离线分析任务。"));
+        return;
+    }
+    QString taskError;
+    if (!m_trainingRepository->saveOfflineAnalysisTask(&task, &taskError)) {
+        QMessageBox::warning(this,
+                             QStringLiteral("导入失败"),
+                             QStringLiteral("无法创建离线分析任务：%1").arg(taskError));
+        return;
+    }
+
     settings.setValue(QStringLiteral("offlineVideo/lastDir"), fileInfo.absolutePath());
     m_offlineVideoPath = fileInfo.absoluteFilePath();
     m_offlineVideoName = offlineVideoDisplayName(m_offlineVideoPath);
     m_offlineVideoProbe = probe;
+    m_offlineAnalysisTask = task;
 
     for (auto *videoWidget : m_cameraButtons) {
         if (videoWidget && videoWidget->isPlaying()) {
@@ -3722,9 +3797,10 @@ void MainWindow::importOfflineVideo()
     }
     showOfflineVideoInMainView(true);
     const QString summary = offlineProbeSummary(m_offlineVideoProbe);
-    ui->saveTipLabel->setText(QStringLiteral("已导入离线视频：%1%2。点击“开始采集”后将基于该视频记录训练复盘。")
+    ui->saveTipLabel->setText(QStringLiteral("已导入离线视频：%1%2。离线任务 %3 已入库，点击“开始采集”后将基于该视频记录训练复盘。")
                                   .arg(QDir::toNativeSeparators(m_offlineVideoPath),
-                                       summary.isEmpty() ? QString() : QStringLiteral("（%1）").arg(summary)));
+                                       summary.isEmpty() ? QString() : QStringLiteral("（%1）").arg(summary),
+                                       m_offlineAnalysisTask.id.left(8)));
     ui->saveTipLabel->show();
 }
 
@@ -3775,6 +3851,7 @@ void MainWindow::showCameraInMainView(int cameraIndex, bool autoPlay)
     m_offlineVideoPath.clear();
     m_offlineVideoName.clear();
     m_offlineVideoProbe = OfflineVideoProbeResult();
+    m_offlineAnalysisTask = OfflineAnalysisTask();
     auto *cameraWidget = m_cameraButtons.at(cameraIndex);
     m_selectedCamera = cameraIndex + 1;
     const QString source = cameraWidget->mainUrl();
@@ -4610,6 +4687,7 @@ void MainWindow::saveRecord()
         session.videoCameraName = m_offlineVideoName.trimmed().isEmpty()
                                       ? offlineVideoDisplayName(m_offlineVideoPath)
                                       : m_offlineVideoName.trimmed();
+        session.analysisTaskId = m_offlineAnalysisTask.id;
     } else if (m_selectedCamera > 0 && m_selectedCamera <= m_cameraButtons.size()) {
         const VideoOpenGLWidget *cameraWidget = m_cameraButtons.at(m_selectedCamera - 1);
         session.videoSource = cameraWidget->mainUrl().trimmed();
@@ -4643,7 +4721,9 @@ void MainWindow::saveRecord()
         session.sourceRef = competitionId;
     } else if (offlineSession && !session.videoSource.trimmed().isEmpty()) {
         session.sourceType = QStringLiteral("offline_import");
-        session.sourceRef = session.videoSource;
+        session.sourceRef = session.analysisTaskId.trimmed().isEmpty()
+                                ? session.videoSource
+                                : session.analysisTaskId;
     } else {
         session.sourceType = QStringLiteral("training");
         session.sourceRef = !taskId.isEmpty() ? taskId : planId;
@@ -4949,7 +5029,7 @@ void MainWindow::refreshHistory()
         metaLabel->setWordWrap(true);
         cardLayout->addWidget(metaLabel);
 
-        auto *feedbackLabel = new QLabel(QStringLiteral("标准 v%1 · %2 · %3\n场地：%4   阶段：%5   目标：%6\n备注：%7\n视频：%8\n视频资产：%9\n反馈：%10")
+        auto *feedbackLabel = new QLabel(QStringLiteral("标准 v%1 · %2 · %3\n场地：%4   阶段：%5   目标：%6\n备注：%7\n视频：%8\n视频资产：%9\n离线任务：%10\n反馈：%11")
                                              .arg(record.standardVersion)
                                              .arg(record.actionCategory)
                                              .arg(record.coachName.isEmpty() ? QStringLiteral("未指定教练") : record.coachName)
@@ -4961,6 +5041,7 @@ void MainWindow::refreshHistory()
                                                       ? QStringLiteral("NVR 回放已配置")
                                                       : displayMediaSource(record.videoSource))
                                              .arg(videoFilesSummary(record.videoFiles))
+                                             .arg(analysisTaskSummary(record))
                                              .arg(record.feedback),
                                          card);
         feedbackLabel->setWordWrap(true);
@@ -5774,6 +5855,7 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
             out << "- 回退视频：" << displayMediaSource(record.videoFallbackSource) << "\n";
         }
         out << "- 视频资产：\n" << videoFilesSummary(record.videoFiles) << "\n";
+        out << "- 离线分析任务：" << analysisTaskSummary(record) << "\n";
         out << "\n## 综合反馈\n\n" << (record.feedback.trimmed().isEmpty() ? QStringLiteral("未填写") : record.feedback.trimmed()) << "\n\n";
         out << "## 教练批注\n\n"
             << (record.coachComment.trimmed().isEmpty() ? QStringLiteral("未填写") : record.coachComment.trimmed())
@@ -5825,6 +5907,11 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
             QStringLiteral("session_source_type"),
             QStringLiteral("session_source_label"),
             QStringLiteral("session_source_ref"),
+            QStringLiteral("analysis_task_id"),
+            QStringLiteral("analysis_task_status"),
+            QStringLiteral("analysis_task_batch_id"),
+            QStringLiteral("analysis_task_camera_id"),
+            QStringLiteral("analysis_task_time_offset_ms"),
             QStringLiteral("action"),
             QStringLiteral("standard_version"),
             QStringLiteral("duration"),
@@ -5894,6 +5981,11 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
                 << csvField(record.sourceType)
                 << csvField(sessionSourceDisplay(record))
                 << csvField(record.sourceRef)
+                << csvField(record.analysisTaskId)
+                << csvField(record.analysisTaskStatus)
+                << csvField(record.analysisTaskBatchId)
+                << csvField(record.analysisTaskCameraId > 0 ? QString::number(record.analysisTaskCameraId) : QString())
+                << csvField(record.analysisTaskTimeOffsetMs != 0 ? QString::number(record.analysisTaskTimeOffsetMs) : QString())
                 << csvField(QStringLiteral("%1/%2").arg(record.actionCategory, record.actionName))
                 << csvField(QString::number(record.standardVersion))
                 << csvField(formatTime(record.duration))
@@ -6011,7 +6103,8 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
                                        .arg(record.targetScore)},
             {QStringLiteral("复核后平均/最佳分"), QStringLiteral("%1/%2").arg(record.score).arg(record.bestScore)},
             {QStringLiteral("视频"), displayMediaSource(record.videoSource)},
-            {QStringLiteral("视频资产"), videoFilesSummary(record.videoFiles)}
+            {QStringLiteral("视频资产"), videoFilesSummary(record.videoFiles)},
+            {QStringLiteral("离线分析任务"), analysisTaskSummary(record)}
         };
         for (const auto &row : summaryRows) {
             out << "<tr><th>" << row.first.toHtmlEscaped() << "</th><td>" << row.second.toHtmlEscaped() << "</td></tr>";

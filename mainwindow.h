@@ -256,6 +256,7 @@ private:
     QString m_offlineVideoPath;
     QString m_offlineVideoName;
     OfflineVideoProbeResult m_offlineVideoProbe;
+    OfflineAnalysisTask m_offlineAnalysisTask;
     SharedCameraSettings m_sharedCameraSettings;
     QVector<CameraSlotSettings> m_cameraSlotSettings;
     CapturePreferenceSettings m_capturePreferenceSettings;

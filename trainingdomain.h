@@ -237,6 +237,24 @@ struct VideoFileCleanupCandidate
     QString metadataJson;
 };
 
+struct OfflineAnalysisTask
+{
+    QString id;
+    QString batchId;
+    int cameraId = 0;
+    int timeOffsetMs = 0;
+    QString videoPath;
+    QString fileName;
+    qint64 fileSizeBytes = -1;
+    QDateTime fileModifiedAt;
+    int durationMs = 0;
+    QString status = QStringLiteral("imported");
+    QString probeMetadataJson;
+    QString summaryMetadataJson;
+    QDateTime createdAt;
+    QDateTime updatedAt;
+};
+
 struct ActionRepetition
 {
     QString id;
@@ -361,6 +379,7 @@ struct TrainingSession
     QString videoSource;
     QString videoFallbackSource;
     QString videoCameraName;
+    QString analysisTaskId;
     QString sourceType = QStringLiteral("training");
     QString sourceRef;
     QString sourceLabel;
@@ -426,6 +445,11 @@ struct SessionHistoryItem
     QString videoSource;
     QString videoFallbackSource;
     QString videoCameraName;
+    QString analysisTaskId;
+    QString analysisTaskStatus;
+    QString analysisTaskBatchId;
+    int analysisTaskCameraId = 0;
+    int analysisTaskTimeOffsetMs = 0;
     QString sourceType = QStringLiteral("training");
     QString sourceRef;
     QString sourceLabel;

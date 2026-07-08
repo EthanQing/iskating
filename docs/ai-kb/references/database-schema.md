@@ -156,7 +156,8 @@ P1 轨迹拼接默认把 12 路相机按 5m 一段初始化为 CAM 01: 0-5m 至 
 分析归属字段：
 
 - `source_type`: `training`, `competition`, `offline_import`，默认 `training`。
-- `source_ref`: 可空文本引用。选择场次时指向 `competition_event_id`，仅选择比赛时指向 `competition_id`，导入视频时保存 `video_source`，普通训练优先保存 `task_id`，无任务时保存 `plan_id`。
+- `source_ref`: 可空文本引用。选择场次时指向 `competition_event_id`，仅选择比赛时指向 `competition_id`，导入视频时优先保存 `analysis_task_id`，普通训练优先保存 `task_id`，无任务时保存 `plan_id`。
+- `analysis_task_id`: 可空，关联 `offline_analysis_tasks.id`，用于把单视频离线导入任务和最终训练 session 闭环关联。
 - `action_repetitions.source` 仍只表示动作来源 `ai/coach`，不承担 session 分析归属语义。
 
 复盘相关字段：
@@ -186,6 +187,23 @@ P1 轨迹拼接默认把 12 路相机按 5m 一段初始化为 CAM 01: 0-5m 至 
 默认根目录来自 `QSettings videoStorage/rootDir`；未配置时桌面端使用应用本机数据目录下的 `recordings`。当前不会创建真实录像文件。
 
 系统设置清理本机文件后不扩展 `status` 枚举，而是在 `metadata` 中写入 `cleanupDeletedAt`、`cleanupReason` 和 `cleanupMissing=true`。训练记录、动作实例和视频资产行保留，历史回看负责提示本地文件已清理或移动并回退 NVR/RTSP。
+
+#### `offline_analysis_tasks`
+
+保存离线导入视频的任务索引。当前 UI 只创建单视频任务，但表结构预留多视频批次和同步信息：
+
+- `id`: 离线分析任务 id，桌面端导入视频时生成。
+- `batch_id`: 可空批次 id。单视频导入每次生成独立批次；多视频导入后续可用同一批次关联多路文件。
+- `camera_id`: 预留机位编号，当前单视频为 `0`。
+- `time_offset_ms`: 预留相对批次时间偏移，当前单视频为 `0`。
+- `video_path`, `file_name`, `file_size_bytes`, `file_modified_at`: 原始本地视频文件信息；不复制视频文件。
+- `duration_ms`: 探测到的视频时长。
+- `status`: `imported`, `analyzing`, `completed`, `failed`, `archived`；当前导入成功后写 `imported`。
+- `probe_metadata`: JSONB，保存离线探测结果。
+- `summary_metadata`: JSONB，保存导入模式和多视频预留标记。
+- `created_at`, `updated_at`: 服务端时间戳。
+
+`training_sessions.analysis_task_id` 指向该表。离线导入训练保存时，session 的 `source_type` 为 `offline_import`，`source_ref` 优先使用该任务 id，历史卡和报告展示离线任务摘要。
 
 #### `training_session_participants`
 
@@ -276,7 +294,7 @@ python tools/reset_postgres_schema.py --yes
 python tools/import_sqlite_to_postgres.py --sqlite "$env:APPDATA/iSkating/iSkating Coach/iskating.db"
 ```
 
-已有 PostgreSQL 开发库保留数据并补齐 F-10 视频索引字段：
+已有 PostgreSQL 开发库保留数据并补齐视频索引与离线分析任务字段：
 
 ```powershell
 python tools/backfill_video_indexes.py
@@ -296,7 +314,7 @@ FastAPI `seed_defaults()` 内置默认管理员、默认运动员、默认教练
 
 ## 查询入口
 
-训练历史通过 `TrainingRepository::searchSessions(filters, page, sort)` 查询，支持运动员、教练、比赛、场次、参赛关系、分析来源、动作标准、保存时间、平均分区间和比赛关键词组合检索，并返回总数和当前页结果；运动员筛选会匹配 session 主运动员和 `training_session_participants`。比赛关键词匹配 `competitions.name/location/competition_type/notes`、`competition_events.race_name/event_name/heat_name/group_name/notes`、`event_athletes.bib_number/lane_number/notes`、`training_sessions.source_type/source_ref` 以及 `training_sessions.site/training_phase/goal/notes/feedback/coach_comment`。`recentSessions(limit)` 仍保留为兼容入口，内部调用默认查询。跨 session 动作实例通过 `searchRepetitions(filters, page)` 联查 `training_sessions` 和 `action_repetitions`，支持按 session、人员、比赛/场次、动作、来源、有效性、复核状态、分数区间、训练时间、片段时间和错误项关键词查询；人员筛选优先匹配动作级 `action_repetitions.athlete_id`，旧记录没有动作级身份时回退到 session 主运动员；有效性、分数、错误项和反馈默认使用人工优先值。单 session 动作明细通过 `repetitionsForSession()` / `reviewedRepetitionsForSession()` 查询；视频资产清理候选通过 `GET /training/video-files` 查询，支持 `status`、`withLocalPathOnly` 和 `modifiedBefore` 过滤并返回 session、运动员、文件大小/修改时间和动作引用数量；本机文件删除后通过 `POST /training/video-files/{id}/cleanup` 只更新 metadata。人员档案通过 `athletes()`、`coaches()`、`athleteIdsForCoach()` 查询；比赛基础信息通过 `competitions()`、`saveCompetition()`、`archiveCompetition()` 查询和维护；比赛场次通过 `competitionEvents()`、`saveCompetitionEvent()`、`archiveCompetitionEvent()` 查询和维护；参赛关系通过 `eventAthletes()`、`saveEventAthlete()`、`archiveEventAthlete()` 查询和维护；最近 7/30 天趋势通过 `trendForRecentDays()` 聚合 `training_sessions` 和 `action_repetitions` 查询；教练批注通过 `saveCoachComment()` 更新；个体基线通过 `baselineFor()` 查询。
+训练历史通过 `TrainingRepository::searchSessions(filters, page, sort)` 查询，支持运动员、教练、比赛、场次、参赛关系、分析来源、动作标准、保存时间、平均分区间和比赛关键词组合检索，并返回总数和当前页结果；运动员筛选会匹配 session 主运动员和 `training_session_participants`。比赛关键词匹配 `competitions.name/location/competition_type/notes`、`competition_events.race_name/event_name/heat_name/group_name/notes`、`event_athletes.bib_number/lane_number/notes`、`training_sessions.source_type/source_ref` 以及 `training_sessions.site/training_phase/goal/notes/feedback/coach_comment`。`recentSessions(limit)` 仍保留为兼容入口，内部调用默认查询。跨 session 动作实例通过 `searchRepetitions(filters, page)` 联查 `training_sessions` 和 `action_repetitions`，支持按 session、人员、比赛/场次、动作、来源、有效性、复核状态、分数区间、训练时间、片段时间和错误项关键词查询；人员筛选优先匹配动作级 `action_repetitions.athlete_id`，旧记录没有动作级身份时回退到 session 主运动员；有效性、分数、错误项和反馈默认使用人工优先值。单 session 动作明细通过 `repetitionsForSession()` / `reviewedRepetitionsForSession()` 查询；离线任务通过 `POST /offline-analysis/tasks` 创建或更新，并可用 `GET /offline-analysis/tasks` 按 `batchId/status` 查询；视频资产清理候选通过 `GET /training/video-files` 查询，支持 `status`、`withLocalPathOnly` 和 `modifiedBefore` 过滤并返回 session、运动员、文件大小/修改时间和动作引用数量；本机文件删除后通过 `POST /training/video-files/{id}/cleanup` 只更新 metadata。人员档案通过 `athletes()`、`coaches()`、`athleteIdsForCoach()` 查询；比赛基础信息通过 `competitions()`、`saveCompetition()`、`archiveCompetition()` 查询和维护；比赛场次通过 `competitionEvents()`、`saveCompetitionEvent()`、`archiveCompetitionEvent()` 查询和维护；参赛关系通过 `eventAthletes()`、`saveEventAthlete()`、`archiveEventAthlete()` 查询和维护；最近 7/30 天趋势通过 `trendForRecentDays()` 聚合 `training_sessions` 和 `action_repetitions` 查询；教练批注通过 `saveCoachComment()` 更新；个体基线通过 `baselineFor()` 查询。
 
 人员管理写入口：
 

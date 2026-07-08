@@ -115,6 +115,30 @@ def legacy_video_file(row: sqlite3.Row) -> dict[str, Any] | None:
     }
 
 
+def legacy_offline_analysis_task(row: sqlite3.Row) -> dict[str, Any] | None:
+    session_id = as_uuid(row["id"])
+    video_source = row["video_source"] or ""
+    if int(row["camera"] or 0) != 0 or not video_source or has_media_url_scheme(video_source):
+        return None
+    source_file = Path(video_source)
+    source_exists = source_file.exists() and source_file.is_file()
+    duration_ms = int(row["duration_sec"] or 0) * 1000
+    return {
+        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"iskating-offline-analysis-task:{session_id}")),
+        "batch_id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"iskating-offline-analysis-batch:{session_id}")),
+        "camera_id": 0,
+        "time_offset_ms": 0,
+        "video_path": video_source,
+        "file_name": source_file.name,
+        "file_size_bytes": source_file.stat().st_size if source_exists else None,
+        "file_modified_at": datetime.fromtimestamp(source_file.stat().st_mtime, timezone.utc) if source_exists else None,
+        "duration_ms": duration_ms,
+        "status": "completed",
+        "probe_metadata": Jsonb({"legacyImport": True, "fileExistsAtImport": source_exists}),
+        "summary_metadata": Jsonb({"mode": "single_video", "multiVideoReserved": True, "sessionId": session_id}),
+    }
+
+
 def scores(row: sqlite3.Row, prefix: str = "") -> dict[str, int]:
     def get(name: str, default: int) -> int:
         key = f"{prefix}{name}_score" if prefix else f"{name}_score"
@@ -348,6 +372,25 @@ def import_data(sqlite_path: Path, database_url: str) -> dict[str, int]:
                 counts["training_tasks"] = counts.get("training_tasks", 0) + 1
 
             for row in sqlite_rows(source, "training_sessions"):
+                analysis_task = legacy_offline_analysis_task(row)
+                if analysis_task:
+                    target.execute(
+                        """
+                        INSERT INTO offline_analysis_tasks
+                        (id, batch_id, camera_id, time_offset_ms, video_path, file_name, file_size_bytes,
+                         file_modified_at, duration_ms, status, probe_metadata, summary_metadata, updated_at)
+                        VALUES (%(id)s, %(batch_id)s, %(camera_id)s, %(time_offset_ms)s, %(video_path)s,
+                                %(file_name)s, %(file_size_bytes)s, %(file_modified_at)s, %(duration_ms)s,
+                                %(status)s, %(probe_metadata)s, %(summary_metadata)s, now())
+                        ON CONFLICT (id) DO UPDATE SET video_path=excluded.video_path,
+                        file_name=excluded.file_name, file_size_bytes=excluded.file_size_bytes,
+                        file_modified_at=excluded.file_modified_at, duration_ms=excluded.duration_ms,
+                        status=excluded.status, probe_metadata=excluded.probe_metadata,
+                        summary_metadata=excluded.summary_metadata, updated_at=now()
+                        """,
+                        analysis_task,
+                    )
+                    counts["offline_analysis_tasks"] = counts.get("offline_analysis_tasks", 0) + 1
                 target.execute(
                     """
                     INSERT INTO training_sessions
@@ -356,7 +399,7 @@ def import_data(sqlite_path: Path, database_url: str) -> dict[str, int]:
                      legacy_qsettings_id, started_at, saved_at, duration_sec, total_reps, valid_reps,
                      average_score, best_score, camera, model_precision, fps, scores, site, training_phase,
                      goal, target_reps, target_score, set_count, rest_seconds, video_source,
-                     video_fallback_source, video_camera_name, source_type, source_ref, feedback, notes, coach_comment)
+                     video_fallback_source, video_camera_name, analysis_task_id, source_type, source_ref, feedback, notes, coach_comment)
                     VALUES (%(id)s, %(athlete_id)s, %(coach_id)s, %(competition_id)s, %(competition_event_id)s,
                             %(event_athlete_id)s, %(plan_id)s, %(task_id)s, %(action_standard_id)s,
                             %(standard_version)s, %(legacy_qsettings_id)s, %(started_at)s, %(saved_at)s,
@@ -364,12 +407,12 @@ def import_data(sqlite_path: Path, database_url: str) -> dict[str, int]:
                             %(camera)s, %(model_precision)s, %(fps)s, %(scores)s, %(site)s, %(training_phase)s,
                             %(goal)s, %(target_reps)s, %(target_score)s, %(set_count)s, %(rest_seconds)s,
                             %(video_source)s, %(video_fallback_source)s, %(video_camera_name)s,
-                            %(source_type)s, %(source_ref)s, %(feedback)s, %(notes)s, %(coach_comment)s)
+                            %(analysis_task_id)s, %(source_type)s, %(source_ref)s, %(feedback)s, %(notes)s, %(coach_comment)s)
                     ON CONFLICT (id) DO UPDATE SET saved_at=excluded.saved_at, total_reps=excluded.total_reps,
                     valid_reps=excluded.valid_reps, average_score=excluded.average_score, best_score=excluded.best_score,
                     competition_id=excluded.competition_id, competition_event_id=excluded.competition_event_id,
                     event_athlete_id=excluded.event_athlete_id, scores=excluded.scores,
-                    source_type=excluded.source_type, source_ref=excluded.source_ref,
+                    analysis_task_id=excluded.analysis_task_id, source_type=excluded.source_type, source_ref=excluded.source_ref,
                     coach_comment=excluded.coach_comment
                     """,
                     {
@@ -405,8 +448,9 @@ def import_data(sqlite_path: Path, database_url: str) -> dict[str, int]:
                         "video_source": row["video_source"],
                         "video_fallback_source": row["video_fallback_source"],
                         "video_camera_name": row["video_camera_name"],
-                        "source_type": "training",
-                        "source_ref": None,
+                        "analysis_task_id": analysis_task["id"] if analysis_task else None,
+                        "source_type": "offline_import" if analysis_task else "training",
+                        "source_ref": analysis_task["id"] if analysis_task else None,
                         "feedback": row["feedback"],
                         "notes": row["notes"],
                         "coach_comment": row["coach_comment"],

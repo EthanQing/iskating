@@ -63,6 +63,8 @@ public:
     bool markVideoFileCleaned(const QString &videoFileId,
                               const QString &reason,
                               QString *errorMessage = nullptr);
+    bool saveOfflineAnalysisTask(OfflineAnalysisTask *task,
+                                 QString *errorMessage = nullptr);
 
     bool createAthlete(const QString &name, QString *athleteId, QString *errorMessage = nullptr);
     bool createCoach(const QString &name, QString *coachId, QString *errorMessage = nullptr);

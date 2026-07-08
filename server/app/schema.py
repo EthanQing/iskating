@@ -10,6 +10,7 @@ BUSINESS_TABLES = [
     "training_video_files",
     "training_session_participants",
     "training_sessions",
+    "offline_analysis_tasks",
     "training_tasks",
     "training_plans",
     "event_athletes",
@@ -180,6 +181,25 @@ CREATE TABLE training_tasks (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE offline_analysis_tasks (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    batch_id uuid,
+    camera_id integer NOT NULL DEFAULT 0,
+    time_offset_ms integer NOT NULL DEFAULT 0,
+    video_path text NOT NULL,
+    file_name text,
+    file_size_bytes bigint,
+    file_modified_at timestamptz,
+    duration_ms integer NOT NULL DEFAULT 0,
+    status text NOT NULL DEFAULT 'imported',
+    probe_metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+    summary_metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT ck_offline_analysis_tasks_status CHECK (status IN ('imported', 'analyzing', 'completed', 'failed', 'archived')),
+    CONSTRAINT ck_offline_analysis_tasks_camera CHECK (camera_id >= 0)
+);
+
 CREATE TABLE training_sessions (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     athlete_id uuid NOT NULL REFERENCES athletes(id),
@@ -213,6 +233,7 @@ CREATE TABLE training_sessions (
     video_source text,
     video_fallback_source text,
     video_camera_name text,
+    analysis_task_id uuid REFERENCES offline_analysis_tasks(id) ON DELETE SET NULL,
     source_type text NOT NULL DEFAULT 'training',
     source_ref text,
     feedback text,
@@ -327,6 +348,9 @@ CREATE INDEX ix_training_sessions_competition_event ON training_sessions(competi
 CREATE INDEX ix_training_sessions_event_athlete ON training_sessions(event_athlete_id);
 CREATE INDEX ix_training_sessions_source_type ON training_sessions(source_type);
 CREATE INDEX ix_training_sessions_source_ref ON training_sessions(source_ref);
+CREATE INDEX ix_training_sessions_analysis_task ON training_sessions(analysis_task_id);
+CREATE INDEX ix_offline_analysis_tasks_batch ON offline_analysis_tasks(batch_id);
+CREATE INDEX ix_offline_analysis_tasks_video_path ON offline_analysis_tasks(video_path);
 CREATE INDEX ix_training_tasks_plan ON training_tasks(plan_id);
 CREATE INDEX ix_training_plans_date ON training_plans(training_date);
 CREATE INDEX ix_training_session_participants_session ON training_session_participants(session_id);

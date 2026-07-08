@@ -355,8 +355,39 @@ def session_source(session: dict[str, Any],
     if competition_id:
         return "competition", str(competition_id)
     if int(session.get("camera", 1)) == 0 and session.get("videoSource"):
-        return "offline_import", session.get("videoSource")
+        return "offline_import", session.get("analysisTaskId") or session.get("videoSource")
     return "training", session.get("taskId") or session.get("planId") or None
+
+
+def metadata_from_payload(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def offline_analysis_task_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row["id"]),
+        "batchId": str(row["batch_id"] or ""),
+        "cameraId": row["camera_id"],
+        "timeOffsetMs": row["time_offset_ms"],
+        "videoPath": row["video_path"] or "",
+        "fileName": row["file_name"] or "",
+        "fileSizeBytes": row["file_size_bytes"] if row["file_size_bytes"] is not None else -1,
+        "fileModifiedAt": row["file_modified_at"].isoformat() if row["file_modified_at"] else "",
+        "durationMs": row["duration_ms"],
+        "status": row["status"] or "imported",
+        "probeMetadata": row["probe_metadata"] or {},
+        "summaryMetadata": row["summary_metadata"] or {},
+        "createdAt": row["created_at"].isoformat() if row.get("created_at") else "",
+        "updatedAt": row["updated_at"].isoformat() if row.get("updated_at") else "",
+    }
 
 
 def scores_from_payload(payload: dict[str, Any], prefix: str = "") -> dict[str, int]:
@@ -958,6 +989,70 @@ def ensure_daily_task(payload: dict[str, Any] = Body(...),
     return {"planId": plan_id, "taskId": task_id}
 
 
+@app.post("/offline-analysis/tasks")
+def save_offline_analysis_task(payload: dict[str, Any] = Body(...),
+                               db: Session = Depends(db_session),
+                               _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    task_id = parse_uuid(payload.get("id")) or new_uuid()
+    video_path = str(payload.get("videoPath") or "").strip()
+    if not video_path:
+        raise HTTPException(status_code=400, detail="videoPath is required")
+    status_value = payload.get("status") or "imported"
+    if status_value not in {"imported", "analyzing", "completed", "failed", "archived"}:
+        status_value = "imported"
+    db.execute(
+        text(
+            "INSERT INTO offline_analysis_tasks "
+            "(id, batch_id, camera_id, time_offset_ms, video_path, file_name, file_size_bytes, file_modified_at, "
+            "duration_ms, status, probe_metadata, summary_metadata, updated_at) "
+            "VALUES (:id, :batch_id, :camera_id, :time_offset_ms, :video_path, :file_name, :file_size_bytes, :file_modified_at, "
+            ":duration_ms, :status, CAST(:probe_metadata AS jsonb), CAST(:summary_metadata AS jsonb), now()) "
+            "ON CONFLICT (id) DO UPDATE SET batch_id=excluded.batch_id, camera_id=excluded.camera_id, "
+            "time_offset_ms=excluded.time_offset_ms, video_path=excluded.video_path, file_name=excluded.file_name, "
+            "file_size_bytes=excluded.file_size_bytes, file_modified_at=excluded.file_modified_at, "
+            "duration_ms=excluded.duration_ms, status=excluded.status, probe_metadata=excluded.probe_metadata, "
+            "summary_metadata=excluded.summary_metadata, updated_at=now() RETURNING *"
+        ),
+        {
+            "id": task_id,
+            "batch_id": parse_uuid(payload.get("batchId")),
+            "camera_id": int(payload.get("cameraId") or 0),
+            "time_offset_ms": int(payload.get("timeOffsetMs") or 0),
+            "video_path": video_path,
+            "file_name": payload.get("fileName") or None,
+            "file_size_bytes": int(payload.get("fileSizeBytes")) if str(payload.get("fileSizeBytes", "")).strip() not in {"", "-1"} else None,
+            "file_modified_at": parse_dt(payload.get("fileModifiedAt")) if payload.get("fileModifiedAt") else None,
+            "duration_ms": int(payload.get("durationMs") or 0),
+            "status": status_value,
+            "probe_metadata": json.dumps(metadata_from_payload(payload.get("probeMetadata")), ensure_ascii=False),
+            "summary_metadata": json.dumps(metadata_from_payload(payload.get("summaryMetadata")), ensure_ascii=False),
+        },
+    )
+    row = db.execute(text("SELECT * FROM offline_analysis_tasks WHERE id = :id"), {"id": task_id}).mappings().one()
+    return offline_analysis_task_row(dict(row))
+
+
+@app.get("/offline-analysis/tasks")
+def offline_analysis_tasks(batchId: str = "",
+                           status: str = "",
+                           db: Session = Depends(db_session),
+                           _: dict[str, Any] = Depends(require_user)) -> list[dict[str, Any]]:
+    where: list[str] = []
+    args: dict[str, Any] = {}
+    if batchId:
+        where.append("batch_id = :batch_id")
+        args["batch_id"] = parse_uuid(batchId)
+    if status:
+        where.append("status = :status")
+        args["status"] = status
+    where_sql = "WHERE " + " AND ".join(where) if where else ""
+    rows = db.execute(
+        text(f"SELECT * FROM offline_analysis_tasks {where_sql} ORDER BY created_at DESC, id DESC"),
+        args,
+    ).mappings()
+    return [offline_analysis_task_row(dict(row)) for row in rows]
+
+
 def insert_repetition(db: Session,
                       session_id: str,
                       action_standard_id: str,
@@ -1296,24 +1391,25 @@ def save_training_session(payload: dict[str, Any] = Body(...),
             raise HTTPException(status_code=400, detail="competitionEventId is invalid")
         competition_id = event_row[0]
     source_type, source_ref = session_source(session, competition_id, competition_event_id)
+    analysis_task_id = parse_uuid(session.get("analysisTaskId"))
     db.execute(
         text(
             "INSERT INTO training_sessions "
             "(id, athlete_id, coach_id, competition_id, competition_event_id, event_athlete_id, plan_id, task_id, action_standard_id, standard_version, legacy_qsettings_id, "
             "started_at, saved_at, duration_sec, total_reps, valid_reps, average_score, best_score, camera, "
             "model_precision, fps, scores, site, training_phase, goal, target_reps, target_score, set_count, rest_seconds, "
-            "video_source, video_fallback_source, video_camera_name, source_type, source_ref, feedback, notes, coach_comment) "
+            "video_source, video_fallback_source, video_camera_name, analysis_task_id, source_type, source_ref, feedback, notes, coach_comment) "
             "VALUES (:id, :athlete_id, :coach_id, :competition_id, :competition_event_id, :event_athlete_id, :plan_id, :task_id, :action_standard_id, :standard_version, "
             ":legacy_qsettings_id, :started_at, :saved_at, :duration_sec, :total_reps, :valid_reps, :average_score, "
             ":best_score, :camera, :model_precision, :fps, CAST(:scores AS jsonb), :site, :training_phase, :goal, "
             ":target_reps, :target_score, :set_count, :rest_seconds, :video_source, :video_fallback_source, "
-            ":video_camera_name, :source_type, :source_ref, :feedback, :notes, :coach_comment) "
+            ":video_camera_name, :analysis_task_id, :source_type, :source_ref, :feedback, :notes, :coach_comment) "
             "ON CONFLICT (id) DO UPDATE SET coach_id=excluded.coach_id, competition_id=excluded.competition_id, "
             "competition_event_id=excluded.competition_event_id, event_athlete_id=excluded.event_athlete_id, "
             "plan_id=excluded.plan_id, task_id=excluded.task_id, "
             "saved_at=excluded.saved_at, duration_sec=excluded.duration_sec, total_reps=excluded.total_reps, "
             "valid_reps=excluded.valid_reps, average_score=excluded.average_score, best_score=excluded.best_score, "
-            "scores=excluded.scores, source_type=excluded.source_type, source_ref=excluded.source_ref, "
+            "scores=excluded.scores, analysis_task_id=excluded.analysis_task_id, source_type=excluded.source_type, source_ref=excluded.source_ref, "
             "feedback=excluded.feedback, notes=excluded.notes, coach_comment=excluded.coach_comment"
         ),
         {
@@ -1349,6 +1445,7 @@ def save_training_session(payload: dict[str, Any] = Body(...),
             "video_source": session.get("videoSource") or None,
             "video_fallback_source": session.get("videoFallbackSource") or None,
             "video_camera_name": session.get("videoCameraName") or None,
+            "analysis_task_id": analysis_task_id,
             "source_type": source_type,
             "source_ref": source_ref,
             "feedback": session.get("feedback") or None,
@@ -1433,6 +1530,11 @@ def history_row(row: dict[str, Any]) -> dict[str, Any]:
         "videoSource": row["video_source"] or "",
         "videoFallbackSource": row["video_fallback_source"] or "",
         "videoCameraName": row["video_camera_name"] or "",
+        "analysisTaskId": str(row.get("analysis_task_id") or ""),
+        "analysisTaskStatus": row.get("analysis_task_status") or "",
+        "analysisTaskBatchId": str(row.get("analysis_task_batch_id") or ""),
+        "analysisTaskCameraId": row.get("analysis_task_camera_id") if row.get("analysis_task_camera_id") is not None else 0,
+        "analysisTaskTimeOffsetMs": row.get("analysis_task_time_offset_ms") if row.get("analysis_task_time_offset_ms") is not None else 0,
         "sourceType": source_type,
         "sourceRef": row.get("source_ref") or "",
         "sourceLabel": source_label,
@@ -1504,6 +1606,7 @@ def search_sessions(
         "LEFT JOIN competitions comp ON comp.id = ts.competition_id "
         "LEFT JOIN competition_events ce ON ce.id = ts.competition_event_id "
         "LEFT JOIN event_athletes ea ON ea.id = ts.event_athlete_id "
+        "LEFT JOIN offline_analysis_tasks oat ON oat.id = ts.analysis_task_id "
         "JOIN action_standards s ON s.id = ts.action_standard_id "
         "JOIN action_categories ac ON ac.id = s.category_id "
     )
@@ -1533,6 +1636,8 @@ def search_sessions(
             "COALESCE(ce.notes, '') AS event_notes, COALESCE(ea.bib_number, '') AS bib_number, "
             "COALESCE(ea.lane_number, '') AS lane_number, ea.result_score AS result_score, "
             "ea.result_rank AS result_rank, COALESCE(ea.notes, '') AS event_athlete_notes, "
+            "oat.status AS analysis_task_status, oat.batch_id AS analysis_task_batch_id, "
+            "oat.camera_id AS analysis_task_camera_id, oat.time_offset_ms AS analysis_task_time_offset_ms, "
             "s.name AS action_name, ac.name AS action_category "
             f"{from_sql} {where_sql} ORDER BY {order} {direction}, ts.id DESC LIMIT :limit OFFSET :offset"
         ),

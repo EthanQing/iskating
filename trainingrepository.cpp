@@ -403,6 +403,7 @@ QJsonObject sessionToJson(const TrainingSession &session)
         {QStringLiteral("videoSource"), session.videoSource},
         {QStringLiteral("videoFallbackSource"), session.videoFallbackSource},
         {QStringLiteral("videoCameraName"), session.videoCameraName},
+        {QStringLiteral("analysisTaskId"), session.analysisTaskId},
         {QStringLiteral("sourceType"), session.sourceType},
         {QStringLiteral("sourceRef"), session.sourceRef},
         {QStringLiteral("feedback"), session.feedback},
@@ -462,6 +463,63 @@ QJsonObject repetitionToJson(const ActionRepetition &repetition)
         {QStringLiteral("identityConfidence"), repetition.identityConfidence},
         {QStringLiteral("identitySource"), repetition.identitySource}
     };
+}
+
+QJsonObject offlineAnalysisTaskToJson(const OfflineAnalysisTask &task)
+{
+    QJsonObject probeMetadata;
+    const QJsonDocument probeDocument = QJsonDocument::fromJson(task.probeMetadataJson.toUtf8());
+    if (probeDocument.isObject()) {
+        probeMetadata = probeDocument.object();
+    }
+    QJsonObject summaryMetadata;
+    const QJsonDocument summaryDocument = QJsonDocument::fromJson(task.summaryMetadataJson.toUtf8());
+    if (summaryDocument.isObject()) {
+        summaryMetadata = summaryDocument.object();
+    }
+    return {
+        {QStringLiteral("id"), task.id},
+        {QStringLiteral("batchId"), task.batchId},
+        {QStringLiteral("cameraId"), task.cameraId},
+        {QStringLiteral("timeOffsetMs"), task.timeOffsetMs},
+        {QStringLiteral("videoPath"), task.videoPath},
+        {QStringLiteral("fileName"), task.fileName},
+        {QStringLiteral("fileSizeBytes"), QString::number(task.fileSizeBytes)},
+        {QStringLiteral("fileModifiedAt"), task.fileModifiedAt.isValid() ? task.fileModifiedAt.toUTC().toString(Qt::ISODateWithMs) : QString()},
+        {QStringLiteral("durationMs"), task.durationMs},
+        {QStringLiteral("status"), task.status},
+        {QStringLiteral("probeMetadata"), probeMetadata},
+        {QStringLiteral("summaryMetadata"), summaryMetadata}
+    };
+}
+
+OfflineAnalysisTask offlineAnalysisTaskFromJson(const QJsonObject &object)
+{
+    OfflineAnalysisTask task;
+    task.id = jsonString(object, QStringLiteral("id"));
+    task.batchId = jsonString(object, QStringLiteral("batchId"));
+    task.cameraId = jsonInt(object, QStringLiteral("cameraId"));
+    task.timeOffsetMs = jsonInt(object, QStringLiteral("timeOffsetMs"));
+    task.videoPath = jsonString(object, QStringLiteral("videoPath"));
+    task.fileName = jsonString(object, QStringLiteral("fileName"));
+    task.fileSizeBytes = jsonInt64(object, QStringLiteral("fileSizeBytes"), -1);
+    task.fileModifiedAt = dateTimeFromJson(object.value(QStringLiteral("fileModifiedAt")));
+    task.durationMs = jsonInt(object, QStringLiteral("durationMs"));
+    task.status = jsonString(object, QStringLiteral("status"));
+    if (task.status.trimmed().isEmpty()) {
+        task.status = QStringLiteral("imported");
+    }
+    const QJsonValue probeMetadata = object.value(QStringLiteral("probeMetadata"));
+    if (probeMetadata.isObject()) {
+        task.probeMetadataJson = QString::fromUtf8(QJsonDocument(probeMetadata.toObject()).toJson(QJsonDocument::Compact));
+    }
+    const QJsonValue summaryMetadata = object.value(QStringLiteral("summaryMetadata"));
+    if (summaryMetadata.isObject()) {
+        task.summaryMetadataJson = QString::fromUtf8(QJsonDocument(summaryMetadata.toObject()).toJson(QJsonDocument::Compact));
+    }
+    task.createdAt = dateTimeFromJson(object.value(QStringLiteral("createdAt")));
+    task.updatedAt = dateTimeFromJson(object.value(QStringLiteral("updatedAt")));
+    return task;
 }
 
 ActionRepetition repetitionFromJson(const QJsonObject &object)
@@ -697,6 +755,11 @@ SessionHistoryItem historyFromJson(const QJsonObject &object)
     item.videoSource = jsonString(object, QStringLiteral("videoSource"));
     item.videoFallbackSource = jsonString(object, QStringLiteral("videoFallbackSource"));
     item.videoCameraName = jsonString(object, QStringLiteral("videoCameraName"));
+    item.analysisTaskId = jsonString(object, QStringLiteral("analysisTaskId"));
+    item.analysisTaskStatus = jsonString(object, QStringLiteral("analysisTaskStatus"));
+    item.analysisTaskBatchId = jsonString(object, QStringLiteral("analysisTaskBatchId"));
+    item.analysisTaskCameraId = jsonInt(object, QStringLiteral("analysisTaskCameraId"));
+    item.analysisTaskTimeOffsetMs = jsonInt(object, QStringLiteral("analysisTaskTimeOffsetMs"));
     item.sourceType = jsonString(object, QStringLiteral("sourceType"));
     if (item.sourceType.trimmed().isEmpty()) {
         item.sourceType = QStringLiteral("training");
@@ -1400,6 +1463,31 @@ bool TrainingRepository::markVideoFileCleaned(const QString &videoFileId,
                   {},
                   &ok,
                   errorMessage);
+    return ok;
+}
+
+bool TrainingRepository::saveOfflineAnalysisTask(OfflineAnalysisTask *task, QString *errorMessage)
+{
+    if (!task) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("离线分析任务为空。");
+        }
+        return false;
+    }
+    task->id = ensureId(task->id);
+    if (task->status.trimmed().isEmpty()) {
+        task->status = QStringLiteral("imported");
+    }
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("POST"),
+                                               QStringLiteral("/offline-analysis/tasks"),
+                                               offlineAnalysisTaskToJson(*task),
+                                               {},
+                                               &ok,
+                                               errorMessage);
+    if (ok) {
+        *task = offlineAnalysisTaskFromJson(response);
+    }
     return ok;
 }
 

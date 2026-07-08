@@ -50,6 +50,10 @@ F-10 的 `action_repetitions.video_file_id/video_index` 只是把动作片段时
 
 视频存储容量清理只处理已登记、路径位于配置根目录下且本机实际存在的文件。清理前必须用户勾选并二次确认；清理后只删除本机文件并写入 `training_video_files.metadata.cleanupDeletedAt/cleanupReason`，不会删除训练记录、动作实例或未登记文件。清理后的历史记录仍可查看摘要，但本地精确 seek 需要恢复原文件或改用 NVR/RTSP 回看。
 
+离线导入会先向训练服务写入 `offline_analysis_tasks`。如果服务不可用或任务保存失败，导入会被阻止，避免出现 UI 已切换到离线分析但数据库没有可反查任务的状态。
+
+F-15 的多视频能力当前只是数据协议预留：`offline_analysis_tasks.batch_id/camera_id/time_offset_ms` 可承载批次、机位和时间偏移，但 UI 仍只导入单个视频，不做多文件同步、自动对齐、复制或后台批处理。
+
 相关文件：
 
 - `rtspstream.cpp`

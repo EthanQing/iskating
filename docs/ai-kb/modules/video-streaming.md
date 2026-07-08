@@ -31,11 +31,11 @@
 - `StreamRegistry::acquire(url)` 按 URL 返回共享 `RtspStream`。
 - `RtspStream` 后台线程使用 FFmpeg 打开视频源，优先 RTSP UDP，失败后尝试 TCP；断流时记录连续/总重连次数、最近断流/恢复时间、最近错误和当前传输协议。
 - RTSP 断流后保留 1s/2s/5s/5s 退避重连；超过 30 秒未恢复时状态显示“长时间断流，请检查摄像头网络或 RTSP 配置”。
-- 离线视频导入先由 `OfflineVideoProbe` 校验本地文件、视频轨、时长、seek 能力、D3D11VA 支持和首帧硬解；通过后才由 `MainWindow::importOfflineVideo()` 切换主视图，并通过 `VideoOpenGLWidget::playFile()` 打开文件交给 AI 分析。
+- 离线视频导入先由 `OfflineVideoProbe` 校验本地文件、视频轨、时长、seek 能力、D3D11VA 支持和首帧硬解；通过后由 `MainWindow::importOfflineVideo()` 创建 `offline_analysis_tasks` 任务，再切换主视图并通过 `VideoOpenGLWidget::playFile()` 打开文件交给 AI 分析。
 - 解码必须输出 `AV_PIX_FMT_D3D11`，否则视为 fatal error。
 - `D3DVideoSurface` 负责把最新 `D3DFrame` 显示到 Qt 控件。
 - `HandAnalysisManager` 用 `D3DFrameExtractor` 从当前分析流转 RGB；采集中会由 `MainWindow::syncAnalysisStreams()` 把参与轨迹的 12 路相机活动流同步给 AI。
-- RTSP 训练时，选中机位优先使用主视图主码流，其他参与轨迹机位使用小窗预览流；离线视频仍只分析主视图单路本地文件。
+- RTSP 训练时，选中机位优先使用主视图主码流，其他参与轨迹机位使用小窗预览流；当前离线视频 UI 仍只分析主视图单路本地文件，多视频导入仅在离线任务表中预留 `batch_id/camera_id/time_offset_ms` 协议。
 - 本地文件回放使用独立 `RtspStream`，不经过 `StreamRegistry` 共享；RTSP/网络源继续走共享低延迟流。
 - `D3DFrame::mediaTimeMs` 保存媒体时间戳，供 UI 查询当前位置、片段定位和逐帧回放使用。
 - 系统设置可配置 `cameraDefaults/nvrPlaybackTemplate`，支持 `{user}`、`{password}`、`{ip}`、`{port}`、`{channel}`、`{start}`、`{end}` 占位符。历史回看和复盘校准会优先按训练开始时间、训练时长和动作片段窗口生成 NVR RTSP 回放 URL；模板不可用时回退到保存的实时主码流/预览码流或离线文件。
@@ -96,7 +96,8 @@
 2. `OfflineVideoProbe` 必须在保存 `m_offlineVideoPath` 前通过校验；失败时不改变当前播放源。
 3. 选中离线视频后 `m_selectedCamera` 为 0，开始采集不会切回 CAM 01，也不会启动 12 路 RTSP 预览。
 4. AI 分析只订阅主视图本地文件流，不会走 12 路相机轨迹拼接。
-5. 保存训练记录时 `video_source` 写入本地文件绝对路径，`video_camera_name` 写入“离线视频 · 文件名”，并登记 `external` 视频资产。
+5. 校验通过后会先保存离线分析任务；任务保存失败时不切换分析源。
+6. 保存训练记录时 `analysis_task_id/source_ref` 指向离线分析任务，`video_source` 写入本地文件绝对路径，`video_camera_name` 写入“离线视频 · 文件名”，并登记 `external` 视频资产。
 
 ### 调整本地复盘回放
 
@@ -127,6 +128,7 @@
 - ⚠️ 高风险区域：当前没有通用软件解码 fallback。
 - 离线视频仍要求解码器支持 D3D11VA；导入前会校验并提前提示不兼容编码，但历史回看仍依赖实际播放链路。
 - 离线训练记录只保存本地文件引用并登记 `external` 视频资产，不复制视频文件；后续回看依赖原文件仍在本机可访问。
+- 离线分析任务是导入记录和训练 session 的闭环索引，不代表已经实现多文件同步、自动对齐或后台离线批处理；当前单视频任务使用 `camera_id=0` 和 `time_offset_ms=0`。
 - RTSP 训练记录会登记 `planned` 视频资产，表示规范化录像路径和片段索引已生成但本次未实际录制文件。
 - 历史复盘的精确 seek、慢放和逐帧仅对本地文件可用，包括离线导入原文件和后续真实录制落盘文件。NVR/RTSP 网络回放按模板生成对应时间窗口的 RTSP 源，是否可 seek 取决于 NVR 能力；普通 RTSP planned 记录没有本地文件时只显示片段起点作为人工回看参考。
 - ⚠️ 高风险区域：D3D11 设备是全局共享的，修改线程/生命周期要谨慎。
