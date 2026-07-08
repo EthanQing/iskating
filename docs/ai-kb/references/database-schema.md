@@ -10,7 +10,7 @@
 项目使用两类持久化：
 
 - Qt `QSettings`: 保存摄像头配置和采集偏好。
-- PostgreSQL: 保存训练动作标准闭环与训练复盘校准的运动员/教练档案、教练-运动员关系、比赛基础信息、场次/分组、参赛运动员关系、动作标准、计划任务、训练记录、动作明细、视频引用、人工复核、标准参考视频、教练批注、个体基线和应用用户。
+- PostgreSQL: 保存训练动作标准闭环与训练复盘校准的运动员/教练档案、教练-运动员关系、比赛基础信息、场次/分组、参赛运动员关系、动作标准、计划任务、训练记录、动作明细、视频引用、视频资产、人工复核、标准参考视频、教练批注、个体基线和应用用户。
 
 相关文件：
 
@@ -52,6 +52,10 @@ PostgreSQL schema 在开发期由 `server/app/schema.py` 集中维护，使用 `
 - `fps`
 
 `modelPrecision` 当前同时用于 UI 选项和 AI 轮询间隔：`fast` 约 100ms，`balanced` 约 66ms，`high` 约 33ms。
+
+### `videoStorage`
+
+- `rootDir`: session 级视频资产的默认根目录；未配置时使用应用本机数据目录下的 `recordings`。
 
 ### `cameras/cameraXX`
 
@@ -160,6 +164,20 @@ P1 轨迹拼接默认把 12 路相机按 5m 一段初始化为 CAM 01: 0-5m 至 
 - NVR 回放不新增字段；历史页和复盘校准使用 `started_at`、`duration_sec`、`camera` 以及 QSettings 中的 `cameraDefaults/nvrPlaybackTemplate` 生成回放 URL，模板不可用时回退到 `video_source`/`video_fallback_source`。
 - `coach_comment`: 单次训练教练批注。
 - `notes`: 训练备注；当前 UI 的训练情境面板、历史卡片和 Markdown/CSV/PDF 报告都会展示。
+
+#### `training_video_files`
+
+保存 session 级视频资产规范，当前每次训练保存主视频/主机位 1 条：
+
+- `session_id`: 关联 `training_sessions.id`。
+- `video_index`: session 内视频序号，当前为 `1`。
+- `camera`, `camera_name`: 机位编号和显示名；离线视频为 `camera=0`。
+- `source_url`, `fallback_url`: 保存时的主视频/回退视频引用。
+- `storage_root`, `relative_dir`, `file_name`, `file_path`, `metadata_path`: 规范化录像根目录、相对目录、文件名、完整文件路径和元数据路径。
+- `status`: `planned`, `external`, `recorded`。当前 RTSP 训练为 `planned`，离线导入为 `external`，`recorded` 预留给后续真实录制。
+- `metadata`: JSONB 元数据，包含 session、运动员、开始时间、机位、视频序号和路径信息。
+
+默认根目录来自 `QSettings videoStorage/rootDir`；未配置时桌面端使用应用本机数据目录下的 `recordings`。当前不会创建真实录像文件。
 
 #### `training_session_participants`
 

@@ -197,6 +197,24 @@ struct ActionAssessment
     bool valid = false;
 };
 
+struct TrainingVideoFile
+{
+    QString id;
+    QString sessionId;
+    int videoIndex = 1;
+    int camera = 0;
+    QString cameraName;
+    QString sourceUrl;
+    QString fallbackUrl;
+    QString storageRoot;
+    QString relativeDir;
+    QString fileName;
+    QString filePath;
+    QString metadataPath;
+    QString status = QStringLiteral("planned");
+    QString metadataJson;
+};
+
 struct ActionRepetition
 {
     QString id;
@@ -326,6 +344,7 @@ struct TrainingSession
     QString notes;
     QString coachComment;
     QVector<TrainingSessionParticipant> participants;
+    QVector<TrainingVideoFile> videoFiles;
 };
 
 struct SessionHistoryItem
@@ -390,6 +409,7 @@ struct SessionHistoryItem
     QString notes;
     QString coachComment;
     QVector<TrainingSessionParticipant> participants;
+    QVector<TrainingVideoFile> videoFiles;
 };
 
 struct TrainingBaseline

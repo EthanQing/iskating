@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -1049,6 +1050,84 @@ def participants_for_sessions(db: Session, session_ids: list[str]) -> dict[str, 
     return grouped
 
 
+def video_file_row(row: dict[str, Any]) -> dict[str, Any]:
+    metadata = row.get("metadata") or {}
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except json.JSONDecodeError:
+            metadata = {}
+    return {
+        "id": str(row["id"]),
+        "sessionId": str(row["session_id"]),
+        "videoIndex": row["video_index"],
+        "camera": row["camera"],
+        "cameraName": row["camera_name"] or "",
+        "sourceUrl": row["source_url"] or "",
+        "fallbackUrl": row["fallback_url"] or "",
+        "storageRoot": row["storage_root"] or "",
+        "relativeDir": row["relative_dir"] or "",
+        "fileName": row["file_name"] or "",
+        "filePath": row["file_path"] or "",
+        "metadataPath": row["metadata_path"] or "",
+        "status": row["status"] or "planned",
+        "metadata": metadata,
+    }
+
+
+def video_files_for_sessions(db: Session, session_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+    if not session_ids:
+        return {}
+    rows = db.execute(
+        text("SELECT * FROM training_video_files WHERE session_id = ANY(:session_ids) ORDER BY session_id, video_index"),
+        {"session_ids": session_ids},
+    ).mappings()
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        item = video_file_row(dict(row))
+        grouped.setdefault(item["sessionId"], []).append(item)
+    return grouped
+
+
+def save_training_video_files(db: Session, session_id: str, files: list[dict[str, Any]]) -> None:
+    db.execute(text("DELETE FROM training_video_files WHERE session_id = :session_id"), {"session_id": session_id})
+    for index, item in enumerate(files, start=1):
+        status_value = item.get("status") or "planned"
+        if status_value not in {"planned", "external", "recorded"}:
+            status_value = "planned"
+        metadata = item.get("metadata") or {}
+        if isinstance(metadata, str):
+            try:
+                metadata = json.loads(metadata)
+            except json.JSONDecodeError:
+                metadata = {}
+        db.execute(
+            text(
+                "INSERT INTO training_video_files "
+                "(id, session_id, video_index, camera, camera_name, source_url, fallback_url, storage_root, relative_dir, "
+                "file_name, file_path, metadata_path, status, metadata, updated_at) "
+                "VALUES (:id, :session_id, :video_index, :camera, :camera_name, :source_url, :fallback_url, :storage_root, "
+                ":relative_dir, :file_name, :file_path, :metadata_path, :status, CAST(:metadata AS jsonb), now())"
+            ),
+            {
+                "id": parse_uuid(item.get("id")) or new_uuid(),
+                "session_id": session_id,
+                "video_index": int(item.get("videoIndex") or index),
+                "camera": int(item.get("camera") or 0),
+                "camera_name": item.get("cameraName") or None,
+                "source_url": item.get("sourceUrl") or None,
+                "fallback_url": item.get("fallbackUrl") or None,
+                "storage_root": item.get("storageRoot") or None,
+                "relative_dir": item.get("relativeDir") or None,
+                "file_name": item.get("fileName") or None,
+                "file_path": item.get("filePath") or None,
+                "metadata_path": item.get("metadataPath") or None,
+                "status": status_value,
+                "metadata": json.dumps(metadata, ensure_ascii=False),
+            },
+        )
+
+
 def save_session_participants(db: Session, session_id: str, primary_athlete_id: str, participants: list[dict[str, Any]]) -> dict[str, str]:
     normalized: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -1093,8 +1172,6 @@ def save_session_participants(db: Session, session_id: str, primary_athlete_id: 
 def save_training_session(payload: dict[str, Any] = Body(...),
                           db: Session = Depends(db_session),
                           _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
-    import json
-
     session = payload.get("session", payload)
     repetitions = payload.get("repetitions", [])
     session_id = parse_uuid(session.get("id")) or new_uuid()
@@ -1175,6 +1252,7 @@ def save_training_session(payload: dict[str, Any] = Body(...),
         },
     )
     participant_by_athlete = save_session_participants(db, session_id, athlete_id, session.get("participants", []))
+    save_training_video_files(db, session_id, session.get("videoFiles", []))
     db.execute(text("DELETE FROM action_repetitions WHERE session_id = :session_id"), {"session_id": session_id})
     for repetition in repetitions:
         rep_athlete_id = parse_uuid(repetition.get("athleteId"))
@@ -1355,11 +1433,14 @@ def search_sessions(
         ),
         args,
     ).mappings())
-    participant_map = participants_for_sessions(db, [str(row["id"]) for row in rows])
+    session_ids = [str(row["id"]) for row in rows]
+    participant_map = participants_for_sessions(db, session_ids)
+    video_file_map = video_files_for_sessions(db, session_ids)
     items = []
     for row in rows:
         item = history_row(dict(row))
         item["participants"] = participant_map.get(item["id"], [])
+        item["videoFiles"] = video_file_map.get(item["id"], [])
         items.append(item)
     return {"items": items, "totalCount": total, "pageNumber": page_number, "pageSize": page_size}
 

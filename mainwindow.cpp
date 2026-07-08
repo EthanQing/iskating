@@ -12,6 +12,7 @@
 #include "trainingrepository.h"
 #include "trajectorywidget.h"
 #include "ui_mainwindow.h"
+#include "videostorageplan.h"
 #include "videoopenglwidget.h"
 
 #include <QAction>
@@ -68,6 +69,7 @@
 #include <QTime>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QUuid>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -326,6 +328,74 @@ QString displayMediaSource(const QString &source)
         url.setPassword(QStringLiteral("***"));
     }
     return url.toString(QUrl::RemoveQuery | QUrl::RemoveFragment);
+}
+
+QString videoFileStatusLabel(const QString &status)
+{
+    if (status == QStringLiteral("external")) {
+        return QStringLiteral("外部文件");
+    }
+    if (status == QStringLiteral("recorded")) {
+        return QStringLiteral("已录制");
+    }
+    return QStringLiteral("已规划");
+}
+
+QString videoFileDisplayPath(const TrainingVideoFile &file)
+{
+    if (!file.filePath.trimmed().isEmpty()) {
+        return QDir::toNativeSeparators(file.filePath.trimmed());
+    }
+    if (!file.sourceUrl.trimmed().isEmpty()) {
+        return displayMediaSource(file.sourceUrl);
+    }
+    return QStringLiteral("未记录");
+}
+
+QString videoFilesSummary(const QVector<TrainingVideoFile> &files)
+{
+    if (files.isEmpty()) {
+        return QStringLiteral("未登记视频资产");
+    }
+
+    QStringList lines;
+    for (const TrainingVideoFile &file : files) {
+        lines << QStringLiteral("#%1 %2 · %3 · %4")
+                     .arg(file.videoIndex)
+                     .arg(videoFileStatusLabel(file.status))
+                     .arg(file.cameraName.trimmed().isEmpty()
+                              ? QStringLiteral("CAM %1").arg(file.camera, 2, 10, QLatin1Char('0'))
+                              : file.cameraName.trimmed())
+                     .arg(videoFileDisplayPath(file));
+    }
+    return lines.join(QLatin1Char('\n'));
+}
+
+QString videoFileIndexes(const QVector<TrainingVideoFile> &files)
+{
+    QStringList values;
+    for (const TrainingVideoFile &file : files) {
+        values << QString::number(file.videoIndex);
+    }
+    return values.join(QLatin1Char('|'));
+}
+
+QString videoFileStatuses(const QVector<TrainingVideoFile> &files)
+{
+    QStringList values;
+    for (const TrainingVideoFile &file : files) {
+        values << file.status;
+    }
+    return values.join(QLatin1Char('|'));
+}
+
+QString videoFilePaths(const QVector<TrainingVideoFile> &files)
+{
+    QStringList values;
+    for (const TrainingVideoFile &file : files) {
+        values << videoFileDisplayPath(file);
+    }
+    return values.join(QLatin1Char('|'));
 }
 
 QString offlineVideoDisplayName(const QString &filePath)
@@ -4087,6 +4157,7 @@ void MainWindow::saveRecord()
     }
 
     TrainingSession session;
+    session.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     session.athleteId = athleteId;
     session.coachId = coachId;
     session.competitionId = competitionId;
@@ -4141,6 +4212,24 @@ void MainWindow::saveRecord()
         session.videoFallbackSource = cameraWidget->previewUrl().trimmed();
         session.videoCameraName = cameraWidget->channelName();
     }
+    QString athleteName;
+    for (const AthleteProfile &athlete : std::as_const(m_athletes)) {
+        if (athlete.id == athleteId) {
+            athleteName = athlete.name;
+            break;
+        }
+    }
+    VideoStoragePlanInput videoPlan;
+    videoPlan.sessionId = session.id;
+    videoPlan.athleteId = athleteId;
+    videoPlan.athleteName = athleteName;
+    videoPlan.startedAt = session.startedAt;
+    videoPlan.camera = session.camera;
+    videoPlan.cameraName = session.videoCameraName;
+    videoPlan.sourceUrl = session.videoSource;
+    videoPlan.fallbackUrl = session.videoFallbackSource;
+    videoPlan.externalFile = offlineSession;
+    session.videoFiles = {buildTrainingVideoFilePlan(videoPlan)};
     if (!competitionEventId.isEmpty()) {
         session.sourceType = QStringLiteral("competition");
         session.sourceRef = competitionEventId;
@@ -4453,7 +4542,7 @@ void MainWindow::refreshHistory()
         metaLabel->setWordWrap(true);
         cardLayout->addWidget(metaLabel);
 
-        auto *feedbackLabel = new QLabel(QStringLiteral("标准 v%1 · %2 · %3\n场地：%4   阶段：%5   目标：%6\n备注：%7\n视频：%8\n反馈：%9")
+        auto *feedbackLabel = new QLabel(QStringLiteral("标准 v%1 · %2 · %3\n场地：%4   阶段：%5   目标：%6\n备注：%7\n视频：%8\n视频资产：%9\n反馈：%10")
                                              .arg(record.standardVersion)
                                              .arg(record.actionCategory)
                                              .arg(record.coachName.isEmpty() ? QStringLiteral("未指定教练") : record.coachName)
@@ -4464,6 +4553,7 @@ void MainWindow::refreshHistory()
                                              .arg(hasNvrPlayback
                                                       ? QStringLiteral("NVR 回放已配置")
                                                       : displayMediaSource(record.videoSource))
+                                             .arg(videoFilesSummary(record.videoFiles))
                                              .arg(record.feedback),
                                          card);
         feedbackLabel->setWordWrap(true);
@@ -5249,6 +5339,7 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
         if (!record.videoFallbackSource.trimmed().isEmpty()) {
             out << "- 回退视频：" << displayMediaSource(record.videoFallbackSource) << "\n";
         }
+        out << "- 视频资产：\n" << videoFilesSummary(record.videoFiles) << "\n";
         out << "\n## 综合反馈\n\n" << (record.feedback.trimmed().isEmpty() ? QStringLiteral("未填写") : record.feedback.trimmed()) << "\n\n";
         out << "## 教练批注\n\n"
             << (record.coachComment.trimmed().isEmpty() ? QStringLiteral("未填写") : record.coachComment.trimmed())
@@ -5308,6 +5399,9 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
             QStringLiteral("session_best_score"),
             QStringLiteral("training_notes"),
             QStringLiteral("video_source"),
+            QStringLiteral("video_file_indexes"),
+            QStringLiteral("video_file_statuses"),
+            QStringLiteral("video_file_paths"),
             QStringLiteral("rep_index"),
             QStringLiteral("source"),
             QStringLiteral("review_status"),
@@ -5369,7 +5463,10 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
                 << csvField(QString::number(record.score))
                 << csvField(QString::number(record.bestScore))
                 << csvField(record.notes)
-                << csvField(displayMediaSource(record.videoSource));
+                << csvField(displayMediaSource(record.videoSource))
+                << csvField(videoFileIndexes(record.videoFiles))
+                << csvField(videoFileStatuses(record.videoFiles))
+                << csvField(videoFilePaths(record.videoFiles));
             if (!rep) {
                 for (int i = 0; i < 29; ++i) {
                     row << csvField(QString());
@@ -5470,7 +5567,8 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
                                        .arg(record.targetReps)
                                        .arg(record.targetScore)},
             {QStringLiteral("复核后平均/最佳分"), QStringLiteral("%1/%2").arg(record.score).arg(record.bestScore)},
-            {QStringLiteral("视频"), displayMediaSource(record.videoSource)}
+            {QStringLiteral("视频"), displayMediaSource(record.videoSource)},
+            {QStringLiteral("视频资产"), videoFilesSummary(record.videoFiles)}
         };
         for (const auto &row : summaryRows) {
             out << "<tr><th>" << row.first.toHtmlEscaped() << "</th><td>" << row.second.toHtmlEscaped() << "</td></tr>";

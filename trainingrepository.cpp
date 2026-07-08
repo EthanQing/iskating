@@ -321,6 +321,30 @@ QJsonObject sessionToJson(const TrainingSession &session)
             {QStringLiteral("active"), participant.active}
         });
     }
+    QJsonArray videoFiles;
+    for (const TrainingVideoFile &file : session.videoFiles) {
+        QJsonObject metadata;
+        const QJsonDocument metadataDocument = QJsonDocument::fromJson(file.metadataJson.toUtf8());
+        if (metadataDocument.isObject()) {
+            metadata = metadataDocument.object();
+        }
+        videoFiles.append(QJsonObject{
+            {QStringLiteral("id"), file.id},
+            {QStringLiteral("sessionId"), file.sessionId},
+            {QStringLiteral("videoIndex"), file.videoIndex},
+            {QStringLiteral("camera"), file.camera},
+            {QStringLiteral("cameraName"), file.cameraName},
+            {QStringLiteral("sourceUrl"), file.sourceUrl},
+            {QStringLiteral("fallbackUrl"), file.fallbackUrl},
+            {QStringLiteral("storageRoot"), file.storageRoot},
+            {QStringLiteral("relativeDir"), file.relativeDir},
+            {QStringLiteral("fileName"), file.fileName},
+            {QStringLiteral("filePath"), file.filePath},
+            {QStringLiteral("metadataPath"), file.metadataPath},
+            {QStringLiteral("status"), file.status},
+            {QStringLiteral("metadata"), metadata}
+        });
+    }
     return {
         {QStringLiteral("id"), session.id},
         {QStringLiteral("athleteId"), session.athleteId},
@@ -363,7 +387,8 @@ QJsonObject sessionToJson(const TrainingSession &session)
         {QStringLiteral("feedback"), session.feedback},
         {QStringLiteral("notes"), session.notes},
         {QStringLiteral("coachComment"), session.coachComment},
-        {QStringLiteral("participants"), participants}
+        {QStringLiteral("participants"), participants},
+        {QStringLiteral("videoFiles"), videoFiles}
     };
 }
 
@@ -490,6 +515,34 @@ TrainingSessionParticipant participantFromJson(const QJsonObject &object)
     return participant;
 }
 
+TrainingVideoFile videoFileFromJson(const QJsonObject &object)
+{
+    TrainingVideoFile file;
+    file.id = jsonString(object, QStringLiteral("id"));
+    file.sessionId = jsonString(object, QStringLiteral("sessionId"));
+    file.videoIndex = jsonInt(object, QStringLiteral("videoIndex"), 1);
+    file.camera = jsonInt(object, QStringLiteral("camera"));
+    file.cameraName = jsonString(object, QStringLiteral("cameraName"));
+    file.sourceUrl = jsonString(object, QStringLiteral("sourceUrl"));
+    file.fallbackUrl = jsonString(object, QStringLiteral("fallbackUrl"));
+    file.storageRoot = jsonString(object, QStringLiteral("storageRoot"));
+    file.relativeDir = jsonString(object, QStringLiteral("relativeDir"));
+    file.fileName = jsonString(object, QStringLiteral("fileName"));
+    file.filePath = jsonString(object, QStringLiteral("filePath"));
+    file.metadataPath = jsonString(object, QStringLiteral("metadataPath"));
+    file.status = jsonString(object, QStringLiteral("status"));
+    if (file.status.trimmed().isEmpty()) {
+        file.status = QStringLiteral("planned");
+    }
+    const QJsonValue metadata = object.value(QStringLiteral("metadata"));
+    if (metadata.isObject()) {
+        file.metadataJson = QString::fromUtf8(QJsonDocument(metadata.toObject()).toJson(QJsonDocument::Compact));
+    } else {
+        file.metadataJson = jsonString(object, QStringLiteral("metadata"));
+    }
+    return file;
+}
+
 RepetitionSearchItem repetitionSearchItemFromJson(const QJsonObject &object)
 {
     RepetitionSearchItem item;
@@ -600,6 +653,10 @@ SessionHistoryItem historyFromJson(const QJsonObject &object)
     const QJsonArray participants = object.value(QStringLiteral("participants")).toArray();
     for (const QJsonValue &value : participants) {
         item.participants.append(participantFromJson(value.toObject()));
+    }
+    const QJsonArray videoFiles = object.value(QStringLiteral("videoFiles")).toArray();
+    for (const QJsonValue &value : videoFiles) {
+        item.videoFiles.append(videoFileFromJson(value.toObject()));
     }
     return item;
 }
@@ -1492,6 +1549,10 @@ bool TrainingRepository::saveTrainingSession(TrainingSession *session,
         return false;
     }
     session->id = ensureId(session->id);
+    for (TrainingVideoFile &file : session->videoFiles) {
+        file.id = ensureId(file.id);
+        file.sessionId = session->id;
+    }
     QJsonArray reps;
     for (ActionRepetition repetition : repetitions) {
         repetition.id = ensureId(repetition.id);

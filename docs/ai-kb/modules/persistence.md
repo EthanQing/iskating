@@ -39,10 +39,13 @@
 - `cameraDefaults/nvrPlaybackTemplate`
 - `capture/modelPrecision`
 - `capture/fps`
+- `videoStorage/rootDir`
 - `cameras/camera01` 到 `cameras/camera12`
 - `trainingHistory` 数组
 
 系统设置支持把当前摄像头配置导出为 JSON 模板，也支持从 JSON 模板导入并预览摘要后覆盖设置对话框表单。模板只是现场批量配置交换格式，不替代 QSettings；用户点击“保存”后仍由 `persistSystemSettings()` 写入上述 key。
+
+`videoStorage/rootDir` 当前没有系统设置 UI 入口，可由外部写入 QSettings；未配置时桌面端使用 `QStandardPaths::AppLocalDataLocation/recordings` 作为视频资产默认根目录。
 
 `trainingHistory` 仅作为旧数据兼容来源。新版本启动时不会自动导入本机 SQLite；需要时先使用 `tools/reset_postgres_schema.py --yes` 重建空库 schema，再用 `tools/import_sqlite_to_postgres.py` 将旧 `%APPDATA%/iSkating/iSkating Coach/iskating.db` 导入 PostgreSQL。
 
@@ -52,10 +55,10 @@ PostgreSQL 主要表：
 - `competitions`, `competition_events`, `event_athletes`
 - `action_categories`, `action_standards`
 - `training_plans`, `training_tasks`
-- `training_sessions`, `training_session_participants`, `action_repetitions`
+- `training_sessions`, `training_session_participants`, `training_video_files`, `action_repetitions`
 - `athlete_action_baselines`
 
-`athletes` 保存运动员档案并用 `active` 做归档；`coaches` 保存教练档案、专项、电话、备注并用 `active` 做归档；`coach_athletes` 保存教练可带训运动员关系。人员删除不会硬删历史外键，只从训练选择与人员管理列表中隐藏。`competitions` 保存比赛名称、地点、日期、类型、备注并用 `active` 做归档；`competition_events` 保存比赛下的 race/event/heat/group、计划时间和备注；`event_athletes` 保存场次内运动员参赛号、道次、排序、结果分和名次。三类比赛数据均软归档，归档后不再出现在新训练选择中，历史 session 仍保留外键和联查展示。`training_sessions` 记录训练上下文、可选比赛/场次/参赛关系归属、任务/计划归属、分析来源类型与引用、分项分、视频源引用、回退视频源、机位名称、反馈、备注和单次训练教练批注；`training_session_participants` 记录同一 session 最多 4 名参与运动员，主运动员为 `primary`。`source_type/source_ref` 在 session 级统一标记训练、比赛或导入视频来源，动作分析结果通过 `action_repetitions.session_id` 继承该归属。历史回放可结合 `started_at`、`duration_sec`、`camera` 和 QSettings 中的 NVR 模板生成回放 URL，不新增数据库字段。`action_repetitions` 保留 AI 原始起止时间、有效性、总分/分项分、错误项、反馈、关键帧时间和视频片段，同时保存动作级参与者、运动员、`track_id`、`camera_id`、`frame_time_ms`、身份状态/置信度/来源，以及人工复核字段。`action_standards` 保存本地标准参考视频路径、参考动作实例和参考说明，用于复盘中的标准动作对比。
+`athletes` 保存运动员档案并用 `active` 做归档；`coaches` 保存教练档案、专项、电话、备注并用 `active` 做归档；`coach_athletes` 保存教练可带训运动员关系。人员删除不会硬删历史外键，只从训练选择与人员管理列表中隐藏。`competitions` 保存比赛名称、地点、日期、类型、备注并用 `active` 做归档；`competition_events` 保存比赛下的 race/event/heat/group、计划时间和备注；`event_athletes` 保存场次内运动员参赛号、道次、排序、结果分和名次。三类比赛数据均软归档，归档后不再出现在新训练选择中，历史 session 仍保留外键和联查展示。`training_sessions` 记录训练上下文、可选比赛/场次/参赛关系归属、任务/计划归属、分析来源类型与引用、分项分、视频源引用、回退视频源、机位名称、反馈、备注和单次训练教练批注；`training_session_participants` 记录同一 session 最多 4 名参与运动员，主运动员为 `primary`；`training_video_files` 记录 session 级主视频/主机位资产，包含视频序号、机位、源引用、规范目录、文件名、元数据路径和 `planned/external/recorded` 状态。`source_type/source_ref` 在 session 级统一标记训练、比赛或导入视频来源，动作分析结果通过 `action_repetitions.session_id` 继承该归属。历史回放可结合 `started_at`、`duration_sec`、`camera` 和 QSettings 中的 NVR 模板生成回放 URL。`action_repetitions` 保留 AI 原始起止时间、有效性、总分/分项分、错误项、反馈、关键帧时间和视频片段，同时保存动作级参与者、运动员、`track_id`、`camera_id`、`frame_time_ms`、身份状态/置信度/来源，以及人工复核字段。`action_standards` 保存本地标准参考视频路径、参考动作实例和参考说明，用于复盘中的标准动作对比。
 
 复盘、趋势和报告默认使用“人工优先”的有效值：动作有人工复核时使用人工字段，否则使用 AI 原始字段。保存复核或新增手动动作后，`TrainingRepository::recalculateSessionSummary()` 会重算 `training_sessions` 汇总分、动作数和个体基线。
 
@@ -135,7 +138,7 @@ PostgreSQL 主要表：
 - 删除或重命名 key 会影响旧用户配置；应保留兼容读取。
 - 摄像头配置模板会包含 RTSP 密码，导入确认摘要和日志不得展示明文完整 RTSP URL。
 - 不再向 `trainingHistory` 写入新训练记录。
-- 复盘校准保存的是主码流/回退码流引用、动作片段时间窗口和关键帧姿态 JSON，不会录制、剪辑或复制视频文件；离线回看依赖原文件仍在本机，NVR 回看依赖 `cameraDefaults/nvrPlaybackTemplate` 能按机位和时间生成可访问 RTSP 回放 URL。
+- 复盘校准保存的是主码流/回退码流引用、session 级视频资产、动作片段时间窗口和关键帧姿态 JSON。`training_video_files` 当前只登记规范化录像路径和元数据，不会录制、剪辑或复制视频文件；离线回看依赖原文件仍在本机，NVR 回看依赖 `cameraDefaults/nvrPlaybackTemplate` 能按机位和时间生成可访问 RTSP 回放 URL。
 - 默认动作标准 seed 只插入缺失项，不应覆盖用户本地编辑的阈值、权重、提示文案或参考视频。
 - 人员“删除”是归档：`active=0` 后不再出现在选择列表，但历史训练记录仍保留原外键和姓名联查能力；不要硬删被训练记录引用的人员。
 

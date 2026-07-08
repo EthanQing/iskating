@@ -7,6 +7,7 @@ from sqlalchemy.engine import Engine
 BUSINESS_TABLES = [
     "athlete_action_baselines",
     "action_repetitions",
+    "training_video_files",
     "training_session_participants",
     "training_sessions",
     "training_tasks",
@@ -236,6 +237,27 @@ CREATE TABLE training_session_participants (
     CONSTRAINT uq_training_session_participants_slot UNIQUE (session_id, slot_index)
 );
 
+CREATE TABLE training_video_files (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id uuid NOT NULL REFERENCES training_sessions(id) ON DELETE CASCADE,
+    video_index integer NOT NULL DEFAULT 1,
+    camera integer NOT NULL DEFAULT 0,
+    camera_name text,
+    source_url text,
+    fallback_url text,
+    storage_root text,
+    relative_dir text,
+    file_name text,
+    file_path text,
+    metadata_path text,
+    status text NOT NULL DEFAULT 'planned',
+    metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT ck_training_video_files_status CHECK (status IN ('planned', 'external', 'recorded')),
+    CONSTRAINT uq_training_video_files_session_index UNIQUE (session_id, video_index)
+);
+
 CREATE TABLE action_repetitions (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id uuid NOT NULL REFERENCES training_sessions(id) ON DELETE CASCADE,
@@ -300,6 +322,7 @@ CREATE INDEX ix_training_tasks_plan ON training_tasks(plan_id);
 CREATE INDEX ix_training_plans_date ON training_plans(training_date);
 CREATE INDEX ix_training_session_participants_session ON training_session_participants(session_id);
 CREATE INDEX ix_training_session_participants_athlete ON training_session_participants(athlete_id);
+CREATE INDEX ix_training_video_files_session ON training_video_files(session_id);
 CREATE INDEX ix_action_repetitions_session ON action_repetitions(session_id);
 CREATE INDEX ix_action_repetitions_review ON action_repetitions(review_status);
 CREATE INDEX ix_action_repetitions_participant ON action_repetitions(participant_id);

@@ -141,6 +141,7 @@ SOURCES += \
     trajectorywidget.cpp \
     trainingreviewdialog.cpp \
     trainingrepository.cpp \
+    videostorageplan.cpp \
     videoopenglwidget.cpp
 
 HEADERS += \
@@ -172,6 +173,7 @@ HEADERS += \
     trainingdomain.h \
     trainingreviewdialog.h \
     trainingrepository.h \
+    videostorageplan.h \
     videoopenglwidget.h
 
 FORMS += \

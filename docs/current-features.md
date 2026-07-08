@@ -63,6 +63,7 @@
 
 - 通过 FastAPI/PostgreSQL 保存训练 session。
 - 保存动作实例、分数、错误项、反馈和视频引用。
+- 保存 session 级视频资产元数据，按规范目录和文件名登记主视频/主机位的录像文件路径、视频序号和状态。
 - 历史训练记录展示。
 - 训练统计摘要。
 - 教练批注保存。
@@ -92,6 +93,7 @@
 - 摄像头配置模板导入/导出。
 - 摄像头批量连通测试结果临时展示，不自动写回本地配置。
 - 采集偏好本地保存。
+- 视频资产根目录可通过 `QSettings videoStorage/rootDir` 配置；未配置时使用本机应用数据目录下的 `recordings`。
 - 训练业务数据保存到 PostgreSQL。
 - FastAPI 服务端初始化默认管理员、运动员、教练和动作标准数据。
 - 开发期 PostgreSQL schema 可通过 `tools/reset_postgres_schema.py --yes` 手动重建；旧 SQLite 训练库可在空库重建后通过一次性工具导入。

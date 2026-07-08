@@ -61,6 +61,47 @@ def json_text(value: Any) -> Any:
         return value
 
 
+def has_media_url_scheme(value: Any) -> bool:
+    return "://" in str(value or "")
+
+
+def legacy_video_file(row: sqlite3.Row) -> dict[str, Any] | None:
+    session_id = as_uuid(row["id"])
+    video_source = row["video_source"] or ""
+    fallback_source = row["video_fallback_source"] or ""
+    if not video_source and not fallback_source:
+        return None
+    camera = int(row["camera"] or 0)
+    status = "planned" if has_media_url_scheme(video_source) or camera > 0 else "external"
+    file_path = video_source if status == "external" else ""
+    metadata = {
+        "sessionId": session_id,
+        "videoIndex": 1,
+        "camera": camera,
+        "cameraName": row["video_camera_name"] or "",
+        "sourceUrl": video_source,
+        "fallbackUrl": fallback_source,
+        "status": status,
+        "legacyImport": True,
+    }
+    return {
+        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"iskating-video-file:{session_id}:1")),
+        "session_id": session_id,
+        "video_index": 1,
+        "camera": camera,
+        "camera_name": row["video_camera_name"],
+        "source_url": video_source or None,
+        "fallback_url": fallback_source or None,
+        "storage_root": None,
+        "relative_dir": None,
+        "file_name": Path(video_source).name if file_path else None,
+        "file_path": file_path or None,
+        "metadata_path": None,
+        "status": status,
+        "metadata": Jsonb(metadata),
+    }
+
+
 def scores(row: sqlite3.Row, prefix: str = "") -> dict[str, int]:
     def get(name: str, default: int) -> int:
         key = f"{prefix}{name}_score" if prefix else f"{name}_score"
@@ -358,6 +399,24 @@ def import_data(sqlite_path: Path, database_url: str) -> dict[str, int]:
                         "coach_comment": row["coach_comment"],
                     },
                 )
+                video_file = legacy_video_file(row)
+                if video_file:
+                    target.execute(
+                        """
+                        INSERT INTO training_video_files
+                        (id, session_id, video_index, camera, camera_name, source_url, fallback_url, storage_root,
+                         relative_dir, file_name, file_path, metadata_path, status, metadata, updated_at)
+                        VALUES (%(id)s, %(session_id)s, %(video_index)s, %(camera)s, %(camera_name)s,
+                                %(source_url)s, %(fallback_url)s, %(storage_root)s, %(relative_dir)s,
+                                %(file_name)s, %(file_path)s, %(metadata_path)s, %(status)s, %(metadata)s, now())
+                        ON CONFLICT (session_id, video_index) DO UPDATE SET
+                        camera=excluded.camera, camera_name=excluded.camera_name, source_url=excluded.source_url,
+                        fallback_url=excluded.fallback_url, file_name=excluded.file_name, file_path=excluded.file_path,
+                        status=excluded.status, metadata=excluded.metadata, updated_at=now()
+                        """,
+                        video_file,
+                    )
+                    counts["training_video_files"] = counts.get("training_video_files", 0) + 1
                 counts["training_sessions"] = counts.get("training_sessions", 0) + 1
 
             for row in sqlite_rows(source, "action_repetitions"):
