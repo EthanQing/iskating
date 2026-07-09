@@ -21,7 +21,7 @@
 - `RtspStream::start()` 创建线程，循环 `openAndDecodeOnce()`，断流后重连。
 - `RtspStream::stop()` 设置 stop flag，最多等待 8 秒后 terminate。
 - `HandAnalysisWorker::run()` 初始化模型，然后按分析档位轮询最新帧：`fast` 约 100ms，`balanced` 约 66ms，`high` 约 33ms。
-- `HandAnalysisManager::setActiveStreams()` 支持多路 `RtspStream`，worker 按轮询顺序在有新帧的流之间 round-robin 分析，并把 `cameraId` 写回 `PoseFrameResult`。
+- `HandAnalysisManager::setActiveStreams()` 支持多路 `RtspStream`，worker 按轮询顺序在有新帧且达到目标 FPS 间隔的流之间 round-robin 分析，并把 `cameraId` 写回 `PoseFrameResult`。
 - AI 分析结果通过 `QMetaObject::invokeMethod(..., Qt::QueuedConnection)` 发送回 `MainWindow`。
 - `HandAnalysisWorker::stop()` 等待最长 180 秒，因为 TensorRT 关闭可能很慢。
 
@@ -53,7 +53,7 @@
 
 - 不要从 worker 线程直接操作 QWidget。
 - 不要在持有 mutex 时调用可能回调 UI 或耗时的逻辑。
-- 多路分析是单个 TensorRT worker 在多路流之间轮询，不是 12 个并行模型实例；12 路同时接入时实际每路 FPS 取决于 GPU、解码和档位。
+- 多路分析是单个 TensorRT worker 在多路流之间轮询，不是 12 个并行模型实例；12 路同时接入时实际每路 FPS 取决于 GPU、解码、目标 FPS、自动降级和档位。
 - `StreamRegistry` 使用 weak pointer；没有控件引用时流会自然释放。
 - 修改线程 stop 逻辑要特别小心 FFmpeg 阻塞和 TensorRT 析构耗时。
 
@@ -65,4 +65,3 @@
 ## 未确认问题
 
 - TODO: 未确认目标机器上同时解码 12 路 RTSP 的性能上限。
-- TODO: 未确认 AI 分析目标 FPS 是否必须等于系统设置里的主码流 FPS。

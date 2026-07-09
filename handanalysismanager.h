@@ -24,6 +24,9 @@ public:
     {
         int cameraId = 0;
         QString sourceName;
+        int targetFps = 5;
+        int priority = 0;
+        bool autoDegrade = true;
         std::shared_ptr<RtspStream> stream;
     };
 

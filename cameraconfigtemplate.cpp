@@ -137,7 +137,13 @@ QJsonObject captureToJson(const CapturePreferenceSettings &settings)
     object.insert(QStringLiteral("modelPrecision"), settings.modelPrecision.trimmed().isEmpty()
                                                     ? QStringLiteral("balanced")
                                                     : settings.modelPrecision.trimmed());
-    object.insert(QStringLiteral("fps"), settings.fps > 0 ? settings.fps : kDefaultMainFps);
+    object.insert(QStringLiteral("analysisSource"), settings.analysisSource == QStringLiteral("main")
+                                                     ? QStringLiteral("main")
+                                                     : QStringLiteral("preview"));
+    object.insert(QStringLiteral("analysisTargetFps"), settings.analysisTargetFps > 0 ? settings.analysisTargetFps : 5);
+    object.insert(QStringLiteral("analysisMaxStreams"), settings.analysisMaxStreams > 0 ? settings.analysisMaxStreams : 12);
+    object.insert(QStringLiteral("analysisAutoDegrade"), settings.analysisAutoDegrade);
+    object.insert(QStringLiteral("fps"), settings.analysisTargetFps > 0 ? settings.analysisTargetFps : 5);
     return object;
 }
 
@@ -185,15 +191,26 @@ SharedCameraSettings sharedFromJson(const QJsonObject &object)
 
 CapturePreferenceSettings captureFromJson(const QJsonObject &object, int mainFps)
 {
+    Q_UNUSED(mainFps);
     CapturePreferenceSettings settings;
     settings.modelPrecision = jsonString(object, QStringLiteral("modelPrecision"), QStringLiteral("balanced"));
     if (settings.modelPrecision.isEmpty()) {
         settings.modelPrecision = QStringLiteral("balanced");
     }
-    settings.fps = jsonInt(object, QStringLiteral("fps"), mainFps > 0 ? mainFps : kDefaultMainFps);
-    if (settings.fps <= 0) {
-        settings.fps = mainFps > 0 ? mainFps : kDefaultMainFps;
+    settings.analysisSource = jsonString(object, QStringLiteral("analysisSource"), QStringLiteral("preview"));
+    if (settings.analysisSource != QStringLiteral("main")) {
+        settings.analysisSource = QStringLiteral("preview");
     }
+    settings.analysisTargetFps = jsonInt(object, QStringLiteral("analysisTargetFps"), 5);
+    if (settings.analysisTargetFps <= 0) {
+        settings.analysisTargetFps = 5;
+    }
+    settings.analysisMaxStreams = jsonInt(object, QStringLiteral("analysisMaxStreams"), 12);
+    if (settings.analysisMaxStreams <= 0) {
+        settings.analysisMaxStreams = 12;
+    }
+    settings.analysisAutoDegrade = jsonBool(object, QStringLiteral("analysisAutoDegrade"), true);
+    settings.fps = settings.analysisTargetFps;
     return settings;
 }
 

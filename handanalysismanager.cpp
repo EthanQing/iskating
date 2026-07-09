@@ -22,6 +22,7 @@
 namespace {
 
 constexpr int kDefaultAnalysisIntervalMs = 66;
+constexpr int kDefaultStreamTargetFps = 5;
 constexpr qint64 kResultTtlMs = 350;
 
 QString modelDirPath()
@@ -56,6 +57,14 @@ QString profileLabel(const QString &profile)
         return QStringLiteral("高精度");
     }
     return QStringLiteral("平衡");
+}
+
+int frameIntervalMsForFps(int fps)
+{
+    if (fps <= 0) {
+        fps = kDefaultStreamTargetFps;
+    }
+    return std::max(1, 1000 / fps);
 }
 
 } // namespace
@@ -124,6 +133,9 @@ public:
         analysisStream.sourceName = cameraId > 0
                                         ? QStringLiteral("CAM %1").arg(cameraId, 2, 10, QLatin1Char('0'))
                                         : QStringLiteral("离线视频");
+        analysisStream.targetFps = kDefaultStreamTargetFps;
+        analysisStream.priority = 0;
+        analysisStream.autoDegrade = true;
         analysisStream.stream = std::move(stream);
         QVector<HandAnalysisManager::AnalysisStream> streams;
         streams.append(analysisStream);
@@ -145,14 +157,29 @@ public:
                                           ? QStringLiteral("CAM %1").arg(stream.cameraId, 2, 10, QLatin1Char('0'))
                                           : QStringLiteral("离线视频"))
                                    : stream.sourceName.trimmed();
+            state.targetFps = stream.targetFps > 0 ? stream.targetFps : kDefaultStreamTargetFps;
+            state.priority = stream.priority;
+            state.autoDegrade = stream.autoDegrade;
             state.stream = stream.stream;
             states.append(state);
         }
 
-        QMutexLocker locker(&m_mutex);
-        m_streams = std::move(states);
-        m_nextStreamIndex = 0;
-        m_lastResultMsec = 0;
+        const int streamCount = states.size();
+        const int targetFps = streamCount > 0 ? states.first().targetFps : kDefaultStreamTargetFps;
+        const bool autoDegrade = streamCount > 0 ? states.first().autoDegrade : true;
+        {
+            QMutexLocker locker(&m_mutex);
+            m_streams = std::move(states);
+            m_nextStreamIndex = 0;
+            m_lastResultMsec = 0;
+        }
+        if (streamCount > 0) {
+            publishStatus(QStringLiteral("人体姿态 AI：%1 路，目标 %2 FPS，主机位优先%3")
+                              .arg(streamCount)
+                              .arg(targetFps)
+                              .arg(autoDegrade ? QStringLiteral("，自动降级") : QString()),
+                          true);
+        }
     }
 
     void setAnalysisProfile(const QString &profile)
@@ -212,6 +239,7 @@ private:
         StreamState selectedStream;
         int selectedIndex = -1;
         bool hasStreams = true;
+        const qint64 nowMsec = QDateTime::currentMSecsSinceEpoch();
         {
             QMutexLocker locker(&m_mutex);
             const int streamCount = m_streams.size();
@@ -227,6 +255,11 @@ private:
 
                     const auto latestFrame = candidate.stream->latestFrame();
                     if (!latestFrame || latestFrame->receivedMsec <= 0 || latestFrame->receivedMsec == candidate.lastFrameMsec) {
+                        continue;
+                    }
+                    const int degradeMultiplier = candidate.priority > 0 ? (candidate.degradeLevel + 1) : 1;
+                    const int minIntervalMs = frameIntervalMsForFps(candidate.targetFps) * degradeMultiplier;
+                    if (candidate.lastAnalyzedMsec > 0 && nowMsec - candidate.lastAnalyzedMsec < minIntervalMs) {
                         continue;
                     }
 
@@ -245,6 +278,7 @@ private:
         }
 
         QString error;
+        const auto started = std::chrono::steady_clock::now();
         QImage rgb = m_extractor.copyToRgb(frame, &error);
         if (rgb.isNull()) {
             publishStatus(QStringLiteral("人体姿态 AI 取帧失败：%1").arg(error));
@@ -252,6 +286,9 @@ private:
         }
 
         PoseFrameResult results = m_backend.infer(rgb, selectedStream.cameraId, frame->receivedMsec);
+        const int elapsedMs = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                   std::chrono::steady_clock::now() - started)
+                                                   .count());
         results.sourceName = selectedStream.sourceName;
         {
             QMutexLocker locker(&m_mutex);
@@ -260,6 +297,15 @@ private:
                 && m_streams.at(selectedIndex).stream == selectedStream.stream
                 && m_streams.at(selectedIndex).cameraId == selectedStream.cameraId) {
                 m_streams[selectedIndex].lastFrameMsec = frame->receivedMsec;
+                m_streams[selectedIndex].lastAnalyzedMsec = QDateTime::currentMSecsSinceEpoch();
+                if (m_streams[selectedIndex].autoDegrade && m_streams[selectedIndex].priority > 0) {
+                    const int budgetMs = frameIntervalMsForFps(m_streams[selectedIndex].targetFps);
+                    if (elapsedMs > budgetMs) {
+                        m_streams[selectedIndex].degradeLevel = std::min(3, m_streams[selectedIndex].degradeLevel + 1);
+                    } else if (m_streams[selectedIndex].degradeLevel > 0) {
+                        --m_streams[selectedIndex].degradeLevel;
+                    }
+                }
             }
             m_lastResultMsec = results.instances.isEmpty() ? m_lastResultMsec : QDateTime::currentMSecsSinceEpoch();
         }
@@ -324,8 +370,13 @@ private:
     {
         int cameraId = 0;
         QString sourceName;
+        int targetFps = kDefaultStreamTargetFps;
+        int priority = 0;
+        bool autoDegrade = true;
         std::shared_ptr<RtspStream> stream;
         qint64 lastFrameMsec = 0;
+        qint64 lastAnalyzedMsec = 0;
+        int degradeLevel = 0;
     };
     QVector<StreamState> m_streams;
     int m_nextStreamIndex = 0;

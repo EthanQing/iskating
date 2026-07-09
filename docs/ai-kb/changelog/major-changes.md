@@ -42,6 +42,7 @@
 
 ## 2026-07-08
 
+- 完成 F-07 多路分析流订阅策略：系统设置新增分析流来源、最大分析路数、目标 FPS 和自动降级；RTSP 多路分析按主机位优先准入，默认 12 路/5 FPS，并由单个 `HandAnalysisWorker` 对每路跳帧和非主机位降级。
 - 完成 F-09 视频存储规范与训练记录关联：新增 `training_video_files`，训练保存时登记主视频/主机位的视频序号、规范目录、文件名、元数据路径和 `planned/external/recorded` 状态。
 - 历史卡片和 Markdown/CSV/PDF 报告展示视频资产信息；当前不从 RTSP 实际录制或复制视频文件，回放仍沿用 NVR、RTSP 引用或离线原文件。
 - 完成 F-10 录像索引入库：`training_video_files` 增加时间覆盖范围、文件大小/修改时间和校验预留字段，`action_repetitions` 通过 `video_file_id/video_index` 关联动作片段到视频资产。

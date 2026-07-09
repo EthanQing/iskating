@@ -34,8 +34,8 @@
 - 离线视频导入先由 `OfflineVideoProbe` 校验本地文件、视频轨、时长、seek 能力、D3D11VA 支持和首帧硬解；通过后由 `MainWindow::importOfflineVideo()` 创建 `offline_analysis_tasks` 任务，再切换主视图并通过 `VideoOpenGLWidget::playFile()` 打开文件交给 AI 分析。
 - 解码必须输出 `AV_PIX_FMT_D3D11`，否则视为 fatal error。
 - `D3DVideoSurface` 负责把最新 `D3DFrame` 显示到 Qt 控件。
-- `HandAnalysisManager` 用 `D3DFrameExtractor` 从当前分析流转 RGB；采集中会由 `MainWindow::syncAnalysisStreams()` 把参与轨迹的 12 路相机活动流同步给 AI。
-- RTSP 训练时，选中机位优先使用主视图主码流，其他参与轨迹机位使用小窗预览流；当前离线视频 UI 仍只分析主视图单路本地文件，多视频导入仅在离线任务表中预留 `batch_id/camera_id/time_offset_ms` 协议。
+- `HandAnalysisManager` 用 `D3DFrameExtractor` 从当前分析流转 RGB；采集中会由 `MainWindow::syncAnalysisStreams()` 按“主机位优先、最大分析路数、每路目标 FPS、自动降级”策略把参与轨迹的相机活动流同步给 AI。
+- RTSP 训练时，主视图仍优先播放主码流并保留预览 fallback；多路 AI 默认订阅预览流，当前选中机位可按设置复用主视图活动流。默认分析预算为 12 路、每路 5 FPS，超载时优先降低非主机位有效分析频率；当前离线视频 UI 仍只分析主视图单路本地文件，多视频导入仅在离线任务表中预留 `batch_id/camera_id/time_offset_ms` 协议。
 - 本地文件回放使用独立 `RtspStream`，不经过 `StreamRegistry` 共享；RTSP/网络源继续走共享低延迟流。
 - `D3DFrame::mediaTimeMs` 保存媒体时间戳，供 UI 查询当前位置、片段定位和逐帧回放使用。
 - 系统设置可配置 `cameraDefaults/nvrPlaybackTemplate`，支持 `{user}`、`{password}`、`{ip}`、`{port}`、`{channel}`、`{start}`、`{end}` 占位符。历史回看和复盘校准会优先按训练开始时间、训练时长和动作片段窗口生成 NVR RTSP 回放 URL；模板不可用时回退到保存的实时主码流/预览码流或离线文件。

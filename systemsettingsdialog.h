@@ -37,7 +37,11 @@ struct CameraSlotSettings
 struct CapturePreferenceSettings
 {
     QString modelPrecision = QStringLiteral("balanced");
-    int fps = 120;
+    QString analysisSource = QStringLiteral("preview");
+    int fps = 5;
+    int analysisTargetFps = 5;
+    int analysisMaxStreams = 12;
+    bool analysisAutoDegrade = true;
 };
 
 struct VideoStorageSettings
@@ -48,6 +52,7 @@ struct VideoStorageSettings
 };
 
 class QComboBox;
+class QCheckBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
@@ -93,7 +98,10 @@ private:
     QComboBox *m_mainFpsComboBox = nullptr;
     QLineEdit *m_nvrPlaybackTemplateEdit = nullptr;
     QComboBox *m_precisionComboBox = nullptr;
+    QComboBox *m_analysisSourceComboBox = nullptr;
     QComboBox *m_fpsComboBox = nullptr;
+    QComboBox *m_analysisMaxStreamsComboBox = nullptr;
+    QCheckBox *m_analysisAutoDegradeCheckBox = nullptr;
     QLineEdit *m_videoStorageRootEdit = nullptr;
     QSpinBox *m_videoStorageCapacitySpinBox = nullptr;
     QSpinBox *m_videoStorageRetentionSpinBox = nullptr;

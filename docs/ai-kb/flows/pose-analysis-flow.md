@@ -17,9 +17,9 @@
 
 ## 流程步骤
 
-1. `MainWindow::syncAnalysisStreams()` 收集参与轨迹相机的活动流，并调用 `HandAnalysisManager::setActiveStreams()`。
+1. `MainWindow::syncAnalysisStreams()` 收集参与轨迹相机的活动流，按主机位优先、最大路数和目标 FPS 生成分析订阅，并调用 `HandAnalysisManager::setActiveStreams()`。
 2. `HandAnalysisWorker` 启动时加载 `models/body` 下的人体模型。
-3. worker 在多路 `RtspStream::latestFrame()` 之间 round-robin 选择有新帧的流。
+3. worker 在多路 `RtspStream::latestFrame()` 之间 round-robin 选择有新帧且达到目标 FPS 间隔的流。
 4. `D3DFrameExtractor::copyToRgb()` 将 D3D 帧转换成 `QImage`。
 5. `TensorRtBodyPoseBackend::infer()` 先运行 YOLOv8n-pose。
 6. 如果 RTMW3D 已就绪，继续补充 3D 关键点。
@@ -58,6 +58,7 @@
 ## 边界情况
 
 - 没有活动分析流时不推理。
+- 多路 RTSP 默认最多 12 路、每路目标 5 FPS；自动降级开启时，单次推理持续超出预算会优先拉长非主机位分析间隔，不丢弃主机位。
 - 当前全场轨迹是按相机覆盖段做线性拼接，不是基于棋盘格/AprilTag/内外参的单应性标定，也不是多相机三维三角化。
 - 当前 `trackId` 是检测实例临时标识，不提供跨帧身份重识别；人工轨迹绑定用于把当前可见实例挂接到 session 参与者。
 - `rtmw3d-x.onnx` 缺失时，2D 人体姿态仍可运行。

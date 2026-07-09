@@ -95,6 +95,8 @@ constexpr int kSuggestionPage = 2;
 constexpr int kDefaultFps = 30;
 constexpr int kDefaultPreviewStreamFps = 30;
 constexpr int kDefaultMainStreamFps = 120;
+constexpr int kDefaultAnalysisTargetFps = 5;
+constexpr int kDefaultAnalysisMaxStreams = 12;
 constexpr int kDefaultRtspPort = 554;
 constexpr int kTopIconButtonWidth = 92;
 constexpr int kOperationRailWidth = 110;
@@ -1336,7 +1338,7 @@ void MainWindow::setupUiState()
     }
 
     if (ui->fpsComboBox && ui->fpsComboBox->count() == 0) {
-        for (int fps : {15, 25, 30, 50, 60, 90, 120}) {
+        for (int fps : {5, 8, 10, 15, 25, 30, 50, 60, 90, 120}) {
             ui->fpsComboBox->addItem(QStringLiteral("%1 FPS").arg(fps), fps);
         }
     }
@@ -1834,10 +1836,28 @@ void MainWindow::loadCameraSettings()
     const int legacyCaptureFps = settings.value(QStringLiteral("fps"), kDefaultFps).toInt();
     m_capturePreferenceSettings.modelPrecision = settings.value(QStringLiteral("modelPrecision"),
                                                                 QStringLiteral("balanced")).toString().trimmed();
+    m_capturePreferenceSettings.analysisSource = settings.value(QStringLiteral("analysisSource"),
+                                                                QStringLiteral("preview")).toString().trimmed();
+    m_capturePreferenceSettings.analysisTargetFps = settings.value(QStringLiteral("analysisTargetFps"),
+                                                                   kDefaultAnalysisTargetFps).toInt();
+    m_capturePreferenceSettings.analysisMaxStreams = settings.value(QStringLiteral("analysisMaxStreams"),
+                                                                    kDefaultAnalysisMaxStreams).toInt();
+    m_capturePreferenceSettings.analysisAutoDegrade = settings.value(QStringLiteral("analysisAutoDegrade"),
+                                                                     true).toBool();
     settings.endGroup();
     if (m_capturePreferenceSettings.modelPrecision.isEmpty()) {
         m_capturePreferenceSettings.modelPrecision = QStringLiteral("balanced");
     }
+    if (m_capturePreferenceSettings.analysisSource != QStringLiteral("main")) {
+        m_capturePreferenceSettings.analysisSource = QStringLiteral("preview");
+    }
+    if (m_capturePreferenceSettings.analysisTargetFps <= 0) {
+        m_capturePreferenceSettings.analysisTargetFps = kDefaultAnalysisTargetFps;
+    }
+    m_capturePreferenceSettings.analysisMaxStreams = std::clamp(m_capturePreferenceSettings.analysisMaxStreams,
+                                                                1,
+                                                                kDefaultAnalysisMaxStreams);
+    m_capturePreferenceSettings.fps = m_capturePreferenceSettings.analysisTargetFps;
 
     if (hasStructuredCameraDefaults(settings)) {
         settings.beginGroup(QStringLiteral("cameraDefaults"));
@@ -1948,7 +1968,7 @@ void MainWindow::loadCameraSettings()
                                              ? legacyCaptureFps
                                              : kDefaultMainStreamFps;
     }
-    m_capturePreferenceSettings.fps = m_sharedCameraSettings.mainFps;
+    m_capturePreferenceSettings.fps = m_capturePreferenceSettings.analysisTargetFps;
 
     settings.beginGroup(QStringLiteral("videoStorage"));
     m_videoStorageSettings.rootDir = settings.value(QStringLiteral("rootDir")).toString().trimmed();
@@ -2007,9 +2027,19 @@ void MainWindow::persistSystemSettings() const
     settings.setValue(QStringLiteral("modelPrecision"), m_capturePreferenceSettings.modelPrecision.trimmed().isEmpty()
                                                             ? QStringLiteral("balanced")
                                                             : m_capturePreferenceSettings.modelPrecision.trimmed());
-    settings.setValue(QStringLiteral("fps"), m_sharedCameraSettings.mainFps > 0
-                                                ? m_sharedCameraSettings.mainFps
-                                                : kDefaultMainStreamFps);
+    settings.setValue(QStringLiteral("analysisSource"), m_capturePreferenceSettings.analysisSource == QStringLiteral("main")
+                                                           ? QStringLiteral("main")
+                                                           : QStringLiteral("preview"));
+    settings.setValue(QStringLiteral("analysisTargetFps"), m_capturePreferenceSettings.analysisTargetFps > 0
+                                                            ? m_capturePreferenceSettings.analysisTargetFps
+                                                            : kDefaultAnalysisTargetFps);
+    settings.setValue(QStringLiteral("analysisMaxStreams"), std::clamp(m_capturePreferenceSettings.analysisMaxStreams,
+                                                                       1,
+                                                                       kDefaultAnalysisMaxStreams));
+    settings.setValue(QStringLiteral("analysisAutoDegrade"), m_capturePreferenceSettings.analysisAutoDegrade);
+    settings.setValue(QStringLiteral("fps"), m_capturePreferenceSettings.analysisTargetFps > 0
+                                                ? m_capturePreferenceSettings.analysisTargetFps
+                                                : kDefaultAnalysisTargetFps);
     settings.endGroup();
 
     settings.beginGroup(QStringLiteral("videoStorage"));
@@ -2064,11 +2094,16 @@ CapturePreferenceSettings MainWindow::capturePreferenceSettingsFromUi() const
     }
 
     if (ui->fpsComboBox) {
-        settings.fps = m_sharedCameraSettings.mainFps > 0 ? m_sharedCameraSettings.mainFps : ui->fpsComboBox->currentData().toInt();
+        settings.analysisTargetFps = ui->fpsComboBox->currentData().toInt();
     }
-    if (settings.fps <= 0) {
-        settings.fps = kDefaultMainStreamFps;
+    if (settings.analysisTargetFps <= 0) {
+        settings.analysisTargetFps = kDefaultAnalysisTargetFps;
     }
+    settings.fps = settings.analysisTargetFps;
+    if (settings.analysisSource != QStringLiteral("main")) {
+        settings.analysisSource = QStringLiteral("preview");
+    }
+    settings.analysisMaxStreams = std::clamp(settings.analysisMaxStreams, 1, kDefaultAnalysisMaxStreams);
     return settings;
 }
 
@@ -2083,9 +2118,11 @@ void MainWindow::applyCapturePreferencesToUi()
     }
 
     if (ui->fpsComboBox) {
-        const int fpsValue = m_sharedCameraSettings.mainFps > 0 ? m_sharedCameraSettings.mainFps : kDefaultMainStreamFps;
+        const int fpsValue = m_capturePreferenceSettings.analysisTargetFps > 0
+                                 ? m_capturePreferenceSettings.analysisTargetFps
+                                 : kDefaultAnalysisTargetFps;
         const int fpsIndex = ui->fpsComboBox->findData(fpsValue);
-        ui->fpsComboBox->setCurrentIndex(fpsIndex >= 0 ? fpsIndex : ui->fpsComboBox->findData(kDefaultMainStreamFps));
+        ui->fpsComboBox->setCurrentIndex(fpsIndex >= 0 ? fpsIndex : ui->fpsComboBox->findData(kDefaultAnalysisTargetFps));
     }
     if (m_handAnalysisManager) {
         m_handAnalysisManager->setAnalysisProfile(m_capturePreferenceSettings.modelPrecision);
@@ -2187,32 +2224,63 @@ void MainWindow::syncAnalysisStreams()
     }
 
     QVector<HandAnalysisManager::AnalysisStream> streams;
+    const int targetFps = m_capturePreferenceSettings.analysisTargetFps > 0
+                              ? m_capturePreferenceSettings.analysisTargetFps
+                              : kDefaultAnalysisTargetFps;
     if (!m_offlineVideoPath.trimmed().isEmpty()) {
         HandAnalysisManager::AnalysisStream stream;
         stream.cameraId = 0;
         stream.sourceName = m_offlineVideoName.trimmed().isEmpty()
                                 ? offlineVideoDisplayName(m_offlineVideoPath)
                                 : m_offlineVideoName.trimmed();
+        stream.targetFps = targetFps;
+        stream.priority = 0;
+        stream.autoDegrade = false;
         stream.stream = ui->mainImageLabel->activeStream();
         if (stream.stream) {
             streams.append(stream);
         }
     } else {
+        const int cameraCount = static_cast<int>(m_cameraButtons.size());
+        const int maxStreams = std::clamp(m_capturePreferenceSettings.analysisMaxStreams,
+                                          1,
+                                          std::max(1, cameraCount));
+        QVector<int> cameraOrder;
+        cameraOrder.reserve(m_cameraButtons.size());
+        if (m_selectedCamera > 0 && m_selectedCamera <= m_cameraButtons.size()) {
+            cameraOrder.append(m_selectedCamera - 1);
+        }
         for (int i = 0; i < m_cameraButtons.size(); ++i) {
+            if (!cameraOrder.contains(i)) {
+                cameraOrder.append(i);
+            }
+        }
+
+        for (int i : cameraOrder) {
+            if (streams.size() >= maxStreams) {
+                break;
+            }
             if (i >= m_cameraSlotSettings.size()) {
                 continue;
             }
             const CameraSlotSettings &slot = m_cameraSlotSettings.at(i);
-            if (!slot.trajectoryEnabled) {
+            if (!slot.trajectoryEnabled || slot.ip.trimmed().isEmpty()) {
                 continue;
             }
             VideoOpenGLWidget *cameraWidget = m_cameraButtons.at(i);
+            const bool primaryCamera = i + 1 == m_selectedCamera;
             HandAnalysisManager::AnalysisStream stream;
             stream.cameraId = i + 1;
             stream.sourceName = cameraWidget->channelName();
-            stream.stream = (stream.cameraId == m_selectedCamera && ui->mainImageLabel->activeStream())
-                                ? ui->mainImageLabel->activeStream()
-                                : cameraWidget->activeStream();
+            stream.targetFps = targetFps;
+            stream.priority = primaryCamera ? 0 : 1;
+            stream.autoDegrade = m_capturePreferenceSettings.analysisAutoDegrade;
+            if (primaryCamera && m_capturePreferenceSettings.analysisSource == QStringLiteral("main")) {
+                stream.stream = ui->mainImageLabel->activeStream();
+            }
+            if (!stream.stream) {
+                stream.stream = cameraWidget->activeStream();
+            }
             if (stream.stream) {
                 streams.append(stream);
             }
@@ -2225,6 +2293,9 @@ void MainWindow::syncAnalysisStreams()
         fallback.sourceName = m_selectedCamera > 0
                                   ? QStringLiteral("CAM %1").arg(m_selectedCamera, 2, 10, QLatin1Char('0'))
                                   : m_offlineVideoName;
+        fallback.targetFps = targetFps;
+        fallback.priority = 0;
+        fallback.autoDegrade = false;
         fallback.stream = ui->mainImageLabel->activeStream();
         streams.append(fallback);
     }
@@ -2300,7 +2371,7 @@ void MainWindow::openSystemSettings()
     m_cameraSlotSettings = dialog.cameraSlotSettings();
     m_capturePreferenceSettings = dialog.capturePreferenceSettings();
     m_videoStorageSettings = dialog.videoStorageSettings();
-    m_capturePreferenceSettings.fps = m_sharedCameraSettings.mainFps;
+    m_capturePreferenceSettings.fps = m_capturePreferenceSettings.analysisTargetFps;
     applyCapturePreferencesToUi();
     applyCameraSettingsToWidgets(true);
     saveCameraSettings();
@@ -4665,9 +4736,11 @@ void MainWindow::saveRecord()
     if (session.modelPrecision.isEmpty()) {
         session.modelPrecision = QStringLiteral("balanced");
     }
-    session.fps = m_sharedCameraSettings.mainFps > 0 ? m_sharedCameraSettings.mainFps : kDefaultMainStreamFps;
+    session.fps = m_capturePreferenceSettings.analysisTargetFps > 0
+                      ? m_capturePreferenceSettings.analysisTargetFps
+                      : kDefaultAnalysisTargetFps;
     if (session.fps <= 0) {
-        session.fps = kDefaultMainStreamFps;
+        session.fps = kDefaultAnalysisTargetFps;
     }
     session.detectionScore = m_detectionScore;
     session.symmetryScore = m_symmetryScore;

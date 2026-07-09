@@ -78,7 +78,7 @@ F-15 的多视频能力当前只是数据协议预留：`offline_analysis_tasks.
 
 当前 12 路相机轨迹还原是 P1 版本：系统设置保存每路相机覆盖的场地起止距离和横向偏移，`TrajectoryWidget` 把人体图像锚点线性映射到对应场地段，再拼成全场轨迹。它不是基于内参/外参、单应矩阵、AprilTag/棋盘格或多视角三角化的真实几何标定。
 
-多路 AI 分析由一个 `HandAnalysisWorker` 在多路流之间 round-robin 处理，不是每路一个 TensorRT worker。12 路同时分析时，每路有效 FPS 会受 GPU、解码、码流分辨率和 `capture/modelPrecision` 档位影响。
+多路 AI 分析由一个 `HandAnalysisWorker` 在多路流之间 round-robin 处理，不是每路一个 TensorRT worker。F-07 新增的订阅策略默认最多 12 路、每路目标 5 FPS，并在超载时优先拉长非主机位分析间隔；这只是应用层准入和跳帧策略，不等于每路都能稳定达到目标 FPS。实际有效 FPS 仍会受 GPU、解码、码流分辨率、`capture/modelPrecision` 档位和 TensorRT 推理耗时影响。
 
 相关文件：
 

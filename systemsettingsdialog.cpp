@@ -5,6 +5,7 @@
 
 #include <QComboBox>
 #include <QAbstractItemView>
+#include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QFileDialog>
 #include <QFormLayout>
@@ -21,6 +22,8 @@
 #include <QTableWidgetItem>
 #include <QThread>
 #include <QVBoxLayout>
+
+#include <algorithm>
 
 namespace {
 
@@ -61,8 +64,20 @@ void populateFpsOptions(QComboBox *comboBox)
         return;
     }
 
-    for (int fps : {15, 25, 30, 50, 60, 90, 120}) {
+    for (int fps : {5, 8, 10, 15, 25, 30, 50, 60, 90, 120}) {
         comboBox->addItem(QStringLiteral("%1 FPS").arg(fps), fps);
+    }
+}
+
+void populateStreamCountOptions(QComboBox *comboBox, int cameraCount)
+{
+    if (!comboBox) {
+        return;
+    }
+
+    const int maxStreams = std::max(1, cameraCount);
+    for (int count = 1; count <= maxStreams; ++count) {
+        comboBox->addItem(QStringLiteral("%1 路").arg(count), count);
     }
 }
 
@@ -248,11 +263,24 @@ SystemSettingsDialog::SystemSettingsDialog(int cameraCount, QWidget *parent)
     m_precisionComboBox->addItem(precisionLabel(QStringLiteral("high")), QStringLiteral("high"));
     captureForm->addRow(QStringLiteral("模型精度"), m_precisionComboBox);
 
+    m_analysisSourceComboBox = new QComboBox(this);
+    m_analysisSourceComboBox->addItem(QStringLiteral("预览流"), QStringLiteral("preview"));
+    m_analysisSourceComboBox->addItem(QStringLiteral("主视图流"), QStringLiteral("main"));
+    m_analysisSourceComboBox->setToolTip(QStringLiteral("多路 RTSP 分析默认使用预览流；主视图仍优先播放主码流。"));
+    captureForm->addRow(QStringLiteral("分析流来源"), m_analysisSourceComboBox);
+
+    m_analysisMaxStreamsComboBox = new QComboBox(this);
+    populateStreamCountOptions(m_analysisMaxStreamsComboBox, m_cameraCount);
+    captureForm->addRow(QStringLiteral("最大分析路数"), m_analysisMaxStreamsComboBox);
+
     m_fpsComboBox = new QComboBox(this);
     populateFpsOptions(m_fpsComboBox);
-    m_fpsComboBox->setEnabled(false);
-    m_fpsComboBox->setToolTip(QStringLiteral("分析记录 FPS 跟随主码流 FPS 自动同步。"));
-    captureForm->addRow(QStringLiteral("分析记录 FPS（跟随主码流）"), m_fpsComboBox);
+    m_fpsComboBox->setToolTip(QStringLiteral("多路 AI 分析按该目标 FPS 跳帧；实际 FPS 会受 GPU 和解码负载影响。"));
+    captureForm->addRow(QStringLiteral("分析目标 FPS"), m_fpsComboBox);
+
+    m_analysisAutoDegradeCheckBox = new QCheckBox(QStringLiteral("超载时自动降低非主机位分析频率"), this);
+    m_analysisAutoDegradeCheckBox->setChecked(true);
+    captureForm->addRow(QStringLiteral("自动降级"), m_analysisAutoDegradeCheckBox);
 
     layout->addLayout(captureForm);
 
@@ -494,12 +522,24 @@ void SystemSettingsDialog::setCapturePreferenceSettings(const CapturePreferenceS
         const int precisionIndex = m_precisionComboBox->findData(settings.modelPrecision.trimmed());
         m_precisionComboBox->setCurrentIndex(precisionIndex >= 0 ? precisionIndex : 1);
     }
+    if (m_analysisSourceComboBox) {
+        const int sourceIndex = m_analysisSourceComboBox->findData(settings.analysisSource.trimmed());
+        m_analysisSourceComboBox->setCurrentIndex(sourceIndex >= 0 ? sourceIndex : 0);
+    }
+    if (m_analysisMaxStreamsComboBox) {
+        const int maxStreams = std::clamp(settings.analysisMaxStreams, 1, std::max(1, m_cameraCount));
+        const int maxStreamsIndex = m_analysisMaxStreamsComboBox->findData(maxStreams);
+        m_analysisMaxStreamsComboBox->setCurrentIndex(maxStreamsIndex >= 0
+                                                          ? maxStreamsIndex
+                                                          : m_analysisMaxStreamsComboBox->findData(std::max(1, m_cameraCount)));
+    }
     if (m_fpsComboBox) {
-        const int effectiveFps = m_mainFpsComboBox
-                                     ? m_mainFpsComboBox->currentData().toInt()
-                                     : settings.fps;
+        const int effectiveFps = settings.analysisTargetFps > 0 ? settings.analysisTargetFps : settings.fps;
         const int fpsIndex = m_fpsComboBox->findData(effectiveFps);
-        m_fpsComboBox->setCurrentIndex(fpsIndex >= 0 ? fpsIndex : m_fpsComboBox->findData(120));
+        m_fpsComboBox->setCurrentIndex(fpsIndex >= 0 ? fpsIndex : m_fpsComboBox->findData(5));
+    }
+    if (m_analysisAutoDegradeCheckBox) {
+        m_analysisAutoDegradeCheckBox->setChecked(settings.analysisAutoDegrade);
     }
 }
 
@@ -513,13 +553,30 @@ CapturePreferenceSettings SystemSettingsDialog::capturePreferenceSettings() cons
         settings.modelPrecision = QStringLiteral("balanced");
     }
 
-    if (m_mainFpsComboBox) {
-        settings.fps = m_mainFpsComboBox->currentData().toInt();
-    } else if (m_fpsComboBox) {
-        settings.fps = m_fpsComboBox->currentData().toInt();
+    if (m_analysisSourceComboBox) {
+        settings.analysisSource = m_analysisSourceComboBox->currentData().toString().trimmed();
+    }
+    if (settings.analysisSource != QStringLiteral("main")) {
+        settings.analysisSource = QStringLiteral("preview");
+    }
+
+    if (m_fpsComboBox) {
+        settings.analysisTargetFps = m_fpsComboBox->currentData().toInt();
+    }
+    if (settings.analysisTargetFps <= 0) {
+        settings.analysisTargetFps = 5;
+    }
+    settings.fps = settings.analysisTargetFps;
+
+    if (m_analysisMaxStreamsComboBox) {
+        settings.analysisMaxStreams = m_analysisMaxStreamsComboBox->currentData().toInt();
+    }
+    settings.analysisMaxStreams = std::clamp(settings.analysisMaxStreams, 1, std::max(1, m_cameraCount));
+    if (m_analysisAutoDegradeCheckBox) {
+        settings.analysisAutoDegrade = m_analysisAutoDegradeCheckBox->isChecked();
     }
     if (settings.fps <= 0) {
-        settings.fps = 120;
+        settings.fps = 5;
     }
     return settings;
 }

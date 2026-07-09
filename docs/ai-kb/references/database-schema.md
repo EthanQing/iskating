@@ -50,9 +50,13 @@ PostgreSQL schema 在开发期由 `server/app/schema.py` 集中维护，使用 `
 ### `capture`
 
 - `modelPrecision`
-- `fps`
+- `fps`: 兼容旧字段；当前保存分析目标 FPS。
+- `analysisSource`: 多路 RTSP 分析流来源，`preview` 或 `main`，默认 `preview`。
+- `analysisTargetFps`: 每路分析目标 FPS，默认 5。
+- `analysisMaxStreams`: 同时进入 AI worker 的最大分析路数，默认 12。
+- `analysisAutoDegrade`: 超载时是否自动降低非主机位分析频率，默认 `true`。
 
-`modelPrecision` 当前同时用于 UI 选项和 AI 轮询间隔：`fast` 约 100ms，`balanced` 约 66ms，`high` 约 33ms。
+`modelPrecision` 当前同时用于 UI 选项和 AI 轮询间隔：`fast` 约 100ms，`balanced` 约 66ms，`high` 约 33ms。多路分析还会按 `analysisTargetFps` 对每路跳帧；实际 FPS 受单个 `HandAnalysisWorker`、GPU、解码和自动降级影响。
 
 ### `videoStorage`
 
@@ -90,7 +94,7 @@ P1 轨迹拼接默认把 12 路相机按 5m 一段初始化为 CAM 01: 0-5m 至 
 
 - `version`: 当前为 `1`。
 - `cameraDefaults`: 对应 `cameraDefaults` 中的公共 RTSP 参数。
-- `capture`: 对应 `capture` 中的分析偏好。
+- `capture`: 对应 `capture` 中的分析偏好和分析流策略。
 - `cameras`: 相机数组，字段对应 `cameras/cameraXX` 的 IP、场地标定和备注。
 
 导入时少于 12 路会按默认场地段补齐，多于 12 路只导入前 12 路。模板可包含 `password`，应作为现场配置文件保护。

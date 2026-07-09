@@ -40,13 +40,17 @@
 - `cameraDefaults/nvrPlaybackTemplate`
 - `capture/modelPrecision`
 - `capture/fps`
+- `capture/analysisSource`
+- `capture/analysisTargetFps`
+- `capture/analysisMaxStreams`
+- `capture/analysisAutoDegrade`
 - `videoStorage/rootDir`
 - `videoStorage/capacityLimitGb`
 - `videoStorage/retentionDays`
 - `cameras/camera01` 到 `cameras/camera12`
 - `trainingHistory` 数组
 
-系统设置支持把当前摄像头配置导出为 JSON 模板，也支持从 JSON 模板导入并预览摘要后覆盖设置对话框表单。模板只是现场批量配置交换格式，不替代 QSettings；用户点击“保存”后仍由 `persistSystemSettings()` 写入上述 key。
+系统设置支持把当前摄像头配置导出为 JSON 模板，也支持从 JSON 模板导入并预览摘要后覆盖设置对话框表单。模板包含公共 RTSP 参数、12 路相机标定和分析流策略；模板只是现场批量配置交换格式，不替代 QSettings；用户点击“保存”后仍由 `persistSystemSettings()` 写入上述 key。
 
 系统设置的“视频存储”区域会读写 `videoStorage/rootDir`、`capacityLimitGb` 和 `retentionDays`。未配置根目录时桌面端使用 `QStandardPaths::AppLocalDataLocation/recordings` 作为视频资产默认根目录；容量阈值默认 50GB，保留天数默认 60 天。
 
@@ -129,9 +133,9 @@ PostgreSQL 主要表：
 3. 修改 `personmanagementdialog.cpp` 的表格、表单和保存映射。
 4. 如果字段会出现在训练记录、报告或建议页，同步更新 `mainwindow.cpp` 的展示逻辑。
 
-### 增加摄像头配置字段
+### 增加摄像头或分析配置字段
 
-1. 修改 `SharedCameraSettings` 或 `CameraSlotSettings`。
+1. 修改 `SharedCameraSettings`、`CameraSlotSettings` 或 `CapturePreferenceSettings`。
 2. 修改 `SystemSettingsDialog` UI 和校验。
 3. 修改 `cameraconfigtemplate.cpp` 的 JSON 导入/导出映射和校验。
 4. 修改 `persistSystemSettings()` 和 `loadCameraSettings()`。
