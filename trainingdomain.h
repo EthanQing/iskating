@@ -341,6 +341,12 @@ struct ActionRepetition
     }
 };
 
+struct ParticipantRepetition : ActionRepetition
+{
+    QString participantRepetitionId;
+    QString actionRepetitionId;
+};
+
 struct TrainingSession
 {
     QString id;
@@ -387,6 +393,7 @@ struct TrainingSession
     QString notes;
     QString coachComment;
     QVector<TrainingSessionParticipant> participants;
+    QVector<ParticipantRepetition> participantRepetitions;
     QVector<TrainingVideoFile> videoFiles;
 };
 

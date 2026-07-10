@@ -481,6 +481,16 @@ def import_data(sqlite_path: Path, database_url: str) -> dict[str, int]:
                         video_file,
                     )
                     counts["training_video_files"] = counts.get("training_video_files", 0) + 1
+                target.execute(
+                    """
+                    INSERT INTO training_session_participants
+                    (id, session_id, athlete_id, slot_index, role, active, updated_at)
+                    VALUES (gen_random_uuid(), %(session_id)s, %(athlete_id)s, 1, 'primary', true, now())
+                    ON CONFLICT (session_id, athlete_id) DO NOTHING
+                    """,
+                    {"session_id": as_uuid(row["id"]), "athlete_id": as_uuid(row["athlete_id"])},
+                )
+                counts["training_session_participants"] = counts.get("training_session_participants", 0) + 1
                 counts["training_sessions"] = counts.get("training_sessions", 0) + 1
 
             for row in sqlite_rows(source, "action_repetitions"):
@@ -548,6 +558,35 @@ def import_data(sqlite_path: Path, database_url: str) -> dict[str, int]:
                         "identity_source": None,
                     },
                 )
+                target.execute(
+                    """
+                    INSERT INTO participant_repetitions
+                    (id, session_id, participant_id, athlete_id, action_repetition_id, action_standard_id,
+                     standard_version, started_ms, ended_ms, valid, score, scores, error_codes, feedback,
+                     key_frame_ms, video_clip_start_ms, video_clip_end_ms, video_file_id, video_index,
+                     source, review_status, reviewer_coach_id, reviewed_at, manual_started_ms, manual_ended_ms,
+                     manual_valid, manual_score, manual_scores, manual_error_codes, manual_feedback, coach_note,
+                     key_frame_pose, track_id, camera_id, frame_time_ms, identity_status, identity_confidence, identity_source)
+                    SELECT gen_random_uuid(), ar.session_id, tsp.id, ts.athlete_id, ar.id, ar.action_standard_id,
+                           ar.standard_version, ar.started_ms, ar.ended_ms, ar.valid, ar.score, ar.scores,
+                           ar.error_codes, ar.feedback, ar.key_frame_ms, ar.video_clip_start_ms, ar.video_clip_end_ms,
+                           ar.video_file_id, ar.video_index, ar.source, ar.review_status, ar.reviewer_coach_id,
+                           ar.reviewed_at, ar.manual_started_ms, ar.manual_ended_ms, ar.manual_valid, ar.manual_score,
+                           ar.manual_scores, ar.manual_error_codes, ar.manual_feedback, ar.coach_note,
+                           ar.key_frame_pose, ar.track_id, ar.camera_id, ar.frame_time_ms,
+                           ar.identity_status, ar.identity_confidence, ar.identity_source
+                    FROM action_repetitions ar
+                    JOIN training_sessions ts ON ts.id = ar.session_id
+                    LEFT JOIN training_session_participants tsp ON tsp.session_id = ar.session_id
+                         AND tsp.athlete_id = ts.athlete_id AND tsp.role = 'primary'
+                    WHERE ar.id = %(id)s
+                      AND NOT EXISTS (
+                          SELECT 1 FROM participant_repetitions pr WHERE pr.action_repetition_id = ar.id
+                      )
+                    """,
+                    {"id": as_uuid(row["id"])},
+                )
+                counts["participant_repetitions"] = counts.get("participant_repetitions", 0) + 1
                 counts["action_repetitions"] = counts.get("action_repetitions", 0) + 1
 
             for row in sqlite_rows(source, "athlete_action_baselines"):

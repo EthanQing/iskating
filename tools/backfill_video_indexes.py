@@ -66,6 +66,64 @@ def backfill(url: str) -> dict[str, int]:
                 ALTER TABLE training_sessions
                     ADD COLUMN IF NOT EXISTS analysis_task_id uuid;
 
+                CREATE TABLE IF NOT EXISTS training_session_participants (
+                    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                    session_id uuid NOT NULL REFERENCES training_sessions(id) ON DELETE CASCADE,
+                    athlete_id uuid NOT NULL REFERENCES athletes(id),
+                    slot_index integer NOT NULL,
+                    role text NOT NULL DEFAULT 'participant',
+                    track_label text,
+                    notes text,
+                    active boolean NOT NULL DEFAULT true,
+                    created_at timestamptz NOT NULL DEFAULT now(),
+                    updated_at timestamptz NOT NULL DEFAULT now(),
+                    CONSTRAINT ck_training_session_participants_slot CHECK (slot_index >= 1 AND slot_index <= 4),
+                    CONSTRAINT ck_training_session_participants_role CHECK (role IN ('primary', 'participant')),
+                    CONSTRAINT uq_training_session_participants_athlete UNIQUE (session_id, athlete_id),
+                    CONSTRAINT uq_training_session_participants_slot UNIQUE (session_id, slot_index)
+                );
+
+                CREATE TABLE IF NOT EXISTS participant_repetitions (
+                    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                    session_id uuid NOT NULL REFERENCES training_sessions(id) ON DELETE CASCADE,
+                    participant_id uuid REFERENCES training_session_participants(id) ON DELETE SET NULL,
+                    athlete_id uuid REFERENCES athletes(id),
+                    action_repetition_id uuid REFERENCES action_repetitions(id) ON DELETE SET NULL,
+                    action_standard_id uuid NOT NULL REFERENCES action_standards(id),
+                    standard_version integer NOT NULL DEFAULT 1,
+                    started_ms integer NOT NULL DEFAULT 0,
+                    ended_ms integer NOT NULL DEFAULT 0,
+                    valid boolean NOT NULL DEFAULT false,
+                    score integer NOT NULL DEFAULT 0,
+                    scores jsonb NOT NULL DEFAULT '{}'::jsonb,
+                    error_codes jsonb,
+                    feedback text,
+                    key_frame_ms integer NOT NULL DEFAULT 0,
+                    video_file_id uuid REFERENCES training_video_files(id) ON DELETE SET NULL,
+                    video_index integer NOT NULL DEFAULT 1,
+                    video_clip_start_ms integer NOT NULL DEFAULT 0,
+                    video_clip_end_ms integer NOT NULL DEFAULT 0,
+                    source text NOT NULL DEFAULT 'ai',
+                    review_status text NOT NULL DEFAULT 'unreviewed',
+                    reviewer_coach_id uuid REFERENCES coaches(id),
+                    reviewed_at timestamptz,
+                    manual_started_ms integer,
+                    manual_ended_ms integer,
+                    manual_valid boolean,
+                    manual_score integer,
+                    manual_scores jsonb,
+                    manual_error_codes jsonb,
+                    manual_feedback text,
+                    coach_note text,
+                    key_frame_pose jsonb,
+                    track_id integer,
+                    camera_id integer,
+                    frame_time_ms bigint,
+                    identity_status text NOT NULL DEFAULT 'unknown',
+                    identity_confidence double precision,
+                    identity_source text
+                );
+
                 DO $$
                 BEGIN
                     IF NOT EXISTS (
@@ -92,6 +150,14 @@ def backfill(url: str) -> dict[str, int]:
                     ON offline_analysis_tasks(batch_id);
                 CREATE INDEX IF NOT EXISTS ix_offline_analysis_tasks_video_path
                     ON offline_analysis_tasks(video_path);
+                CREATE INDEX IF NOT EXISTS ix_participant_repetitions_session
+                    ON participant_repetitions(session_id);
+                CREATE INDEX IF NOT EXISTS ix_participant_repetitions_participant
+                    ON participant_repetitions(participant_id);
+                CREATE INDEX IF NOT EXISTS ix_participant_repetitions_athlete
+                    ON participant_repetitions(athlete_id);
+                CREATE INDEX IF NOT EXISTS ix_participant_repetitions_action_repetition
+                    ON participant_repetitions(action_repetition_id);
                 """
             )
             cur.execute(
@@ -204,6 +270,46 @@ def backfill(url: str) -> dict[str, int]:
                 """
             )
             updated_repetitions = cur.rowcount
+            cur.execute(
+                """
+                INSERT INTO training_session_participants
+                (id, session_id, athlete_id, slot_index, role, active, updated_at)
+                SELECT gen_random_uuid(), ts.id, ts.athlete_id, 1, 'primary', true, now()
+                FROM training_sessions ts
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM training_session_participants tsp
+                    WHERE tsp.session_id = ts.id AND tsp.athlete_id = ts.athlete_id
+                )
+                """
+            )
+            inserted_participants = cur.rowcount
+            cur.execute(
+                """
+                INSERT INTO participant_repetitions
+                (id, session_id, participant_id, athlete_id, action_repetition_id, action_standard_id,
+                 standard_version, started_ms, ended_ms, valid, score, scores, error_codes, feedback,
+                 key_frame_ms, video_file_id, video_index, video_clip_start_ms, video_clip_end_ms,
+                 source, review_status, reviewer_coach_id, reviewed_at, manual_started_ms, manual_ended_ms,
+                 manual_valid, manual_score, manual_scores, manual_error_codes, manual_feedback, coach_note,
+                 key_frame_pose, track_id, camera_id, frame_time_ms, identity_status, identity_confidence, identity_source)
+                SELECT gen_random_uuid(), ar.session_id, tsp.id, COALESCE(ar.athlete_id, ts.athlete_id), ar.id,
+                       ar.action_standard_id, ar.standard_version, ar.started_ms, ar.ended_ms, ar.valid,
+                       ar.score, ar.scores, ar.error_codes, ar.feedback, ar.key_frame_ms, ar.video_file_id,
+                       ar.video_index, ar.video_clip_start_ms, ar.video_clip_end_ms, ar.source, ar.review_status,
+                       ar.reviewer_coach_id, ar.reviewed_at, ar.manual_started_ms, ar.manual_ended_ms,
+                       ar.manual_valid, ar.manual_score, ar.manual_scores, ar.manual_error_codes,
+                       ar.manual_feedback, ar.coach_note, ar.key_frame_pose, ar.track_id, ar.camera_id,
+                       ar.frame_time_ms, ar.identity_status, ar.identity_confidence, ar.identity_source
+                FROM action_repetitions ar
+                JOIN training_sessions ts ON ts.id = ar.session_id
+                LEFT JOIN training_session_participants tsp ON tsp.session_id = ar.session_id
+                     AND tsp.athlete_id = COALESCE(ar.athlete_id, ts.athlete_id)
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM participant_repetitions pr WHERE pr.action_repetition_id = ar.id
+                )
+                """
+            )
+            inserted_participant_repetitions = cur.rowcount
         db.commit()
     return {
         "inserted_analysis_tasks": inserted_analysis_tasks,
@@ -211,6 +317,8 @@ def backfill(url: str) -> dict[str, int]:
         "inserted_video_files": inserted_video_files,
         "updated_video_files": updated_video_files,
         "updated_repetitions": updated_repetitions,
+        "inserted_participants": inserted_participants,
+        "inserted_participant_repetitions": inserted_participant_repetitions,
     }
 
 

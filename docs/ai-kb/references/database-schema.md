@@ -32,7 +32,7 @@ QSettings schema 仍分散在读写代码中：
 - `MainWindow::loadCameraSettings()`
 - `MainWindow::persistSystemSettings()`
 摄像头 JSON 模板 schema 位于 `cameraconfigtemplate.cpp`，作为现场导入/导出交换格式；模板导入后仍写回 QSettings，不新增数据库表或字段。
-PostgreSQL schema 在开发期由 `server/app/schema.py` 集中维护，使用 `tools/reset_postgres_schema.py --yes` 对空库/可丢弃开发库执行手动重建。FastAPI 启动时只执行 `seed_defaults()`，不会自动建表或删除表。旧 SQLite 数据通过一次性导入工具导入到已重建的空库，不再由桌面端启动时自动补列或导入。已有 PostgreSQL 开发库如需保留数据，可用 `tools/backfill_video_indexes.py` 幂等补齐 F-10 视频索引字段和旧记录关联。
+PostgreSQL schema 在开发期由 `server/app/schema.py` 集中维护，使用 `tools/reset_postgres_schema.py --yes` 对空库/可丢弃开发库执行手动重建。FastAPI 启动时只执行 `seed_defaults()`，不会自动建表或删除表。旧 SQLite 数据通过一次性导入工具导入到已重建的空库，不再由桌面端启动时自动补列或导入。已有 PostgreSQL 开发库如需保留数据，可用 `tools/backfill_video_indexes.py` 幂等补齐 F-10 视频索引字段、F-22 participant 结果和旧记录关联。
 
 ## 主要数据结构
 
@@ -225,7 +225,7 @@ P1 轨迹拼接默认把 12 路相机按 5m 一段初始化为 CAM 01: 0-5m 至 
 
 #### `action_repetitions`
 
-保存每次动作实例：AI 原始开始/结束时间、有效性、总分、分项分、错误项、反馈、关键帧时间、视频片段时间窗口、人工复核字段和关键帧姿态 JSON。
+保存每次动作实例的旧兼容路径：AI 原始开始/结束时间、有效性、总分、分项分、错误项、反馈、关键帧时间、视频片段时间窗口、人工复核字段和关键帧姿态 JSON。F-22 后多人并行结果以 `participant_repetitions` 为权威表；`action_repetitions` 继续服务旧复盘接口、旧报告路径和历史兼容。
 
 多人身份轨迹字段：
 
@@ -257,6 +257,21 @@ P1 轨迹拼接默认把 12 路相机按 5m 一段初始化为 CAM 01: 0-5m 至 
 - `video_clip_start_ms`: 回看片段起点，当前保存为动作开始前约 1.5 秒；离线视频复盘会用该值请求播放器初始 seek。
 - `video_clip_end_ms`: 回看片段终点，当前保存为动作结束后约 1.5 秒。
 - `key_frame_pose_json`: 关键帧姿态 JSON。旧记录可为空，UI 应禁用姿态叠加但保留复盘能力。
+
+#### `participant_repetitions`
+
+保存同一 session 下每名参与者的独立动作结果，是多人承接后的权威动作结果表。
+
+- `session_id`: 关联 `training_sessions.id`。
+- `participant_id`: 可空，关联 `training_session_participants.id`；旧记录或未知身份可为空。
+- `athlete_id`: 可空，动作级运动员身份；旧记录为空时查询回退到 session 主运动员。
+- `action_repetition_id`: 可空，关联旧兼容 `action_repetitions.id`，用于复盘/人工修正兼容。
+- 动作评分字段与 `action_repetitions` 对齐：`started_ms`, `ended_ms`, `valid`, `score`, `scores`, `error_codes`, `feedback`, `key_frame_ms`。
+- 视频片段字段与 `action_repetitions` 对齐：`video_file_id`, `video_index`, `video_clip_start_ms`, `video_clip_end_ms`, `key_frame_pose`。
+- 人工复核字段与 `action_repetitions` 对齐：`review_status`, `reviewer_coach_id`, `reviewed_at`, `manual_*`, `coach_note`。
+- 身份轨迹字段与 `action_repetitions` 对齐：`track_id`, `camera_id`, `frame_time_ms`, `identity_status`, `identity_confidence`, `identity_source`。
+
+服务端保存训练时会同时写入兼容 `action_repetitions` 和权威 `participant_repetitions`。查询动作明细时优先返回 participant 结果；没有新表结果的旧 session 按旧 `action_repetitions` 和 `training_sessions.athlete_id` 回退为单 participant。
 
 #### `athlete_action_baselines`
 
@@ -298,7 +313,7 @@ python tools/reset_postgres_schema.py --yes
 python tools/import_sqlite_to_postgres.py --sqlite "$env:APPDATA/iSkating/iSkating Coach/iskating.db"
 ```
 
-已有 PostgreSQL 开发库保留数据并补齐视频索引与离线分析任务字段：
+已有 PostgreSQL 开发库保留数据并补齐视频索引、离线分析任务字段和 participant 结果：
 
 ```powershell
 python tools/backfill_video_indexes.py
@@ -318,7 +333,7 @@ FastAPI `seed_defaults()` 内置默认管理员、默认运动员、默认教练
 
 ## 查询入口
 
-训练历史通过 `TrainingRepository::searchSessions(filters, page, sort)` 查询，支持运动员、教练、比赛、场次、参赛关系、分析来源、动作标准、保存时间、平均分区间和比赛关键词组合检索，并返回总数和当前页结果；运动员筛选会匹配 session 主运动员和 `training_session_participants`。比赛关键词匹配 `competitions.name/location/competition_type/notes`、`competition_events.race_name/event_name/heat_name/group_name/notes`、`event_athletes.bib_number/lane_number/notes`、`training_sessions.source_type/source_ref` 以及 `training_sessions.site/training_phase/goal/notes/feedback/coach_comment`。`recentSessions(limit)` 仍保留为兼容入口，内部调用默认查询。跨 session 动作实例通过 `searchRepetitions(filters, page)` 联查 `training_sessions` 和 `action_repetitions`，支持按 session、人员、比赛/场次、动作、来源、有效性、复核状态、分数区间、训练时间、片段时间和错误项关键词查询；人员筛选优先匹配动作级 `action_repetitions.athlete_id`，旧记录没有动作级身份时回退到 session 主运动员；有效性、分数、错误项和反馈默认使用人工优先值。单 session 动作明细通过 `repetitionsForSession()` / `reviewedRepetitionsForSession()` 查询；离线任务通过 `POST /offline-analysis/tasks` 创建或更新，并可用 `GET /offline-analysis/tasks` 按 `batchId/status` 查询；视频资产清理候选通过 `GET /training/video-files` 查询，支持 `status`、`withLocalPathOnly` 和 `modifiedBefore` 过滤并返回 session、运动员、文件大小/修改时间和动作引用数量；本机文件删除后通过 `POST /training/video-files/{id}/cleanup` 只更新 metadata。人员档案通过 `athletes()`、`coaches()`、`athleteIdsForCoach()` 查询；比赛基础信息通过 `competitions()`、`saveCompetition()`、`archiveCompetition()` 查询和维护；比赛场次通过 `competitionEvents()`、`saveCompetitionEvent()`、`archiveCompetitionEvent()` 查询和维护；参赛关系通过 `eventAthletes()`、`saveEventAthlete()`、`archiveEventAthlete()` 查询和维护；最近 7/30 天趋势通过 `trendForRecentDays()` 聚合 `training_sessions` 和 `action_repetitions` 查询；教练批注通过 `saveCoachComment()` 更新；个体基线通过 `baselineFor()` 查询。
+训练历史通过 `TrainingRepository::searchSessions(filters, page, sort)` 查询，支持运动员、教练、比赛、场次、参赛关系、分析来源、动作标准、保存时间、平均分区间和比赛关键词组合检索，并返回总数和当前页结果；运动员筛选会匹配 session 主运动员和 `training_session_participants`。比赛关键词匹配 `competitions.name/location/competition_type/notes`、`competition_events.race_name/event_name/heat_name/group_name/notes`、`event_athletes.bib_number/lane_number/notes`、`training_sessions.source_type/source_ref` 以及 `training_sessions.site/training_phase/goal/notes/feedback/coach_comment`。`recentSessions(limit)` 仍保留为兼容入口，内部调用默认查询。跨 session 动作实例通过 `searchRepetitions(filters, page)` 优先联查 `training_sessions` 和 `participant_repetitions`，没有新表结果的旧记录再回退 `action_repetitions`，支持按 session、人员、比赛/场次、动作、来源、有效性、复核状态、分数区间、训练时间、片段时间和错误项关键词查询；人员筛选优先匹配 participant 结果的 `athlete_id`，旧记录没有动作级身份时回退到 session 主运动员；有效性、分数、错误项和反馈默认使用人工优先值。单 session 动作明细通过 `repetitionsForSession()` / `reviewedRepetitionsForSession()` 查询同一合并结果；离线任务通过 `POST /offline-analysis/tasks` 创建或更新，并可用 `GET /offline-analysis/tasks` 按 `batchId/status` 查询；视频资产清理候选通过 `GET /training/video-files` 查询，支持 `status`、`withLocalPathOnly` 和 `modifiedBefore` 过滤并返回 session、运动员、文件大小/修改时间和动作引用数量；本机文件删除后通过 `POST /training/video-files/{id}/cleanup` 只更新 metadata。人员档案通过 `athletes()`、`coaches()`、`athleteIdsForCoach()` 查询；比赛基础信息通过 `competitions()`、`saveCompetition()`、`archiveCompetition()` 查询和维护；比赛场次通过 `competitionEvents()`、`saveCompetitionEvent()`、`archiveCompetitionEvent()` 查询和维护；参赛关系通过 `eventAthletes()`、`saveEventAthlete()`、`archiveEventAthlete()` 查询和维护；最近 7/30 天趋势通过 `trendForRecentDays()` 聚合 `training_sessions`、`participant_repetitions` 和旧 `action_repetitions` 查询；教练批注通过 `saveCoachComment()` 更新；个体基线通过 `baselineFor()` 查询。
 
 人员管理写入口：
 
@@ -334,7 +349,7 @@ FastAPI `seed_defaults()` 内置默认管理员、默认运动员、默认教练
 - `saveActionStandard(...)`: 保存动作标准阈值、权重、提示和参考视频；每次保存会递增版本。
 - `recalculateSessionSummary(sessionId)`: 按人工优先值重算 session 汇总和个体基线。
 
-`trendForRecentDays()` 不新增表或列。统计窗口使用 `training_sessions.saved_at`；训练次数、平均分和最佳分来自重算后的 `training_sessions`；动作完成数和弱项分项均值优先来自 `action_repetitions` 的人工有效值，旧数据没有动作明细时退回 session 汇总字段。
+`trendForRecentDays()` 统计窗口使用 `training_sessions.saved_at`；训练次数、平均分和最佳分来自重算后的 `training_sessions`；动作完成数和弱项分项均值优先来自 `participant_repetitions` 的人工有效值，旧数据没有新表动作明细时退回 `action_repetitions` 或 session 汇总字段。
 
 相关文件：
 

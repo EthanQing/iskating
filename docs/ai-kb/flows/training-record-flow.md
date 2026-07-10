@@ -7,7 +7,7 @@
 
 ## 简介
 
-把一次采集过程中的训练上下文、可选比赛/场次/参赛关系归属、分析来源归属、动作标准版本、动作实例、评分、机位、视频引用、教练批注和反馈通过 FastAPI 保存到 PostgreSQL，并生成历史复盘、报告与建议。摄像头配置仍保存在 `QSettings`。
+把一次采集过程中的训练上下文、可选比赛/场次/参赛关系归属、分析来源归属、动作标准版本、多人参与者结果、动作实例、评分、机位、视频引用、教练批注和反馈通过 FastAPI 保存到 PostgreSQL，并生成历史复盘、报告与建议。摄像头配置仍保存在 `QSettings`。
 
 ## 触发条件
 
@@ -28,7 +28,7 @@
 6. `ActionRepetitionTracker` 根据动作标准中的膝/髋屈伸阈值、防抖规则识别一次动作，生成 `ActionRepetition`。
 7. `tick()` 每秒累加 `m_durationSec`，统计卡展示有效动作数、目标次数、均分、目标分和最好分。
 8. 采集页训练上下文可选择主运动员和最多 3 名参与运动员；“轨迹绑定”入口把当前帧的 `cameraId + trackId` 绑定到某个参与者。绑定只补全身份协议，不改变 TensorRT 推理或姿态评分算法。
-9. 用户点击保存记录，`saveRecord()` 通过 `TrainingRepository::ensureDailyTask()` 生成或更新今日训练计划/任务，再保存 `training_sessions`、`training_session_participants`、`training_video_files` 与 `action_repetitions`。session 会记录训练开始时间、可选比赛/场次/参赛关系归属、离线分析任务归属、分析来源类型与引用、主码流、回退码流和机位名称；选择场次时服务端用场次自动带出比赛；选择场次且当前运动员存在 active 参赛关系时桌面端自动写入 `eventAthleteId`。分析来源按比赛优先、导入视频其次、普通训练兜底自动判定。离线视频训练会记录已入库的 `offline_analysis_tasks.id`、本地视频绝对路径且 `camera=0`，并登记 `external` 视频资产；RTSP 训练会登记 `planned` 视频资产，包含规范化录像路径、视频序号、时间覆盖范围和元数据路径但不实际录制。每个动作实例会记录动作片段起止时间、关联的 `video_file_id/video_index`、动作级运动员/参与者、轨迹 ID、机位和帧时间，并通过 `session_id` 继承 session 的分析归属。
+9. 用户点击保存记录，`saveRecord()` 通过 `TrainingRepository::ensureDailyTask()` 生成或更新今日训练计划/任务，再保存 `training_sessions`、`training_session_participants`、`training_video_files`、兼容 `action_repetitions` 与权威 `participant_repetitions`。session 会记录训练开始时间、可选比赛/场次/参赛关系归属、离线分析任务归属、分析来源类型与引用、主码流、回退码流和机位名称；选择场次时服务端用场次自动带出比赛；选择场次且当前运动员存在 active 参赛关系时桌面端自动写入 `eventAthleteId`。分析来源按比赛优先、导入视频其次、普通训练兜底自动判定。离线视频训练会记录已入库的 `offline_analysis_tasks.id`、本地视频绝对路径且 `camera=0`，并登记 `external` 视频资产；RTSP 训练会登记 `planned` 视频资产，包含规范化录像路径、视频序号、时间覆盖范围和元数据路径但不实际录制。录制中按已识别参与者或轨迹分别维护动作 tracker；每个 participant 结果会记录动作片段起止时间、关联的 `video_file_id/video_index`、动作级运动员/参与者、轨迹 ID、机位和帧时间，并通过 `session_id` 继承 session 的分析归属。旧单人记录没有 participant 结果时，服务端按 session 主运动员回退。
 10. `refreshHistory()` 基于历史页当前筛选和分页结果重新生成历史复盘卡和统计摘要。历史页通过 `TrainingRepository::searchSessions()` 支持运动员、教练、比赛、场次、分析来源、时间、比赛关键词、动作和分数区间组合检索，并可按保存时间、平均分、最佳分、有效动作数或训练时长排序；复盘卡展示训练摘要、比赛、场次/分组、参赛号/道次/成绩/名次、分析归属、视频引用、最好/最差动作、关键错误时间轴、教练批注入口、复盘校准入口和 Markdown/CSV/PDF 报告导出入口。
 11. 历史页“动作检索”通过 `TrainingRepository::searchRepetitions()` 跨 session 查询动作实例，支持按 session、人员、比赛/场次、动作、来源、有效性、复核状态、分数区间、训练时间、动作片段时间和错误项关键词筛选；结果表格展示身份状态、轨迹 ID 和机位，可双击定位片段，并可导出当前筛选结果为 CSV/XLSX。
 11. `openTrainingReview()` 打开独立 `TrainingReviewDialog`。对话框加载动作明细、主视频、标准参考视频和人工复核表单；点击动作行会先按 `video_file_id/video_index` 查找 session 视频资产，本地文件存在时按 `video_clip_start_ms` 精确 seek，并支持慢放、逐帧、关键帧定位和姿态叠加。索引文件被清理或移动时会提示恢复文件；配置 NVR 回放模板时，RTSP/网络视频会按 session 开始时间和动作片段窗口生成 NVR 回放 URL，但只保证打开时间窗口，不保证通用 seek。
@@ -67,6 +67,7 @@
 - `event_athletes`
 - `training_video_files`
 - `action_repetitions`
+- `participant_repetitions`
 - `video_source`, `video_fallback_source`, `video_file_id`, `video_index`, `video_clip_start_ms`, `video_clip_end_ms`
 - `source`, `review_status`, `manual_*`, `coach_note`, `key_frame_pose_json`
 - `PoseStandardnessResult`
@@ -90,7 +91,7 @@
 ## 边界情况
 
 - 历史页每页展示 10 条查询结果，由 `SessionSearchPage.pageSize` 控制；不再预先只保留最近 200 条。空结果会保留筛选栏和分页状态，便于调整条件。
-- 训练趋势展示在建议页，最近 7/30 天窗口按 `training_sessions.saved_at` 过滤；动作完成数优先统计 `action_repetitions`，旧数据没有动作明细时退回 session 的 `total_reps`。
+- 训练趋势展示在建议页，最近 7/30 天窗口按 `training_sessions.saved_at` 过滤；动作完成数优先统计 `participant_repetitions`，旧数据没有新表动作明细时退回 `action_repetitions` 或 session 的 `total_reps`。
 - 不做动作类型自动分类；动作类型来自训练上下文手动选择。复盘中可人工新增动作，用于修正漏检。
 - 动作实例自动计数沿用膝/髋屈伸启发式，但阈值、防抖和目标分可在动作标准编辑入口维护。
 - 停止采集会停止视频和 AI，但保留本次计时与动作实例，便于停止后保存。

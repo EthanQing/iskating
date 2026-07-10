@@ -465,6 +465,14 @@ QJsonObject repetitionToJson(const ActionRepetition &repetition)
     };
 }
 
+QJsonObject participantRepetitionToJson(const ParticipantRepetition &repetition)
+{
+    QJsonObject object = repetitionToJson(repetition);
+    object.insert(QStringLiteral("participantRepetitionId"), repetition.participantRepetitionId);
+    object.insert(QStringLiteral("actionRepetitionId"), repetition.actionRepetitionId);
+    return object;
+}
+
 QJsonObject offlineAnalysisTaskToJson(const OfflineAnalysisTask &task)
 {
     QJsonObject probeMetadata;
@@ -1753,7 +1761,31 @@ bool TrainingRepository::saveTrainingSession(TrainingSession *session,
         }
         reps.append(repetitionToJson(repetition));
     }
-    const QJsonObject body{{QStringLiteral("session"), sessionToJson(*session)}, {QStringLiteral("repetitions"), reps}};
+    QJsonArray participantReps;
+    QVector<ParticipantRepetition> participantRepetitions = session->participantRepetitions;
+    if (participantRepetitions.isEmpty()) {
+        for (const ActionRepetition &repetition : repetitions) {
+            ParticipantRepetition participantRepetition;
+            static_cast<ActionRepetition &>(participantRepetition) = repetition;
+            participantRepetitions.append(participantRepetition);
+        }
+    }
+    for (ParticipantRepetition repetition : participantRepetitions) {
+        if (repetition.participantRepetitionId.trimmed().isEmpty()) {
+            repetition.participantRepetitionId = ensureId();
+        }
+        repetition.sessionId = session->id;
+        if (repetition.videoIndex <= 0) {
+            repetition.videoIndex = defaultVideoIndex;
+        }
+        if (repetition.videoFileId.trimmed().isEmpty()) {
+            repetition.videoFileId = defaultVideoFileId;
+        }
+        participantReps.append(participantRepetitionToJson(repetition));
+    }
+    const QJsonObject body{{QStringLiteral("session"), sessionToJson(*session)},
+                           {QStringLiteral("repetitions"), reps},
+                           {QStringLiteral("participantRepetitions"), participantReps}};
     bool ok = false;
     const QJsonObject response = requestObject(QStringLiteral("POST"), QStringLiteral("/training/sessions"), body, {}, &ok, errorMessage);
     if (ok) {

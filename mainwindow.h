@@ -5,7 +5,9 @@
 #include "systemsettingsdialog.h"
 #include "trainingdomain.h"
 #include "offlinevideoprobe.h"
+#include "actionstandardscorer.h"
 
+#include <QHash>
 #include <QMainWindow>
 #include <QMargins>
 #include <QSize>
@@ -31,8 +33,6 @@ class QVBoxLayout;
 class TrajectoryWidget;
 class VideoOpenGLWidget;
 class HandAnalysisManager;
-class ActionStandardScorer;
-class ActionRepetitionTracker;
 class TrainingRepository;
 
 namespace Ui {
@@ -211,6 +211,7 @@ private:
     QVector<EventAthlete> m_eventAthletes;
     QVector<ActionStandard> m_actionStandards;
     QVector<ActionRepetition> m_currentRepetitions;
+    QHash<QString, ActionRepetitionTracker> m_participantActionTrackers;
     PoseFrameResult m_lastPoseFrame;
     QString m_lastSavedAt;
     int m_historyPageNumber = 1;

@@ -6,6 +6,7 @@ from sqlalchemy.engine import Engine
 
 BUSINESS_TABLES = [
     "athlete_action_baselines",
+    "participant_repetitions",
     "action_repetitions",
     "training_video_files",
     "training_session_participants",
@@ -326,6 +327,47 @@ CREATE TABLE action_repetitions (
     identity_source text
 );
 
+CREATE TABLE participant_repetitions (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id uuid NOT NULL REFERENCES training_sessions(id) ON DELETE CASCADE,
+    participant_id uuid REFERENCES training_session_participants(id) ON DELETE SET NULL,
+    athlete_id uuid REFERENCES athletes(id),
+    action_repetition_id uuid REFERENCES action_repetitions(id) ON DELETE SET NULL,
+    action_standard_id uuid NOT NULL REFERENCES action_standards(id),
+    standard_version integer NOT NULL DEFAULT 1,
+    started_ms integer NOT NULL DEFAULT 0,
+    ended_ms integer NOT NULL DEFAULT 0,
+    valid boolean NOT NULL DEFAULT false,
+    score integer NOT NULL DEFAULT 0,
+    scores jsonb NOT NULL DEFAULT '{}'::jsonb,
+    error_codes jsonb,
+    feedback text,
+    key_frame_ms integer NOT NULL DEFAULT 0,
+    video_file_id uuid REFERENCES training_video_files(id) ON DELETE SET NULL,
+    video_index integer NOT NULL DEFAULT 1,
+    video_clip_start_ms integer NOT NULL DEFAULT 0,
+    video_clip_end_ms integer NOT NULL DEFAULT 0,
+    source text NOT NULL DEFAULT 'ai',
+    review_status text NOT NULL DEFAULT 'unreviewed',
+    reviewer_coach_id uuid REFERENCES coaches(id),
+    reviewed_at timestamptz,
+    manual_started_ms integer,
+    manual_ended_ms integer,
+    manual_valid boolean,
+    manual_score integer,
+    manual_scores jsonb,
+    manual_error_codes jsonb,
+    manual_feedback text,
+    coach_note text,
+    key_frame_pose jsonb,
+    track_id integer,
+    camera_id integer,
+    frame_time_ms bigint,
+    identity_status text NOT NULL DEFAULT 'unknown',
+    identity_confidence double precision,
+    identity_source text
+);
+
 CREATE TABLE athlete_action_baselines (
     athlete_id uuid NOT NULL REFERENCES athletes(id),
     action_standard_id uuid NOT NULL REFERENCES action_standards(id),
@@ -364,6 +406,15 @@ CREATE INDEX ix_action_repetitions_athlete ON action_repetitions(athlete_id);
 CREATE INDEX ix_action_repetitions_track ON action_repetitions(track_id);
 CREATE INDEX ix_action_repetitions_camera ON action_repetitions(camera_id);
 CREATE INDEX ix_action_repetitions_frame_time ON action_repetitions(frame_time_ms);
+CREATE INDEX ix_participant_repetitions_session ON participant_repetitions(session_id);
+CREATE INDEX ix_participant_repetitions_participant ON participant_repetitions(participant_id);
+CREATE INDEX ix_participant_repetitions_athlete ON participant_repetitions(athlete_id);
+CREATE INDEX ix_participant_repetitions_action_repetition ON participant_repetitions(action_repetition_id);
+CREATE INDEX ix_participant_repetitions_video_file ON participant_repetitions(video_file_id);
+CREATE INDEX ix_participant_repetitions_review ON participant_repetitions(review_status);
+CREATE INDEX ix_participant_repetitions_track ON participant_repetitions(track_id);
+CREATE INDEX ix_participant_repetitions_camera ON participant_repetitions(camera_id);
+CREATE INDEX ix_participant_repetitions_frame_time ON participant_repetitions(frame_time_ms);
 """
 
 

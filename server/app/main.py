@@ -1123,6 +1123,86 @@ def insert_repetition(db: Session,
     return rep_id
 
 
+def insert_participant_repetition(db: Session,
+                                  session_id: str,
+                                  action_standard_id: str,
+                                  repetition: dict[str, Any],
+                                  participant_by_athlete: dict[str, str],
+                                  video_file_by_index: dict[int, str] | None = None,
+                                  action_repetition_id: str | None = None) -> str:
+    import json
+
+    rep_id = parse_uuid(repetition.get("participantRepetitionId")) or parse_uuid(repetition.get("id")) or new_uuid()
+    video_index = int(repetition.get("videoIndex") or 1)
+    video_file_id = parse_uuid(repetition.get("videoFileId"))
+    if not video_file_id and video_file_by_index:
+        video_file_id = parse_uuid(video_file_by_index.get(video_index))
+    athlete_id = parse_uuid(repetition.get("athleteId"))
+    participant_id = parse_uuid(repetition.get("participantId"))
+    if athlete_id and not participant_id:
+        participant_id = parse_uuid(participant_by_athlete.get(str(athlete_id)))
+
+    db.execute(
+        text(
+            "INSERT INTO participant_repetitions "
+            "(id, session_id, participant_id, athlete_id, action_repetition_id, action_standard_id, standard_version, "
+            "started_ms, ended_ms, valid, score, scores, error_codes, feedback, key_frame_ms, video_file_id, video_index, "
+            "video_clip_start_ms, video_clip_end_ms, source, review_status, reviewer_coach_id, reviewed_at, "
+            "manual_started_ms, manual_ended_ms, manual_valid, manual_score, manual_scores, manual_error_codes, "
+            "manual_feedback, coach_note, key_frame_pose, track_id, camera_id, frame_time_ms, identity_status, "
+            "identity_confidence, identity_source) "
+            "VALUES (:id, :session_id, :participant_id, :athlete_id, :action_repetition_id, :action_standard_id, "
+            ":standard_version, :started_ms, :ended_ms, :valid, :score, CAST(:scores AS jsonb), CAST(:error_codes AS jsonb), "
+            ":feedback, :key_frame_ms, :video_file_id, :video_index, :video_clip_start_ms, :video_clip_end_ms, :source, "
+            ":review_status, :reviewer_coach_id, :reviewed_at, :manual_started_ms, :manual_ended_ms, :manual_valid, "
+            ":manual_score, CAST(:manual_scores AS jsonb), CAST(:manual_error_codes AS jsonb), :manual_feedback, "
+            ":coach_note, CAST(:key_frame_pose AS jsonb), :track_id, :camera_id, :frame_time_ms, :identity_status, "
+            ":identity_confidence, :identity_source)"
+        ),
+        {
+            "id": rep_id,
+            "session_id": session_id,
+            "participant_id": participant_id,
+            "athlete_id": athlete_id,
+            "action_repetition_id": parse_uuid(action_repetition_id),
+            "action_standard_id": parse_uuid(repetition.get("actionStandardId")) or action_standard_id,
+            "standard_version": int(repetition.get("standardVersion", 1)),
+            "started_ms": int(repetition.get("startedMs", 0)),
+            "ended_ms": int(repetition.get("endedMs", 0)),
+            "valid": bool(repetition.get("valid", False)),
+            "score": int(repetition.get("score", 0)),
+            "scores": json.dumps(scores_from_payload(repetition), ensure_ascii=False),
+            "error_codes": json.dumps(repetition.get("errorCodes") or "", ensure_ascii=False),
+            "feedback": repetition.get("feedback") or None,
+            "key_frame_ms": int(repetition.get("keyFrameMs", 0)),
+            "video_file_id": video_file_id,
+            "video_index": video_index,
+            "video_clip_start_ms": int(repetition.get("videoClipStartMs", 0)),
+            "video_clip_end_ms": int(repetition.get("videoClipEndMs", 0)),
+            "source": repetition.get("source") or "ai",
+            "review_status": repetition.get("reviewStatus") or "unreviewed",
+            "reviewer_coach_id": parse_uuid(repetition.get("reviewerCoachId")),
+            "reviewed_at": parse_dt(repetition.get("reviewedAt")) if repetition.get("reviewedAt") else None,
+            "manual_started_ms": repetition.get("manualStartedMs") if int(repetition.get("manualStartedMs", -1)) >= 0 else None,
+            "manual_ended_ms": repetition.get("manualEndedMs") if int(repetition.get("manualEndedMs", -1)) >= 0 else None,
+            "manual_valid": bool(repetition.get("manualValid")) if int(repetition.get("manualValid", -1)) >= 0 else None,
+            "manual_score": repetition.get("manualScore") if int(repetition.get("manualScore", -1)) >= 0 else None,
+            "manual_scores": json.dumps(scores_from_payload(repetition, "manual"), ensure_ascii=False),
+            "manual_error_codes": json.dumps(repetition.get("manualErrorCodes") or "", ensure_ascii=False),
+            "manual_feedback": repetition.get("manualFeedback") or None,
+            "coach_note": repetition.get("coachNote") or None,
+            "key_frame_pose": json.dumps(repetition.get("keyFramePoseJson") or "", ensure_ascii=False),
+            "track_id": int(repetition.get("trackId")) if int(repetition.get("trackId", -1)) >= 0 else None,
+            "camera_id": int(repetition.get("cameraId")) if int(repetition.get("cameraId", -1)) >= 0 else None,
+            "frame_time_ms": int(repetition.get("frameTimeMs")) if str(repetition.get("frameTimeMs", "")).strip() else None,
+            "identity_status": repetition.get("identityStatus") or "unknown",
+            "identity_confidence": repetition.get("identityConfidence") if float(repetition.get("identityConfidence", -1)) >= 0 else None,
+            "identity_source": repetition.get("identitySource") or None,
+        },
+    )
+    return rep_id
+
+
 def participant_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(row["id"]),
@@ -1374,6 +1454,7 @@ def save_training_session(payload: dict[str, Any] = Body(...),
                           _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
     session = payload.get("session", payload)
     repetitions = payload.get("repetitions", [])
+    participant_repetitions = payload.get("participantRepetitions", [])
     session_id = parse_uuid(session.get("id")) or new_uuid()
     athlete_id = parse_uuid(session.get("athleteId"))
     action_standard_id = parse_uuid(session.get("actionStandardId"))
@@ -1455,12 +1536,21 @@ def save_training_session(payload: dict[str, Any] = Body(...),
     )
     participant_by_athlete = save_session_participants(db, session_id, athlete_id, session.get("participants", []))
     video_file_by_index = save_training_video_files(db, session_id, session.get("videoFiles", []))
+    db.execute(text("DELETE FROM participant_repetitions WHERE session_id = :session_id"), {"session_id": session_id})
     db.execute(text("DELETE FROM action_repetitions WHERE session_id = :session_id"), {"session_id": session_id})
+    action_repetition_ids: list[str] = []
     for repetition in repetitions:
         rep_athlete_id = parse_uuid(repetition.get("athleteId"))
         if rep_athlete_id and not parse_uuid(repetition.get("participantId")):
             repetition["participantId"] = participant_by_athlete.get(str(rep_athlete_id), "")
-        insert_repetition(db, session_id, action_standard_id, repetition, video_file_by_index)
+        action_repetition_ids.append(insert_repetition(db, session_id, action_standard_id, repetition, video_file_by_index))
+    source_participant_repetitions = participant_repetitions or repetitions
+    for index, repetition in enumerate(source_participant_repetitions):
+        rep_athlete_id = parse_uuid(repetition.get("athleteId"))
+        if rep_athlete_id and not parse_uuid(repetition.get("participantId")):
+            repetition["participantId"] = participant_by_athlete.get(str(rep_athlete_id), "")
+        linked_action_id = action_repetition_ids[index] if index < len(action_repetition_ids) else None
+        insert_participant_repetition(db, session_id, action_standard_id, repetition, participant_by_athlete, video_file_by_index, linked_action_id)
     if session.get("taskId"):
         status_value = "completed" if int(session.get("validReps", 0)) >= int(session.get("targetReps", 0)) else "active"
         db.execute(text("UPDATE training_tasks SET status = :status, updated_at = now() WHERE id = :id"), {"id": parse_uuid(session.get("taskId")), "status": status_value})
@@ -1752,6 +1842,61 @@ def effective_repetition_row(row: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
+def repetition_search_from_sql() -> str:
+    repetition_columns = (
+        "id, session_id, participant_id, athlete_id AS repetition_athlete_id, action_standard_id, standard_version, "
+        "started_ms, ended_ms, valid, score, scores, error_codes, feedback, key_frame_ms, video_file_id, video_index, "
+        "video_clip_start_ms, video_clip_end_ms, source, review_status, reviewer_coach_id, reviewed_at, "
+        "manual_started_ms, manual_ended_ms, manual_valid, manual_score, manual_scores, manual_error_codes, "
+        "manual_feedback, coach_note, key_frame_pose, track_id, camera_id, frame_time_ms, identity_status, "
+        "identity_confidence, identity_source"
+    )
+    return (
+        "FROM ("
+        "SELECT rep.*, COALESCE(ra.name, '') AS repetition_athlete_name, "
+        "COALESCE(rep.repetition_athlete_id, ts.athlete_id) AS effective_athlete_id, "
+        "COALESCE(ra.name, a.name, '') AS effective_athlete_name, "
+        "ts.athlete_id, ts.coach_id, ts.competition_id, ts.competition_event_id, ts.event_athlete_id, "
+        "ts.saved_at, ts.started_at AS session_started_at, ts.video_source, ts.video_fallback_source, "
+        "ts.video_camera_name, ts.source_type, ts.source_ref, "
+        "COALESCE(tvf.status, '') AS video_file_status, COALESCE(tvf.file_path, '') AS video_file_path, "
+        "a.name AS athlete_name, COALESCE(c.name, '') AS coach_name, COALESCE(comp.name, '') AS competition_name, "
+        "COALESCE(ce.race_name, '') AS race_name, COALESCE(ce.event_name, '') AS event_name, "
+        "COALESCE(ce.heat_name, '') AS heat_name, COALESCE(ce.group_name, '') AS group_name, "
+        "COALESCE(ea.bib_number, '') AS bib_number, COALESCE(ea.lane_number, '') AS lane_number, "
+        "s.name AS action_name, ac.name AS action_category, "
+        "COALESCE(rep.manual_started_ms, rep.started_ms) AS effective_started_ms, "
+        "COALESCE(rep.manual_ended_ms, rep.ended_ms) AS effective_ended_ms, "
+        "COALESCE(rep.manual_valid, rep.valid) AS effective_valid, "
+        "COALESCE(rep.manual_score, rep.score) AS effective_score, "
+        "COALESCE((rep.manual_scores->>'detection')::int, (rep.scores->>'detection')::int, 0) AS effective_detection_score, "
+        "COALESCE((rep.manual_scores->>'symmetry')::int, (rep.scores->>'symmetry')::int, 0) AS effective_symmetry_score, "
+        "COALESCE((rep.manual_scores->>'balance')::int, (rep.scores->>'balance')::int, 0) AS effective_balance_score, "
+        "COALESCE((rep.manual_scores->>'stability')::int, (rep.scores->>'stability')::int, 0) AS effective_stability_score, "
+        "COALESCE((rep.manual_scores->>'depth')::int, (rep.scores->>'depth')::int, 0) AS effective_depth_score, "
+        "COALESCE(NULLIF(rep.manual_error_codes #>> '{}', ''), rep.error_codes #>> '{}', '') AS effective_error_codes, "
+        "COALESCE(NULLIF(rep.manual_feedback, ''), rep.feedback, '') AS effective_feedback "
+        "FROM ("
+        f"SELECT {repetition_columns} FROM participant_repetitions "
+        "UNION ALL "
+        f"SELECT {repetition_columns} FROM action_repetitions ar "
+        "WHERE NOT EXISTS ("
+        "SELECT 1 FROM participant_repetitions pr "
+        "WHERE pr.action_repetition_id = ar.id OR (pr.action_repetition_id IS NULL AND pr.session_id = ar.session_id)"
+        ")"
+        ") rep JOIN training_sessions ts ON ts.id = rep.session_id "
+        "JOIN athletes a ON a.id = ts.athlete_id LEFT JOIN athletes ra ON ra.id = rep.repetition_athlete_id "
+        "LEFT JOIN coaches c ON c.id = ts.coach_id "
+        "LEFT JOIN training_video_files tvf ON tvf.id = rep.video_file_id "
+        "LEFT JOIN competitions comp ON comp.id = ts.competition_id "
+        "LEFT JOIN competition_events ce ON ce.id = ts.competition_event_id "
+        "LEFT JOIN event_athletes ea ON ea.id = ts.event_athlete_id "
+        "JOIN action_standards s ON s.id = rep.action_standard_id "
+        "JOIN action_categories ac ON ac.id = s.category_id"
+        ") rep "
+    )
+
+
 @app.get("/training/repetitions")
 def search_repetitions(
     sessionId: str = "",
@@ -1829,40 +1974,7 @@ def search_repetitions(
         where.append("(COALESCE(effective_error_codes, '') ILIKE :errorText OR COALESCE(effective_feedback, '') ILIKE :errorText OR COALESCE(coach_note, '') ILIKE :errorText)")
         args["errorText"] = f"%{errorText.strip()}%"
     where_sql = "WHERE " + " AND ".join(where) if where else ""
-    from_sql = (
-        "FROM ("
-        "SELECT ar.*, ar.athlete_id AS repetition_athlete_id, COALESCE(ra.name, '') AS repetition_athlete_name, "
-        "COALESCE(ar.athlete_id, ts.athlete_id) AS effective_athlete_id, COALESCE(ra.name, a.name, '') AS effective_athlete_name, "
-        "ts.athlete_id, ts.coach_id, ts.competition_id, ts.competition_event_id, ts.event_athlete_id, "
-        "ts.saved_at, ts.started_at AS session_started_at, ts.video_source, ts.video_fallback_source, "
-        "ts.video_camera_name, ts.source_type, ts.source_ref, "
-        "COALESCE(tvf.status, '') AS video_file_status, COALESCE(tvf.file_path, '') AS video_file_path, "
-        "a.name AS athlete_name, COALESCE(c.name, '') AS coach_name, COALESCE(comp.name, '') AS competition_name, "
-        "COALESCE(ce.race_name, '') AS race_name, COALESCE(ce.event_name, '') AS event_name, "
-        "COALESCE(ce.heat_name, '') AS heat_name, COALESCE(ce.group_name, '') AS group_name, "
-        "COALESCE(ea.bib_number, '') AS bib_number, COALESCE(ea.lane_number, '') AS lane_number, "
-        "s.name AS action_name, ac.name AS action_category, "
-        "COALESCE(ar.manual_started_ms, ar.started_ms) AS effective_started_ms, "
-        "COALESCE(ar.manual_ended_ms, ar.ended_ms) AS effective_ended_ms, "
-        "COALESCE(ar.manual_valid, ar.valid) AS effective_valid, "
-        "COALESCE(ar.manual_score, ar.score) AS effective_score, "
-        "COALESCE((ar.manual_scores->>'detection')::int, (ar.scores->>'detection')::int, 0) AS effective_detection_score, "
-        "COALESCE((ar.manual_scores->>'symmetry')::int, (ar.scores->>'symmetry')::int, 0) AS effective_symmetry_score, "
-        "COALESCE((ar.manual_scores->>'balance')::int, (ar.scores->>'balance')::int, 0) AS effective_balance_score, "
-        "COALESCE((ar.manual_scores->>'stability')::int, (ar.scores->>'stability')::int, 0) AS effective_stability_score, "
-        "COALESCE((ar.manual_scores->>'depth')::int, (ar.scores->>'depth')::int, 0) AS effective_depth_score, "
-        "COALESCE(NULLIF(ar.manual_error_codes #>> '{}', ''), ar.error_codes #>> '{}', '') AS effective_error_codes, "
-        "COALESCE(NULLIF(ar.manual_feedback, ''), ar.feedback, '') AS effective_feedback "
-        "FROM action_repetitions ar JOIN training_sessions ts ON ts.id = ar.session_id "
-        "JOIN athletes a ON a.id = ts.athlete_id LEFT JOIN athletes ra ON ra.id = ar.athlete_id LEFT JOIN coaches c ON c.id = ts.coach_id "
-        "LEFT JOIN training_video_files tvf ON tvf.id = ar.video_file_id "
-        "LEFT JOIN competitions comp ON comp.id = ts.competition_id "
-        "LEFT JOIN competition_events ce ON ce.id = ts.competition_event_id "
-        "LEFT JOIN event_athletes ea ON ea.id = ts.event_athlete_id "
-        "JOIN action_standards s ON s.id = ar.action_standard_id "
-        "JOIN action_categories ac ON ac.id = s.category_id"
-        ") rep "
-    )
+    from_sql = repetition_search_from_sql()
     total = int(db.execute(text(f"SELECT COUNT(*) {from_sql} {where_sql}"), args).scalar() or 0)
     page_size = max(1, min(pageSize, 1000))
     page_number = min(max(1, pageNumber), max(1, (total + page_size - 1) // page_size))
@@ -1880,9 +1992,9 @@ def repetitions(session_id: str,
                 _: dict[str, Any] = Depends(require_user)) -> list[dict[str, Any]]:
     rows = db.execute(
         text(
-            "SELECT ar.*, ar.athlete_id AS repetition_athlete_id, COALESCE(a.name, '') AS repetition_athlete_name "
-            "FROM action_repetitions ar LEFT JOIN athletes a ON a.id = ar.athlete_id "
-            "WHERE ar.session_id = :session_id ORDER BY COALESCE(ar.manual_started_ms, ar.started_ms), ar.started_ms"
+            f"SELECT * {repetition_search_from_sql()} "
+            "WHERE session_id = :session_id "
+            "ORDER BY COALESCE(manual_started_ms, started_ms), started_ms"
         ),
         {"session_id": session_id},
     ).mappings()
@@ -1896,40 +2008,63 @@ def save_review(repetition_id: str,
                 _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
     import json
 
-    row = db.execute(text("SELECT session_id::text FROM action_repetitions WHERE id = :id"), {"id": repetition_id}).first()
+    row = db.execute(
+        text(
+            "SELECT session_id::text, id::text AS action_id FROM action_repetitions WHERE id = :id "
+            "UNION ALL "
+            "SELECT session_id::text, action_repetition_id::text AS action_id FROM participant_repetitions WHERE id = :id "
+            "LIMIT 1"
+        ),
+        {"id": repetition_id},
+    ).mappings().first()
     if not row:
         raise HTTPException(status_code=404, detail="Repetition not found")
+    review_values = {
+        "id": repetition_id,
+        "review_status": payload.get("reviewStatus") or "reviewed",
+        "reviewer_coach_id": parse_uuid(payload.get("reviewerCoachId")),
+        "reviewed_at": parse_dt(payload.get("reviewedAt")),
+        "manual_started_ms": payload.get("manualStartedMs") if int(payload.get("manualStartedMs", -1)) >= 0 else None,
+        "manual_ended_ms": payload.get("manualEndedMs") if int(payload.get("manualEndedMs", -1)) >= 0 else None,
+        "manual_valid": bool(payload.get("manualValid")) if int(payload.get("manualValid", -1)) >= 0 else None,
+        "manual_score": payload.get("manualScore") if int(payload.get("manualScore", -1)) >= 0 else None,
+        "manual_scores": json.dumps(scores_from_payload(payload, "manual"), ensure_ascii=False),
+        "manual_error_codes": json.dumps(payload.get("manualErrorCodes") or "", ensure_ascii=False),
+        "manual_feedback": payload.get("manualFeedback") or None,
+        "coach_note": payload.get("coachNote") or None,
+        "video_clip_start_ms": int(payload.get("videoClipStartMs", 0)),
+        "video_clip_end_ms": int(payload.get("videoClipEndMs", 0)),
+    }
     db.execute(
         text(
             "UPDATE action_repetitions SET review_status=:review_status, reviewer_coach_id=:reviewer_coach_id, "
             "reviewed_at=:reviewed_at, manual_started_ms=:manual_started_ms, manual_ended_ms=:manual_ended_ms, "
             "manual_valid=:manual_valid, manual_score=:manual_score, manual_scores=CAST(:manual_scores AS jsonb), "
             "manual_error_codes=CAST(:manual_error_codes AS jsonb), manual_feedback=:manual_feedback, coach_note=:coach_note, "
-            "video_clip_start_ms=:video_clip_start_ms, video_clip_end_ms=:video_clip_end_ms WHERE id=:id"
+            "video_clip_start_ms=:video_clip_start_ms, video_clip_end_ms=:video_clip_end_ms "
+            "WHERE id=:id OR id = :action_id"
         ),
-        {
-            "id": repetition_id,
-            "review_status": payload.get("reviewStatus") or "reviewed",
-            "reviewer_coach_id": parse_uuid(payload.get("reviewerCoachId")),
-            "reviewed_at": parse_dt(payload.get("reviewedAt")),
-            "manual_started_ms": payload.get("manualStartedMs") if int(payload.get("manualStartedMs", -1)) >= 0 else None,
-            "manual_ended_ms": payload.get("manualEndedMs") if int(payload.get("manualEndedMs", -1)) >= 0 else None,
-            "manual_valid": bool(payload.get("manualValid")) if int(payload.get("manualValid", -1)) >= 0 else None,
-            "manual_score": payload.get("manualScore") if int(payload.get("manualScore", -1)) >= 0 else None,
-            "manual_scores": json.dumps(scores_from_payload(payload, "manual"), ensure_ascii=False),
-            "manual_error_codes": json.dumps(payload.get("manualErrorCodes") or "", ensure_ascii=False),
-            "manual_feedback": payload.get("manualFeedback") or None,
-            "coach_note": payload.get("coachNote") or None,
-            "video_clip_start_ms": int(payload.get("videoClipStartMs", 0)),
-            "video_clip_end_ms": int(payload.get("videoClipEndMs", 0)),
-        },
+        {**review_values, "action_id": parse_uuid(row["action_id"])},
     )
-    recalculate_session_summary(db, row[0])
+    db.execute(
+        text(
+            "UPDATE participant_repetitions SET review_status=:review_status, reviewer_coach_id=:reviewer_coach_id, "
+            "reviewed_at=:reviewed_at, manual_started_ms=:manual_started_ms, manual_ended_ms=:manual_ended_ms, "
+            "manual_valid=:manual_valid, manual_score=:manual_score, manual_scores=CAST(:manual_scores AS jsonb), "
+            "manual_error_codes=CAST(:manual_error_codes AS jsonb), manual_feedback=:manual_feedback, coach_note=:coach_note, "
+            "video_clip_start_ms=:video_clip_start_ms, video_clip_end_ms=:video_clip_end_ms "
+            "WHERE id=:id OR action_repetition_id = :action_id"
+        ),
+        {**review_values, "action_id": parse_uuid(row["action_id"])},
+    )
+    recalculate_session_summary(db, row["session_id"])
     return {"ok": True}
 
 
 def recalculate_session_summary(db: Session, session_id: str) -> None:
-    reps = db.execute(text("SELECT * FROM action_repetitions WHERE session_id = :session_id"), {"session_id": session_id}).mappings().all()
+    reps = db.execute(text("SELECT * FROM participant_repetitions WHERE session_id = :session_id"), {"session_id": session_id}).mappings().all()
+    if not reps:
+        reps = db.execute(text("SELECT * FROM action_repetitions WHERE session_id = :session_id"), {"session_id": session_id}).mappings().all()
     total = len(reps)
     valid = 0
     best = 0
@@ -1970,7 +2105,10 @@ def manual_repetition(session_id: str,
                       payload: dict[str, Any] = Body(...),
                       db: Session = Depends(db_session),
                       _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
-    session = db.execute(text("SELECT action_standard_id::text, standard_version FROM training_sessions WHERE id = :id"), {"id": session_id}).mappings().first()
+    session = db.execute(
+        text("SELECT athlete_id::text, action_standard_id::text, standard_version FROM training_sessions WHERE id = :id"),
+        {"id": session_id},
+    ).mappings().first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     payload["source"] = "coach"
@@ -1983,7 +2121,18 @@ def manual_repetition(session_id: str,
         {"session_id": session_id},
     ).mappings()
     video_file_by_index = {int(row["video_index"]): row["id"] for row in video_rows}
+    db.execute(
+        text(
+            "INSERT INTO training_session_participants (id, session_id, athlete_id, slot_index, role, active, updated_at) "
+            "VALUES (gen_random_uuid(), :session_id, :athlete_id, 1, 'primary', true, now()) "
+            "ON CONFLICT (session_id, athlete_id) DO NOTHING"
+        ),
+        {"session_id": session_id, "athlete_id": parse_uuid(session["athlete_id"])},
+    )
+    participants = participants_for_sessions(db, [session_id]).get(session_id, [])
+    participant_by_athlete = {item["athleteId"]: item["id"] for item in participants}
     rep_id = insert_repetition(db, session_id, session["action_standard_id"], payload, video_file_by_index)
+    insert_participant_repetition(db, session_id, session["action_standard_id"], payload, participant_by_athlete, video_file_by_index, rep_id)
     recalculate_session_summary(db, session_id)
     return {"id": rep_id}
 
@@ -2017,7 +2166,12 @@ def trends(days: int = 7,
             "COALESCE(ROUND(AVG((scores->>'balance')::numeric)), 0) AS balance, "
             "COALESCE(ROUND(AVG((scores->>'stability')::numeric)), 0) AS stability, "
             "COALESCE(ROUND(AVG((scores->>'depth')::numeric)), 0) AS depth "
-            "FROM action_repetitions WHERE session_id IN (SELECT id FROM training_sessions WHERE saved_at >= :since)"
+            "FROM ("
+            "SELECT scores, session_id FROM participant_repetitions "
+            "UNION ALL "
+            "SELECT scores, session_id FROM action_repetitions ar "
+            "WHERE NOT EXISTS (SELECT 1 FROM participant_repetitions pr WHERE pr.session_id = ar.session_id)"
+            ") reps WHERE session_id IN (SELECT id FROM training_sessions WHERE saved_at >= :since)"
         ),
         {"since": since},
     ).mappings().one()

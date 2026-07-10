@@ -1068,10 +1068,12 @@ MainWindow::MainWindow(QWidget *parent)
             m_trajectoryWidget->setPoseFrame(poseFrame);
         }
         if (m_poseStandardnessScorer) {
+            const ActionStandard standard = selectedActionStandard();
             PoseFrameResult scoringFrame = poseFrame;
             const QString primaryAthleteId = selectedAthleteId();
             if (!primaryAthleteId.isEmpty()) {
-                for (const PoseInstance &instance : poseFrame.instances) {
+                for (int instanceIndex = 0; instanceIndex < poseFrame.instances.size(); ++instanceIndex) {
+                    const PoseInstance &instance = poseFrame.instances.at(instanceIndex);
                     if (instance.athleteId == primaryAthleteId) {
                         scoringFrame.instances = {instance};
                         break;
@@ -1079,7 +1081,6 @@ MainWindow::MainWindow(QWidget *parent)
                 }
             }
             const PoseStandardnessResult baseStandardness = m_poseStandardnessScorer->scoreFrame(scoringFrame);
-            const ActionStandard standard = selectedActionStandard();
             ActionAssessment assessment;
             if (m_actionStandardScorer && !standard.id.isEmpty()) {
                 assessment = m_actionStandardScorer->score(baseStandardness, standard);
@@ -1108,13 +1109,45 @@ MainWindow::MainWindow(QWidget *parent)
                 m_feedbackText = baseStandardness.feedback;
             }
             if (m_isRecording && !m_isPaused && m_actionRepetitionTracker) {
-                ActionRepetition repetition;
-                if (m_actionRepetitionTracker->update(scoringFrame,
-                                                      assessment,
-                                                      QDateTime::currentMSecsSinceEpoch(),
-                                                      m_recordingStartedAtMsec,
-                                                      &repetition)) {
-                    recordCompletedRepetition(repetition);
+                const qint64 nowMsec = QDateTime::currentMSecsSinceEpoch();
+                for (int instanceIndex = 0; instanceIndex < poseFrame.instances.size(); ++instanceIndex) {
+                    const PoseInstance &instance = poseFrame.instances.at(instanceIndex);
+                    PoseFrameResult participantFrame = poseFrame;
+                    participantFrame.instances = {instance};
+                    const PoseStandardnessResult participantStandardness = m_poseStandardnessScorer->scoreFrame(participantFrame);
+                    ActionAssessment participantAssessment = assessment;
+                    if (m_actionStandardScorer && !standard.id.isEmpty()) {
+                        participantAssessment = m_actionStandardScorer->score(participantStandardness, standard);
+                    } else {
+                        participantAssessment.score = participantStandardness.score;
+                        participantAssessment.detectionScore = participantStandardness.detectionScore;
+                        participantAssessment.symmetryScore = participantStandardness.symmetryScore;
+                        participantAssessment.balanceScore = participantStandardness.balanceScore;
+                        participantAssessment.stabilityScore = participantStandardness.stabilityScore;
+                        participantAssessment.depthScore = participantStandardness.depthScore;
+                        participantAssessment.feedback = participantStandardness.feedback;
+                        participantAssessment.valid = participantStandardness.valid;
+                    }
+                    const QString participantKey = !instance.participantId.trimmed().isEmpty()
+                                                       ? QStringLiteral("p:%1").arg(instance.participantId)
+                                                       : (!instance.athleteId.trimmed().isEmpty()
+                                                              ? QStringLiteral("a:%1").arg(instance.athleteId)
+                                                              : (instance.trackId >= 0
+                                                                     ? QStringLiteral("c:%1:t:%2").arg(poseFrame.cameraId).arg(instance.trackId)
+                                                                     : QStringLiteral("c:%1:i:%2").arg(poseFrame.cameraId).arg(instanceIndex)));
+                    if (!m_participantActionTrackers.contains(participantKey)) {
+                        ActionRepetitionTracker tracker;
+                        tracker.reset(standard);
+                        m_participantActionTrackers.insert(participantKey, tracker);
+                    }
+                    ActionRepetition repetition;
+                    if (m_participantActionTrackers[participantKey].update(participantFrame,
+                                                                           participantAssessment,
+                                                                           nowMsec,
+                                                                           m_recordingStartedAtMsec,
+                                                                           &repetition)) {
+                        recordCompletedRepetition(repetition);
+                    }
                 }
             }
             refreshStats();
@@ -3762,6 +3795,7 @@ void MainWindow::resetCurrentTrainingSession()
     m_bestActionScore = 0;
     m_actionScoreTotal = 0;
     m_currentRepetitions.clear();
+    m_participantActionTrackers.clear();
     m_previousKneeBend = 0.0;
     m_actionArmed = false;
     m_lastActionMsec = 0;
@@ -4817,6 +4851,12 @@ void MainWindow::saveRecord()
         if (repetition.identityStatus.trimmed().isEmpty()) {
             repetition.identityStatus = QStringLiteral("unknown");
         }
+    }
+    session.participantRepetitions.clear();
+    for (const ActionRepetition &repetition : std::as_const(repetitions)) {
+        ParticipantRepetition participantRepetition;
+        static_cast<ActionRepetition &>(participantRepetition) = repetition;
+        session.participantRepetitions.append(participantRepetition);
     }
     if (!m_trainingRepository->saveTrainingSession(&session, repetitions, &errorMessage)) {
         QMessageBox::warning(this, QStringLiteral("保存失败"), errorMessage);
