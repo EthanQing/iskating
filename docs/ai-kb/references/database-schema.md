@@ -273,6 +273,25 @@ P1 轨迹拼接默认把 12 路相机按 5m 一段初始化为 CAM 01: 0-5m 至 
 
 服务端保存训练时会同时写入兼容 `action_repetitions` 和权威 `participant_repetitions`。查询动作明细时优先返回 participant 结果；没有新表结果的旧 session 按旧 `action_repetitions` 和 `training_sessions.athlete_id` 回退为单 participant。
 
+#### `participant_pose_frames`
+
+保存同一 session 下每名参与者的连续姿态/轨迹时间线，支撑按人回放轨迹和姿态摘要。
+
+- `session_id`: 关联 `training_sessions.id`。
+- `participant_id`: 可空，关联 `training_session_participants.id`；未知身份或旧数据可为空。
+- `athlete_id`: 可空，动作级运动员身份；服务端保存时会按 session participant 自动补齐 `participant_id`。
+- `video_file_id`, `video_index`: 关联 session 视频资产和视频序号，用于按帧时间定位视频。
+- `frame_time_ms`: session 相对帧时间；桌面端按每个 participant/camera/track 约 200ms 采样一帧。
+- `camera_id`, `track_id`: 姿态实例来源机位和临时轨迹 ID。
+- `identity_status`, `identity_confidence`, `identity_source`: 身份状态、置信度和来源。
+- `bbox_x/y/width/height`: 姿态实例在画面中的 bbox。
+- `anchor_x`, `anchor_y`: 用于轨迹映射的图像锚点，优先为左右髋部中点。
+- `field_x`, `field_y`, `has_field_point`: 按相机场地段线性映射得到的场地点。
+- `pose_confidence`: 姿态实例置信度。
+- `pose_summary`: JSONB，保存 Body17 关键点子集、关键点相对锚点偏移和可用 3D 坐标摘要；不保存完整原始视频帧或全量推理输出。
+
+旧 SQLite/旧单人记录不会回填连续姿态帧；这些记录打开姿态轨迹复盘时返回空时间线，但动作复盘和报告继续可用。
+
 #### `athlete_action_baselines`
 
 按运动员和动作标准自动维护历史 session 数、平均分和平均有效动作数。
@@ -333,7 +352,7 @@ FastAPI `seed_defaults()` 内置默认管理员、默认运动员、默认教练
 
 ## 查询入口
 
-训练历史通过 `TrainingRepository::searchSessions(filters, page, sort)` 查询，支持运动员、教练、比赛、场次、参赛关系、分析来源、动作标准、保存时间、平均分区间和比赛关键词组合检索，并返回总数和当前页结果；运动员筛选会匹配 session 主运动员和 `training_session_participants`。比赛关键词匹配 `competitions.name/location/competition_type/notes`、`competition_events.race_name/event_name/heat_name/group_name/notes`、`event_athletes.bib_number/lane_number/notes`、`training_sessions.source_type/source_ref` 以及 `training_sessions.site/training_phase/goal/notes/feedback/coach_comment`。`recentSessions(limit)` 仍保留为兼容入口，内部调用默认查询。跨 session 动作实例通过 `searchRepetitions(filters, page)` 优先联查 `training_sessions` 和 `participant_repetitions`，没有新表结果的旧记录再回退 `action_repetitions`，支持按 session、人员、比赛/场次、动作、来源、有效性、复核状态、分数区间、训练时间、片段时间和错误项关键词查询；人员筛选优先匹配 participant 结果的 `athlete_id`，旧记录没有动作级身份时回退到 session 主运动员；有效性、分数、错误项和反馈默认使用人工优先值。单 session 动作明细通过 `repetitionsForSession()` / `reviewedRepetitionsForSession()` 查询同一合并结果；离线任务通过 `POST /offline-analysis/tasks` 创建或更新，并可用 `GET /offline-analysis/tasks` 按 `batchId/status` 查询；视频资产清理候选通过 `GET /training/video-files` 查询，支持 `status`、`withLocalPathOnly` 和 `modifiedBefore` 过滤并返回 session、运动员、文件大小/修改时间和动作引用数量；本机文件删除后通过 `POST /training/video-files/{id}/cleanup` 只更新 metadata。人员档案通过 `athletes()`、`coaches()`、`athleteIdsForCoach()` 查询；比赛基础信息通过 `competitions()`、`saveCompetition()`、`archiveCompetition()` 查询和维护；比赛场次通过 `competitionEvents()`、`saveCompetitionEvent()`、`archiveCompetitionEvent()` 查询和维护；参赛关系通过 `eventAthletes()`、`saveEventAthlete()`、`archiveEventAthlete()` 查询和维护；最近 7/30 天趋势通过 `trendForRecentDays()` 聚合 `training_sessions`、`participant_repetitions` 和旧 `action_repetitions` 查询；教练批注通过 `saveCoachComment()` 更新；个体基线通过 `baselineFor()` 查询。
+训练历史通过 `TrainingRepository::searchSessions(filters, page, sort)` 查询，支持运动员、教练、比赛、场次、参赛关系、分析来源、动作标准、保存时间、平均分区间和比赛关键词组合检索，并返回总数和当前页结果；运动员筛选会匹配 session 主运动员和 `training_session_participants`。比赛关键词匹配 `competitions.name/location/competition_type/notes`、`competition_events.race_name/event_name/heat_name/group_name/notes`、`event_athletes.bib_number/lane_number/notes`、`training_sessions.source_type/source_ref` 以及 `training_sessions.site/training_phase/goal/notes/feedback/coach_comment`。`recentSessions(limit)` 仍保留为兼容入口，内部调用默认查询。跨 session 动作实例通过 `searchRepetitions(filters, page)` 优先联查 `training_sessions` 和 `participant_repetitions`，没有新表结果的旧记录再回退 `action_repetitions`，支持按 session、人员、比赛/场次、动作、来源、有效性、复核状态、分数区间、训练时间、片段时间和错误项关键词查询；人员筛选优先匹配 participant 结果的 `athlete_id`，旧记录没有动作级身份时回退到 session 主运动员；有效性、分数、错误项和反馈默认使用人工优先值。单 session 动作明细通过 `repetitionsForSession()` / `reviewedRepetitionsForSession()` 查询同一合并结果；姿态轨迹时间线通过 `poseFramesForSession()` / `GET /training/sessions/{session_id}/pose-frames` 查询，支持按 participant、athlete 和时间范围过滤；离线任务通过 `POST /offline-analysis/tasks` 创建或更新，并可用 `GET /offline-analysis/tasks` 按 `batchId/status` 查询；视频资产清理候选通过 `GET /training/video-files` 查询，支持 `status`、`withLocalPathOnly` 和 `modifiedBefore` 过滤并返回 session、运动员、文件大小/修改时间和动作引用数量；本机文件删除后通过 `POST /training/video-files/{id}/cleanup` 只更新 metadata。人员档案通过 `athletes()`、`coaches()`、`athleteIdsForCoach()` 查询；比赛基础信息通过 `competitions()`、`saveCompetition()`、`archiveCompetition()` 查询和维护；比赛场次通过 `competitionEvents()`、`saveCompetitionEvent()`、`archiveCompetitionEvent()` 查询和维护；参赛关系通过 `eventAthletes()`、`saveEventAthlete()`、`archiveEventAthlete()` 查询和维护；最近 7/30 天趋势通过 `trendForRecentDays()` 聚合 `training_sessions`、`participant_repetitions` 和旧 `action_repetitions` 查询；教练批注通过 `saveCoachComment()` 更新；个体基线通过 `baselineFor()` 查询。
 
 人员管理写入口：
 

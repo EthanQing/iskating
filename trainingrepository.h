@@ -41,6 +41,12 @@ public:
     QVector<SessionHistoryItem> recentSessions(int limit) const;
     QVector<ActionRepetition> repetitionsForSession(const QString &sessionId) const;
     QVector<ActionRepetition> reviewedRepetitionsForSession(const QString &sessionId) const;
+    QVector<ParticipantPoseFrame> poseFramesForSession(const QString &sessionId,
+                                                       const QString &participantId = QString(),
+                                                       const QString &athleteId = QString(),
+                                                       int fromMs = -1,
+                                                       int toMs = -1,
+                                                       int limit = 5000) const;
     QVector<VideoFileCleanupCandidate> videoFiles(const QString &status = QString(),
                                                   bool withLocalPathOnly = false,
                                                   const QDateTime &modifiedBefore = QDateTime()) const;

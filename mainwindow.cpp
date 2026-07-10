@@ -42,7 +42,9 @@
 #include <QLayout>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QJsonArray>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QMessageBox>
 #include <QPainter>
 #include <QPainterPath>
@@ -61,6 +63,7 @@
 #include <QSizePolicy>
 #include <QScrollArea>
 #include <QShortcut>
+#include <QSlider>
 #include <QSpinBox>
 #include <QStandardPaths>
 #include <QStringConverter>
@@ -80,6 +83,7 @@
 #include <QAbstractItemView>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <functional>
 #include <utility>
@@ -103,6 +107,10 @@ constexpr int kOperationRailWidth = 110;
 constexpr int kOperationButtonHeight = 72;
 constexpr int kHistoryActionButtonWidth = 92;
 constexpr int kScoreTagWidth = 68;
+constexpr qint64 kPoseTimelineSampleIntervalMs = 200;
+constexpr int kMaxParticipantPoseFrames = 20000;
+constexpr qreal kDefaultFieldWidthM = 12.0;
+constexpr std::array<int, 7> kPoseTimelineKeypointIndices = {0, 5, 6, 11, 12, 15, 16};
 constexpr const char *kPreviousWindowStateProperty = "previousWindowStateBeforeFullScreen";
 constexpr const char *kMutedInactiveColor = "#8c8c8c";
 constexpr const char *kHoverActionColor = "#3b8dff";
@@ -116,6 +124,57 @@ enum TrajectoryMode {
 QString cameraSettingsGroup(int cameraIndex)
 {
     return QStringLiteral("cameras/camera%1").arg(cameraIndex + 1, 2, 10, QLatin1Char('0'));
+}
+
+const PoseKeypoint *poseKeypointAt(const PoseInstance &instance, int index)
+{
+    if (index < 0 || index >= instance.keypoints.size()) {
+        return nullptr;
+    }
+    const PoseKeypoint &keypoint = instance.keypoints.at(index);
+    return keypoint.valid ? &keypoint : nullptr;
+}
+
+QPointF poseAnchorPointFor(const PoseInstance &instance)
+{
+    const PoseKeypoint *leftHip = poseKeypointAt(instance, 11);
+    const PoseKeypoint *rightHip = poseKeypointAt(instance, 12);
+    if (leftHip && rightHip) {
+        return (leftHip->imagePoint + rightHip->imagePoint) * 0.5;
+    }
+    return instance.box.isValid() ? instance.box.center() : QPointF();
+}
+
+QJsonObject compactPoseSummary(const PoseFrameResult &frame, const PoseInstance &instance, const QPointF &anchor)
+{
+    QJsonArray keypoints;
+    for (const int index : kPoseTimelineKeypointIndices) {
+        const PoseKeypoint *keypoint = poseKeypointAt(instance, index);
+        if (!keypoint) {
+            continue;
+        }
+        QJsonObject item{
+            {QStringLiteral("index"), index},
+            {QStringLiteral("name"), keypoint->name},
+            {QStringLiteral("x"), keypoint->imagePoint.x()},
+            {QStringLiteral("y"), keypoint->imagePoint.y()},
+            {QStringLiteral("dx"), keypoint->imagePoint.x() - anchor.x()},
+            {QStringLiteral("dy"), keypoint->imagePoint.y() - anchor.y()},
+            {QStringLiteral("confidence"), keypoint->confidence}
+        };
+        if (keypoint->hasPoint3d) {
+            item.insert(QStringLiteral("x3d"), keypoint->point3d.x());
+            item.insert(QStringLiteral("y3d"), keypoint->point3d.y());
+            item.insert(QStringLiteral("z3d"), keypoint->point3d.z());
+        }
+        keypoints.append(item);
+    }
+    return {
+        {QStringLiteral("skeletonType"), poseSkeletonTypeName(frame.skeletonType)},
+        {QStringLiteral("frameWidth"), frame.frameSize.width()},
+        {QStringLiteral("frameHeight"), frame.frameSize.height()},
+        {QStringLiteral("keypoints"), keypoints}
+    };
 }
 
 QString defaultCameraChannelName(int cameraIndex)
@@ -1067,6 +1126,7 @@ MainWindow::MainWindow(QWidget *parent)
         if (m_trajectoryWidget) {
             m_trajectoryWidget->setPoseFrame(poseFrame);
         }
+        recordParticipantPoseFrames(poseFrame);
         if (m_poseStandardnessScorer) {
             const ActionStandard standard = selectedActionStandard();
             PoseFrameResult scoringFrame = poseFrame;
@@ -3795,7 +3855,9 @@ void MainWindow::resetCurrentTrainingSession()
     m_bestActionScore = 0;
     m_actionScoreTotal = 0;
     m_currentRepetitions.clear();
+    m_currentPoseFrames.clear();
     m_participantActionTrackers.clear();
+    m_participantPoseSampleTimes.clear();
     m_previousKneeBend = 0.0;
     m_actionArmed = false;
     m_lastActionMsec = 0;
@@ -3821,6 +3883,74 @@ void MainWindow::recordCompletedRepetition(const ActionRepetition &repetition)
         m_actionScoreTotal += item.score;
     }
     refreshStats();
+}
+
+void MainWindow::recordParticipantPoseFrames(const PoseFrameResult &poseFrame)
+{
+    if (!m_isRecording || m_isPaused || poseFrame.instances.isEmpty()) {
+        return;
+    }
+
+    const qint64 timestampMs = poseFrame.timestampMs > 0
+                                   ? poseFrame.timestampMs
+                                   : std::max<qint64>(0, QDateTime::currentMSecsSinceEpoch() - m_recordingStartedAtMsec);
+    for (int instanceIndex = 0; instanceIndex < poseFrame.instances.size(); ++instanceIndex) {
+        const PoseInstance &instance = poseFrame.instances.at(instanceIndex);
+        if (instance.kind != PoseInstanceKind::Person) {
+            continue;
+        }
+        const QString sampleKey = !instance.participantId.trimmed().isEmpty()
+                                      ? QStringLiteral("p:%1").arg(instance.participantId)
+                                      : (!instance.athleteId.trimmed().isEmpty()
+                                             ? QStringLiteral("a:%1").arg(instance.athleteId)
+                                             : (instance.trackId >= 0
+                                                    ? QStringLiteral("c:%1:t:%2").arg(poseFrame.cameraId).arg(instance.trackId)
+                                                    : QStringLiteral("c:%1:i:%2").arg(poseFrame.cameraId).arg(instanceIndex)));
+        const qint64 previousTimestamp = m_participantPoseSampleTimes.value(sampleKey, -kPoseTimelineSampleIntervalMs);
+        if (timestampMs - previousTimestamp < kPoseTimelineSampleIntervalMs) {
+            continue;
+        }
+        m_participantPoseSampleTimes.insert(sampleKey, timestampMs);
+
+        const QPointF anchor = poseAnchorPointFor(instance);
+        ParticipantPoseFrame frame;
+        frame.participantId = instance.participantId;
+        frame.athleteId = instance.athleteId;
+        frame.frameTimeMs = timestampMs;
+        frame.cameraId = poseFrame.cameraId;
+        frame.trackId = instance.trackId;
+        frame.identityStatus = instance.identityStatus.trimmed().isEmpty() ? QStringLiteral("unknown") : instance.identityStatus;
+        frame.identityConfidence = instance.identityConfidence;
+        frame.identitySource = instance.identitySource;
+        frame.bboxX = instance.box.x();
+        frame.bboxY = instance.box.y();
+        frame.bboxWidth = instance.box.width();
+        frame.bboxHeight = instance.box.height();
+        frame.anchorX = anchor.x();
+        frame.anchorY = anchor.y();
+        frame.poseConfidence = instance.confidence;
+
+        const int cameraIndex = poseFrame.cameraId - 1;
+        if (cameraIndex >= 0 && cameraIndex < m_cameraSlotSettings.size()) {
+            const CameraSlotSettings &slot = m_cameraSlotSettings.at(cameraIndex);
+            if (slot.trajectoryEnabled
+                && slot.fieldEndM > slot.fieldStartM
+                && poseFrame.frameSize.width() > 1.0
+                && poseFrame.frameSize.height() > 1.0) {
+                const qreal nx = std::clamp(anchor.x() / poseFrame.frameSize.width(), 0.0, 1.0);
+                const qreal ny = std::clamp(anchor.y() / poseFrame.frameSize.height(), 0.0, 1.0);
+                frame.fieldX = slot.fieldStartM + (1.0 - ny) * (slot.fieldEndM - slot.fieldStartM);
+                frame.fieldY = slot.lateralOffsetM + (nx - 0.5) * kDefaultFieldWidthM;
+                frame.hasFieldPoint = true;
+            }
+        }
+
+        frame.poseSummaryJson = QString::fromUtf8(QJsonDocument(compactPoseSummary(poseFrame, instance, anchor)).toJson(QJsonDocument::Compact));
+        m_currentPoseFrames.append(frame);
+    }
+    while (m_currentPoseFrames.size() > kMaxParticipantPoseFrames) {
+        m_currentPoseFrames.removeFirst();
+    }
 }
 
 void MainWindow::importOfflineVideo()
@@ -4858,6 +4988,15 @@ void MainWindow::saveRecord()
         static_cast<ActionRepetition &>(participantRepetition) = repetition;
         session.participantRepetitions.append(participantRepetition);
     }
+    session.participantPoseFrames = m_currentPoseFrames;
+    for (ParticipantPoseFrame &frame : session.participantPoseFrames) {
+        frame.sessionId = session.id;
+        frame.videoFileId = session.videoFiles.isEmpty() ? QString() : session.videoFiles.first().id;
+        frame.videoIndex = session.videoFiles.isEmpty() ? 1 : session.videoFiles.first().videoIndex;
+        if (frame.identityStatus.trimmed().isEmpty()) {
+            frame.identityStatus = QStringLiteral("unknown");
+        }
+    }
     if (!m_trainingRepository->saveTrainingSession(&session, repetitions, &errorMessage)) {
         QMessageBox::warning(this, QStringLiteral("保存失败"), errorMessage);
         return;
@@ -5091,6 +5230,14 @@ void MainWindow::refreshHistory()
             openTrainingReview(record);
         });
 
+        auto *poseReviewButton = new QPushButton(QStringLiteral("姿态轨迹"), card);
+        poseReviewButton->setProperty("role", "secondaryButton");
+        configureStableButton(poseReviewButton, kHistoryActionButtonWidth, 32, QSize(0, 0));
+        poseReviewButton->setEnabled(m_trainingRepository && m_trainingRepository->isOpen());
+        connect(poseReviewButton, &QPushButton::clicked, this, [this, record]() {
+            openParticipantPoseReview(record);
+        });
+
         auto *commentButton = new QPushButton(QStringLiteral("教练批注"), card);
         commentButton->setProperty("role", "secondaryButton");
         configureStableButton(commentButton, kHistoryActionButtonWidth, 32, QSize(0, 0));
@@ -5107,6 +5254,7 @@ void MainWindow::refreshHistory()
 
         headerActionsLayout->addWidget(playButton);
         headerActionsLayout->addWidget(reviewButton);
+        headerActionsLayout->addWidget(poseReviewButton);
         headerActionsLayout->addWidget(commentButton);
         headerActionsLayout->addWidget(exportButton);
         if (ui->historyPage && ui->historyPage->width() < 900) {
@@ -5584,6 +5732,262 @@ void MainWindow::openTrainingReview(const SessionHistoryItem &record)
     loadTrainingRecords();
     refreshHistory();
     refreshSuggestions();
+}
+
+void MainWindow::openParticipantPoseReview(const SessionHistoryItem &record)
+{
+    if (!m_trainingRepository || !m_trainingRepository->isOpen()) {
+        QMessageBox::warning(this, QStringLiteral("数据库未就绪"), QStringLiteral("训练数据库未就绪，无法打开姿态轨迹复盘。"));
+        return;
+    }
+
+    const QVector<ParticipantPoseFrame> allFrames = m_trainingRepository->poseFramesForSession(record.id, QString(), QString(), -1, -1, 20000);
+    if (allFrames.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("暂无姿态轨迹"), QStringLiteral("这条训练记录没有连续姿态轨迹时间线。旧记录仍可使用动作复盘。"));
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("多人姿态轨迹复盘"));
+    dialog.resize(980, 620);
+    auto *root = new QVBoxLayout(&dialog);
+    root->setContentsMargins(16, 16, 16, 16);
+    root->setSpacing(10);
+
+    auto *topRow = new QHBoxLayout();
+    topRow->setSpacing(8);
+    auto *participantCombo = new QComboBox(&dialog);
+    participantCombo->addItem(QStringLiteral("全部参与者"), QString());
+    for (const TrainingSessionParticipant &participant : record.participants) {
+        const QString label = participant.athleteName.trimmed().isEmpty() ? participant.athleteId : participant.athleteName;
+        participantCombo->addItem(label, participant.athleteId);
+    }
+    participantCombo->addItem(QStringLiteral("未识别轨迹"), QStringLiteral("__unknown__"));
+    auto *summaryLabel = new QLabel(&dialog);
+    summaryLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    auto *locateButton = new QPushButton(QStringLiteral("定位视频"), &dialog);
+    auto *exportCsvButton = new QPushButton(QStringLiteral("导出 CSV"), &dialog);
+    auto *exportXlsxButton = new QPushButton(QStringLiteral("导出 XLSX"), &dialog);
+    topRow->addWidget(new QLabel(QStringLiteral("参与者"), &dialog));
+    topRow->addWidget(participantCombo);
+    topRow->addWidget(summaryLabel, 1);
+    topRow->addWidget(locateButton);
+    topRow->addWidget(exportCsvButton);
+    topRow->addWidget(exportXlsxButton);
+    root->addLayout(topRow);
+
+    auto *slider = new QSlider(Qt::Horizontal, &dialog);
+    root->addWidget(slider);
+
+    auto *detailLabel = new QLabel(&dialog);
+    detailLabel->setWordWrap(true);
+    detailLabel->setMinimumHeight(44);
+    root->addWidget(detailLabel);
+
+    auto *table = new QTableWidget(&dialog);
+    table->setColumnCount(11);
+    table->setHorizontalHeaderLabels({QStringLiteral("时间"),
+                                      QStringLiteral("运动员"),
+                                      QStringLiteral("身份"),
+                                      QStringLiteral("机位"),
+                                      QStringLiteral("轨迹ID"),
+                                      QStringLiteral("场地X"),
+                                      QStringLiteral("场地Y"),
+                                      QStringLiteral("锚点X"),
+                                      QStringLiteral("锚点Y"),
+                                      QStringLiteral("姿态置信度"),
+                                      QStringLiteral("视频")});
+    table->horizontalHeader()->setStretchLastSection(true);
+    table->verticalHeader()->setVisible(false);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    root->addWidget(table, 1);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    root->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    QVector<ParticipantPoseFrame> currentFrames;
+    auto athleteNameFor = [&](const ParticipantPoseFrame &frame) {
+        if (!frame.athleteName.trimmed().isEmpty()) {
+            return frame.athleteName;
+        }
+        for (const TrainingSessionParticipant &participant : record.participants) {
+            if (participant.athleteId == frame.athleteId) {
+                return participant.athleteName;
+            }
+        }
+        return frame.athleteId.trimmed().isEmpty() ? QStringLiteral("未识别") : frame.athleteId;
+    };
+    auto makeItem = [](const QString &text) {
+        auto *item = new QTableWidgetItem(text);
+        item->setFlags(item->flags() & ~Qt::ItemIsEditable);
+        return item;
+    };
+    auto csvText = [](QString text) {
+        text.replace(QStringLiteral("\""), QStringLiteral("\"\""));
+        return QStringLiteral("\"%1\"").arg(text);
+    };
+    auto selectFrame = [&]() {
+        const int index = slider->value();
+        if (index < 0 || index >= currentFrames.size()) {
+            detailLabel->setText(QStringLiteral("暂无可显示帧。"));
+            locateButton->setEnabled(false);
+            return;
+        }
+        table->selectRow(index);
+        const ParticipantPoseFrame &frame = currentFrames.at(index);
+        detailLabel->setText(QStringLiteral("%1 · %2 · CAM %3 · track %4 · frame %5 ms · bbox %6,%7 %8x%9")
+                                 .arg(athleteNameFor(frame),
+                                      frame.identityStatus,
+                                      QString::number(frame.cameraId),
+                                      QString::number(frame.trackId),
+                                      QString::number(frame.frameTimeMs),
+                                      QString::number(frame.bboxX, 'f', 1),
+                                      QString::number(frame.bboxY, 'f', 1),
+                                      QString::number(frame.bboxWidth, 'f', 1),
+                                      QString::number(frame.bboxHeight, 'f', 1)));
+        locateButton->setEnabled(true);
+    };
+    auto reloadTable = [&]() {
+        currentFrames.clear();
+        const QString selectedAthleteId = participantCombo->currentData().toString();
+        for (const ParticipantPoseFrame &frame : allFrames) {
+            if (selectedAthleteId == QStringLiteral("__unknown__")) {
+                if (!frame.athleteId.trimmed().isEmpty() || frame.identityStatus == QStringLiteral("identified")) {
+                    continue;
+                }
+            } else if (!selectedAthleteId.isEmpty() && frame.athleteId != selectedAthleteId) {
+                continue;
+            }
+            currentFrames.append(frame);
+        }
+
+        table->setRowCount(currentFrames.size());
+        for (int row = 0; row < currentFrames.size(); ++row) {
+            const ParticipantPoseFrame &frame = currentFrames.at(row);
+            table->setItem(row, 0, makeItem(formatMilliseconds(static_cast<int>(frame.frameTimeMs))));
+            table->setItem(row, 1, makeItem(athleteNameFor(frame)));
+            table->setItem(row, 2, makeItem(frame.identityStatus));
+            table->setItem(row, 3, makeItem(QString::number(frame.cameraId)));
+            table->setItem(row, 4, makeItem(frame.trackId >= 0 ? QString::number(frame.trackId) : QStringLiteral("-")));
+            table->setItem(row, 5, makeItem(frame.hasFieldPoint ? QString::number(frame.fieldX, 'f', 2) : QStringLiteral("-")));
+            table->setItem(row, 6, makeItem(frame.hasFieldPoint ? QString::number(frame.fieldY, 'f', 2) : QStringLiteral("-")));
+            table->setItem(row, 7, makeItem(QString::number(frame.anchorX, 'f', 1)));
+            table->setItem(row, 8, makeItem(QString::number(frame.anchorY, 'f', 1)));
+            table->setItem(row, 9, makeItem(frame.poseConfidence >= 0 ? QString::number(frame.poseConfidence, 'f', 2) : QStringLiteral("-")));
+            table->setItem(row, 10, makeItem(QStringLiteral("#%1").arg(frame.videoIndex)));
+        }
+        table->resizeColumnsToContents();
+        slider->setEnabled(!currentFrames.isEmpty());
+        slider->setRange(0, std::max(0, static_cast<int>(currentFrames.size()) - 1));
+        slider->setValue(0);
+        summaryLabel->setText(QStringLiteral("%1 帧 · 采样约 5 FPS").arg(currentFrames.size()));
+        selectFrame();
+    };
+    auto exportTimeline = [&](const QString &suffix) {
+        if (currentFrames.isEmpty()) {
+            QMessageBox::information(&dialog, QStringLiteral("暂无数据"), QStringLiteral("当前筛选没有可导出的姿态轨迹帧。"));
+            return;
+        }
+        const QString filter = suffix == QStringLiteral("xlsx")
+                                   ? QStringLiteral("Excel 工作簿 (*.xlsx)")
+                                   : QStringLiteral("CSV 文件 (*.csv)");
+        QString filePath = QFileDialog::getSaveFileName(&dialog,
+                                                        QStringLiteral("导出姿态轨迹时间线"),
+                                                        QDir::homePath() + QStringLiteral("/participant_pose_timeline.") + suffix,
+                                                        filter);
+        if (filePath.trimmed().isEmpty()) {
+            return;
+        }
+        if (!filePath.endsWith(QStringLiteral(".") + suffix, Qt::CaseInsensitive)) {
+            filePath += QStringLiteral(".") + suffix;
+        }
+        const QStringList headers = {QStringLiteral("time_ms"), QStringLiteral("athlete"), QStringLiteral("identity_status"),
+                                     QStringLiteral("camera_id"), QStringLiteral("track_id"), QStringLiteral("field_x"),
+                                     QStringLiteral("field_y"), QStringLiteral("anchor_x"), QStringLiteral("anchor_y"),
+                                     QStringLiteral("bbox_x"), QStringLiteral("bbox_y"), QStringLiteral("bbox_width"),
+                                     QStringLiteral("bbox_height"), QStringLiteral("pose_confidence"), QStringLiteral("video_index")};
+        if (suffix == QStringLiteral("xlsx")) {
+            QXlsx::Document workbook;
+            QXlsx::Format headerFormat;
+            headerFormat.setFontBold(true);
+            for (int column = 0; column < headers.size(); ++column) {
+                workbook.write(1, column + 1, headers.at(column), headerFormat);
+            }
+            for (int row = 0; row < currentFrames.size(); ++row) {
+                const ParticipantPoseFrame &frame = currentFrames.at(row);
+                const int excelRow = row + 2;
+                workbook.write(excelRow, 1, QString::number(frame.frameTimeMs));
+                workbook.write(excelRow, 2, athleteNameFor(frame));
+                workbook.write(excelRow, 3, frame.identityStatus);
+                workbook.write(excelRow, 4, frame.cameraId);
+                workbook.write(excelRow, 5, frame.trackId);
+                if (frame.hasFieldPoint) {
+                    workbook.write(excelRow, 6, frame.fieldX);
+                    workbook.write(excelRow, 7, frame.fieldY);
+                }
+                workbook.write(excelRow, 8, frame.anchorX);
+                workbook.write(excelRow, 9, frame.anchorY);
+                workbook.write(excelRow, 10, frame.bboxX);
+                workbook.write(excelRow, 11, frame.bboxY);
+                workbook.write(excelRow, 12, frame.bboxWidth);
+                workbook.write(excelRow, 13, frame.bboxHeight);
+                workbook.write(excelRow, 14, frame.poseConfidence);
+                workbook.write(excelRow, 15, frame.videoIndex);
+            }
+            if (!workbook.saveAs(filePath)) {
+                QMessageBox::warning(&dialog, QStringLiteral("导出失败"), QStringLiteral("无法写入文件。"));
+            }
+            return;
+        }
+
+        QFile file(filePath);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QMessageBox::warning(&dialog, QStringLiteral("导出失败"), QStringLiteral("无法写入文件。"));
+            return;
+        }
+        QTextStream out(&file);
+        out.setEncoding(QStringConverter::Utf8);
+        out << headers.join(QLatin1Char(',')) << '\n';
+        for (const ParticipantPoseFrame &frame : std::as_const(currentFrames)) {
+            out << frame.frameTimeMs << ','
+                << csvText(athleteNameFor(frame)) << ','
+                << frame.identityStatus << ','
+                << frame.cameraId << ','
+                << frame.trackId << ','
+                << (frame.hasFieldPoint ? QString::number(frame.fieldX, 'f', 3) : QString()) << ','
+                << (frame.hasFieldPoint ? QString::number(frame.fieldY, 'f', 3) : QString()) << ','
+                << QString::number(frame.anchorX, 'f', 2) << ','
+                << QString::number(frame.anchorY, 'f', 2) << ','
+                << QString::number(frame.bboxX, 'f', 2) << ','
+                << QString::number(frame.bboxY, 'f', 2) << ','
+                << QString::number(frame.bboxWidth, 'f', 2) << ','
+                << QString::number(frame.bboxHeight, 'f', 2) << ','
+                << QString::number(frame.poseConfidence, 'f', 3) << ','
+                << frame.videoIndex << '\n';
+        }
+    };
+
+    connect(participantCombo, qOverload<int>(&QComboBox::currentIndexChanged), &dialog, reloadTable);
+    connect(slider, &QSlider::valueChanged, &dialog, selectFrame);
+    connect(table, &QTableWidget::currentCellChanged, &dialog, [&](int currentRow) {
+        if (currentRow >= 0 && currentRow < currentFrames.size() && slider->value() != currentRow) {
+            slider->setValue(currentRow);
+        }
+    });
+    connect(locateButton, &QPushButton::clicked, &dialog, [&]() {
+        const int index = slider->value();
+        if (index >= 0 && index < currentFrames.size()) {
+            const ParticipantPoseFrame &frame = currentFrames.at(index);
+            openSessionVideo(record, static_cast<int>(frame.frameTimeMs), -1, frame.videoFileId, frame.videoIndex);
+        }
+    });
+    connect(exportCsvButton, &QPushButton::clicked, &dialog, [&]() { exportTimeline(QStringLiteral("csv")); });
+    connect(exportXlsxButton, &QPushButton::clicked, &dialog, [&]() { exportTimeline(QStringLiteral("xlsx")); });
+
+    reloadTable();
+    dialog.exec();
 }
 
 void MainWindow::editActionStandard()

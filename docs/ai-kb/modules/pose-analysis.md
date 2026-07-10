@@ -33,6 +33,7 @@
 - `ActionStandardScorer` 复用通用分项分，再按动作标准中的权重、最低分和纠错提示生成 `ActionAssessment`。
 - `ActionRepetitionTracker` 通过动作标准中的髋/膝屈伸阈值和防抖时间识别一次动作，并输出动作明细。
 - 每次自动识别动作会保留最低分/关键错误帧对应的 `PoseFrameResult`，保存训练记录时序列化为 `ActionRepetition::keyFramePoseJson`，供复盘校准姿态叠加使用。
+- 训练采集中会按约 5 FPS 为每个已识别参与者或未知 `cameraId + trackId` 采样连续姿态/轨迹摘要，保存到 `participant_pose_frames`。摘要只保留 Body17 的关键点子集、bbox、图像锚点、线性场地点、来源相机、track 和身份置信度，不保存完整原始视频帧或全量推理输出。
 - `PoseIdentityResolver` 在推理结果进入 UI/评分前补全身份字段：算法已写入身份时保留，未写入时按人工绑定的 `cameraId + trackId` 映射到 session participant，仍无法识别时标记 `unknown`。
 - 人工复核字段不会覆盖 AI 原始姿态评分；复盘、趋势和报告按“人工优先”读取有效分数，AI 原始分仍用于追溯模型表现。
 
@@ -47,6 +48,7 @@
 - `poseInstanceKindName(kind)`
 - `PoseIdentityResolver::resolve(frame)`
 - `TrajectoryWidget::setCameraSegments(segments)`
+- `TrainingRepository::poseFramesForSession(sessionId, participantId, athleteId, fromMs, toMs, limit)`
 
 ## 常见修改任务
 
@@ -81,7 +83,7 @@
 - `depthScore()` 依赖 3D 关键点数量；RTMW3D 缺失时分数会受影响。
 - `PoseStandardnessScorer` 内部保存上一帧，复用同一 scorer 实例时注意状态延续。
 - 当前仍未做动作类型自动分类；必须先在训练上下文中手动选择动作标准。动作实例可由阈值规则自动计数，也可在复盘校准中人工新增或修正。
-- 关键帧姿态 JSON 是复盘辅助数据，不是视频帧缓存；它不能替代原视频，也不会复制或裁剪媒体文件。
+- 关键帧姿态 JSON 是动作复盘辅助数据，不是视频帧缓存；连续姿态/轨迹时间线使用 `participant_pose_frames` 的 5 FPS 摘要，两者都不能替代原视频，也不会复制或裁剪媒体文件。
 - 当前 YOLO 人体检测生成的 `trackId` 来自当帧检测排序，只是临时轨迹标识，不是跨帧 ReID；F-21 第一版只提供协议、人工绑定和算法接入壳子。
 - 当前多机位轨迹重建使用线性场地段映射：画面纵向位置映射到相机覆盖距离，画面横向位置映射到横向偏移。它能覆盖 12 路分段拼接的 P1 需求，但还不是基于相机内外参、畸变参数或 homography 的精标定。
 

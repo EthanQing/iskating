@@ -6,6 +6,7 @@ from sqlalchemy.engine import Engine
 
 BUSINESS_TABLES = [
     "athlete_action_baselines",
+    "participant_pose_frames",
     "participant_repetitions",
     "action_repetitions",
     "training_video_files",
@@ -368,6 +369,33 @@ CREATE TABLE participant_repetitions (
     identity_source text
 );
 
+CREATE TABLE participant_pose_frames (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id uuid NOT NULL REFERENCES training_sessions(id) ON DELETE CASCADE,
+    participant_id uuid REFERENCES training_session_participants(id) ON DELETE SET NULL,
+    athlete_id uuid REFERENCES athletes(id),
+    video_file_id uuid REFERENCES training_video_files(id) ON DELETE SET NULL,
+    video_index integer NOT NULL DEFAULT 1,
+    frame_time_ms bigint NOT NULL,
+    camera_id integer NOT NULL DEFAULT 0,
+    track_id integer,
+    identity_status text NOT NULL DEFAULT 'unknown',
+    identity_confidence double precision,
+    identity_source text,
+    bbox_x double precision,
+    bbox_y double precision,
+    bbox_width double precision,
+    bbox_height double precision,
+    anchor_x double precision,
+    anchor_y double precision,
+    field_x double precision,
+    field_y double precision,
+    has_field_point boolean NOT NULL DEFAULT false,
+    pose_confidence double precision,
+    pose_summary jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE athlete_action_baselines (
     athlete_id uuid NOT NULL REFERENCES athletes(id),
     action_standard_id uuid NOT NULL REFERENCES action_standards(id),
@@ -415,6 +443,11 @@ CREATE INDEX ix_participant_repetitions_review ON participant_repetitions(review
 CREATE INDEX ix_participant_repetitions_track ON participant_repetitions(track_id);
 CREATE INDEX ix_participant_repetitions_camera ON participant_repetitions(camera_id);
 CREATE INDEX ix_participant_repetitions_frame_time ON participant_repetitions(frame_time_ms);
+CREATE INDEX ix_participant_pose_frames_session_time ON participant_pose_frames(session_id, frame_time_ms);
+CREATE INDEX ix_participant_pose_frames_participant ON participant_pose_frames(participant_id);
+CREATE INDEX ix_participant_pose_frames_athlete ON participant_pose_frames(athlete_id);
+CREATE INDEX ix_participant_pose_frames_camera_track ON participant_pose_frames(camera_id, track_id);
+CREATE INDEX ix_participant_pose_frames_video_file ON participant_pose_frames(video_file_id);
 """
 
 

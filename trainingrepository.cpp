@@ -473,6 +473,40 @@ QJsonObject participantRepetitionToJson(const ParticipantRepetition &repetition)
     return object;
 }
 
+QJsonObject participantPoseFrameToJson(const ParticipantPoseFrame &frame)
+{
+    QJsonObject poseSummary;
+    const QJsonDocument poseDocument = QJsonDocument::fromJson(frame.poseSummaryJson.toUtf8());
+    if (poseDocument.isObject()) {
+        poseSummary = poseDocument.object();
+    }
+    return {
+        {QStringLiteral("id"), frame.id},
+        {QStringLiteral("sessionId"), frame.sessionId},
+        {QStringLiteral("participantId"), frame.participantId},
+        {QStringLiteral("athleteId"), frame.athleteId},
+        {QStringLiteral("videoFileId"), frame.videoFileId},
+        {QStringLiteral("videoIndex"), frame.videoIndex},
+        {QStringLiteral("frameTimeMs"), QString::number(frame.frameTimeMs)},
+        {QStringLiteral("cameraId"), frame.cameraId},
+        {QStringLiteral("trackId"), frame.trackId},
+        {QStringLiteral("identityStatus"), frame.identityStatus},
+        {QStringLiteral("identityConfidence"), frame.identityConfidence},
+        {QStringLiteral("identitySource"), frame.identitySource},
+        {QStringLiteral("bboxX"), frame.bboxX},
+        {QStringLiteral("bboxY"), frame.bboxY},
+        {QStringLiteral("bboxWidth"), frame.bboxWidth},
+        {QStringLiteral("bboxHeight"), frame.bboxHeight},
+        {QStringLiteral("anchorX"), frame.anchorX},
+        {QStringLiteral("anchorY"), frame.anchorY},
+        {QStringLiteral("fieldX"), frame.fieldX},
+        {QStringLiteral("fieldY"), frame.fieldY},
+        {QStringLiteral("hasFieldPoint"), frame.hasFieldPoint},
+        {QStringLiteral("poseConfidence"), frame.poseConfidence},
+        {QStringLiteral("poseSummary"), poseSummary}
+    };
+}
+
 QJsonObject offlineAnalysisTaskToJson(const OfflineAnalysisTask &task)
 {
     QJsonObject probeMetadata;
@@ -639,6 +673,47 @@ TrainingVideoFile videoFileFromJson(const QJsonObject &object)
         file.metadataJson = jsonString(object, QStringLiteral("metadata"));
     }
     return file;
+}
+
+ParticipantPoseFrame participantPoseFrameFromJson(const QJsonObject &object)
+{
+    ParticipantPoseFrame frame;
+    frame.id = jsonString(object, QStringLiteral("id"));
+    frame.sessionId = jsonString(object, QStringLiteral("sessionId"));
+    frame.participantId = jsonString(object, QStringLiteral("participantId"));
+    frame.athleteId = jsonString(object, QStringLiteral("athleteId"));
+    frame.athleteName = jsonString(object, QStringLiteral("athleteName"));
+    frame.videoFileId = jsonString(object, QStringLiteral("videoFileId"));
+    frame.videoIndex = jsonInt(object, QStringLiteral("videoIndex"), 1);
+    frame.frameTimeMs = jsonString(object, QStringLiteral("frameTimeMs")).toLongLong();
+    if (frame.frameTimeMs == 0 && object.contains(QStringLiteral("frameTimeMs"))) {
+        frame.frameTimeMs = static_cast<qint64>(object.value(QStringLiteral("frameTimeMs")).toDouble(0));
+    }
+    frame.cameraId = jsonInt(object, QStringLiteral("cameraId"));
+    frame.trackId = jsonInt(object, QStringLiteral("trackId"), -1);
+    frame.identityStatus = jsonString(object, QStringLiteral("identityStatus"));
+    if (frame.identityStatus.isEmpty()) {
+        frame.identityStatus = QStringLiteral("unknown");
+    }
+    frame.identityConfidence = jsonDouble(object, QStringLiteral("identityConfidence"), -1.0);
+    frame.identitySource = jsonString(object, QStringLiteral("identitySource"));
+    frame.bboxX = jsonDouble(object, QStringLiteral("bboxX"));
+    frame.bboxY = jsonDouble(object, QStringLiteral("bboxY"));
+    frame.bboxWidth = jsonDouble(object, QStringLiteral("bboxWidth"));
+    frame.bboxHeight = jsonDouble(object, QStringLiteral("bboxHeight"));
+    frame.anchorX = jsonDouble(object, QStringLiteral("anchorX"));
+    frame.anchorY = jsonDouble(object, QStringLiteral("anchorY"));
+    frame.fieldX = jsonDouble(object, QStringLiteral("fieldX"));
+    frame.fieldY = jsonDouble(object, QStringLiteral("fieldY"));
+    frame.hasFieldPoint = object.value(QStringLiteral("hasFieldPoint")).toBool(false);
+    frame.poseConfidence = jsonDouble(object, QStringLiteral("poseConfidence"), -1.0);
+    const QJsonValue poseSummary = object.value(QStringLiteral("poseSummary"));
+    if (poseSummary.isObject()) {
+        frame.poseSummaryJson = QString::fromUtf8(QJsonDocument(poseSummary.toObject()).toJson(QJsonDocument::Compact));
+    } else {
+        frame.poseSummaryJson = jsonString(object, QStringLiteral("poseSummary"));
+    }
+    return frame;
 }
 
 VideoFileCleanupCandidate cleanupCandidateFromJson(const QJsonObject &object)
@@ -1306,6 +1381,41 @@ QVector<ActionRepetition> TrainingRepository::reviewedRepetitionsForSession(cons
     return repetitionsForSession(sessionId);
 }
 
+QVector<ParticipantPoseFrame> TrainingRepository::poseFramesForSession(const QString &sessionId,
+                                                                       const QString &participantId,
+                                                                       const QString &athleteId,
+                                                                       int fromMs,
+                                                                       int toMs,
+                                                                       int limit) const
+{
+    QVariantMap query;
+    if (!participantId.trimmed().isEmpty()) {
+        query.insert(QStringLiteral("participantId"), participantId);
+    }
+    if (!athleteId.trimmed().isEmpty()) {
+        query.insert(QStringLiteral("athleteId"), athleteId);
+    }
+    if (fromMs >= 0) {
+        query.insert(QStringLiteral("fromMs"), fromMs);
+    }
+    if (toMs >= 0) {
+        query.insert(QStringLiteral("toMs"), toMs);
+    }
+    query.insert(QStringLiteral("limit"), limit);
+    bool ok = false;
+    const QJsonArray array = requestArray(QStringLiteral("/training/sessions/%1/pose-frames").arg(sessionId), query, &ok);
+    QVector<ParticipantPoseFrame> frames;
+    if (!ok) {
+        return frames;
+    }
+    for (const QJsonValue &value : array) {
+        if (value.isObject()) {
+            frames.append(participantPoseFrameFromJson(value.toObject()));
+        }
+    }
+    return frames;
+}
+
 QVector<VideoFileCleanupCandidate> TrainingRepository::videoFiles(const QString &status,
                                                                   bool withLocalPathOnly,
                                                                   const QDateTime &modifiedBefore) const
@@ -1783,9 +1893,22 @@ bool TrainingRepository::saveTrainingSession(TrainingSession *session,
         }
         participantReps.append(participantRepetitionToJson(repetition));
     }
+    QJsonArray participantPoseFrames;
+    for (ParticipantPoseFrame frame : session->participantPoseFrames) {
+        frame.id = ensureId(frame.id);
+        frame.sessionId = session->id;
+        if (frame.videoIndex <= 0) {
+            frame.videoIndex = defaultVideoIndex;
+        }
+        if (frame.videoFileId.trimmed().isEmpty()) {
+            frame.videoFileId = defaultVideoFileId;
+        }
+        participantPoseFrames.append(participantPoseFrameToJson(frame));
+    }
     const QJsonObject body{{QStringLiteral("session"), sessionToJson(*session)},
                            {QStringLiteral("repetitions"), reps},
-                           {QStringLiteral("participantRepetitions"), participantReps}};
+                           {QStringLiteral("participantRepetitions"), participantReps},
+                           {QStringLiteral("participantPoseFrames"), participantPoseFrames}};
     bool ok = false;
     const QJsonObject response = requestObject(QStringLiteral("POST"), QStringLiteral("/training/sessions"), body, {}, &ok, errorMessage);
     if (ok) {

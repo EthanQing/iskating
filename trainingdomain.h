@@ -347,6 +347,34 @@ struct ParticipantRepetition : ActionRepetition
     QString actionRepetitionId;
 };
 
+struct ParticipantPoseFrame
+{
+    QString id;
+    QString sessionId;
+    QString participantId;
+    QString athleteId;
+    QString athleteName;
+    QString videoFileId;
+    int videoIndex = 1;
+    qint64 frameTimeMs = 0;
+    int cameraId = 0;
+    int trackId = -1;
+    QString identityStatus = QStringLiteral("unknown");
+    double identityConfidence = -1.0;
+    QString identitySource;
+    double bboxX = 0.0;
+    double bboxY = 0.0;
+    double bboxWidth = 0.0;
+    double bboxHeight = 0.0;
+    double anchorX = 0.0;
+    double anchorY = 0.0;
+    double fieldX = 0.0;
+    double fieldY = 0.0;
+    bool hasFieldPoint = false;
+    double poseConfidence = -1.0;
+    QString poseSummaryJson;
+};
+
 struct TrainingSession
 {
     QString id;
@@ -394,6 +422,7 @@ struct TrainingSession
     QString coachComment;
     QVector<TrainingSessionParticipant> participants;
     QVector<ParticipantRepetition> participantRepetitions;
+    QVector<ParticipantPoseFrame> participantPoseFrames;
     QVector<TrainingVideoFile> videoFiles;
 };
 

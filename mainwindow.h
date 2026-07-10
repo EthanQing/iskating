@@ -89,6 +89,7 @@ private:
     QVector<TrainingSessionParticipant> currentSessionParticipants() const;
     void resetCurrentTrainingSession();
     void recordCompletedRepetition(const ActionRepetition &repetition);
+    void recordParticipantPoseFrames(const PoseFrameResult &poseFrame);
     void importOfflineVideo();
     void showOfflineVideoInMainView(bool autoPlay = true);
     void showCameraInMainView(int cameraIndex, bool autoPlay = true);
@@ -133,6 +134,7 @@ private:
                           const QString &videoFileId = QString(),
                           int videoIndex = 0);
     void openTrainingReview(const SessionHistoryItem &record);
+    void openParticipantPoseReview(const SessionHistoryItem &record);
     void editActionStandard();
     void editCoachComment(const QString &sessionId);
     void exportTrainingReport(const QString &sessionId);
@@ -211,7 +213,9 @@ private:
     QVector<EventAthlete> m_eventAthletes;
     QVector<ActionStandard> m_actionStandards;
     QVector<ActionRepetition> m_currentRepetitions;
+    QVector<ParticipantPoseFrame> m_currentPoseFrames;
     QHash<QString, ActionRepetitionTracker> m_participantActionTrackers;
+    QHash<QString, qint64> m_participantPoseSampleTimes;
     PoseFrameResult m_lastPoseFrame;
     QString m_lastSavedAt;
     int m_historyPageNumber = 1;

@@ -1203,6 +1203,67 @@ def insert_participant_repetition(db: Session,
     return rep_id
 
 
+def insert_participant_pose_frame(db: Session,
+                                  session_id: str,
+                                  frame: dict[str, Any],
+                                  participant_by_athlete: dict[str, str],
+                                  video_file_by_index: dict[int, str] | None = None) -> str:
+    frame_id = parse_uuid(frame.get("id")) or new_uuid()
+    video_index = int(frame.get("videoIndex") or 1)
+    video_file_id = parse_uuid(frame.get("videoFileId"))
+    if not video_file_id and video_file_by_index:
+        video_file_id = parse_uuid(video_file_by_index.get(video_index))
+    athlete_id = parse_uuid(frame.get("athleteId"))
+    participant_id = parse_uuid(frame.get("participantId"))
+    if athlete_id and not participant_id:
+        participant_id = parse_uuid(participant_by_athlete.get(str(athlete_id)))
+    pose_summary = frame.get("poseSummary") or frame.get("poseSummaryJson") or {}
+    if isinstance(pose_summary, str):
+        try:
+            pose_summary = json.loads(pose_summary)
+        except json.JSONDecodeError:
+            pose_summary = {}
+
+    db.execute(
+        text(
+            "INSERT INTO participant_pose_frames "
+            "(id, session_id, participant_id, athlete_id, video_file_id, video_index, frame_time_ms, camera_id, "
+            "track_id, identity_status, identity_confidence, identity_source, bbox_x, bbox_y, bbox_width, bbox_height, "
+            "anchor_x, anchor_y, field_x, field_y, has_field_point, pose_confidence, pose_summary) "
+            "VALUES (:id, :session_id, :participant_id, :athlete_id, :video_file_id, :video_index, :frame_time_ms, "
+            ":camera_id, :track_id, :identity_status, :identity_confidence, :identity_source, :bbox_x, :bbox_y, "
+            ":bbox_width, :bbox_height, :anchor_x, :anchor_y, :field_x, :field_y, :has_field_point, "
+            ":pose_confidence, CAST(:pose_summary AS jsonb))"
+        ),
+        {
+            "id": frame_id,
+            "session_id": session_id,
+            "participant_id": participant_id,
+            "athlete_id": athlete_id,
+            "video_file_id": video_file_id,
+            "video_index": video_index,
+            "frame_time_ms": int(frame.get("frameTimeMs") or 0),
+            "camera_id": int(frame.get("cameraId") or 0),
+            "track_id": int(frame.get("trackId")) if int(frame.get("trackId", -1)) >= 0 else None,
+            "identity_status": frame.get("identityStatus") or "unknown",
+            "identity_confidence": frame.get("identityConfidence") if float(frame.get("identityConfidence", -1)) >= 0 else None,
+            "identity_source": frame.get("identitySource") or None,
+            "bbox_x": frame.get("bboxX"),
+            "bbox_y": frame.get("bboxY"),
+            "bbox_width": frame.get("bboxWidth"),
+            "bbox_height": frame.get("bboxHeight"),
+            "anchor_x": frame.get("anchorX"),
+            "anchor_y": frame.get("anchorY"),
+            "field_x": frame.get("fieldX") if frame.get("hasFieldPoint") else None,
+            "field_y": frame.get("fieldY") if frame.get("hasFieldPoint") else None,
+            "has_field_point": bool(frame.get("hasFieldPoint", False)),
+            "pose_confidence": frame.get("poseConfidence") if float(frame.get("poseConfidence", -1)) >= 0 else None,
+            "pose_summary": json.dumps(pose_summary, ensure_ascii=False),
+        },
+    )
+    return frame_id
+
+
 def participant_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(row["id"]),
@@ -1455,6 +1516,7 @@ def save_training_session(payload: dict[str, Any] = Body(...),
     session = payload.get("session", payload)
     repetitions = payload.get("repetitions", [])
     participant_repetitions = payload.get("participantRepetitions", [])
+    participant_pose_frames = payload.get("participantPoseFrames", [])
     session_id = parse_uuid(session.get("id")) or new_uuid()
     athlete_id = parse_uuid(session.get("athleteId"))
     action_standard_id = parse_uuid(session.get("actionStandardId"))
@@ -1536,6 +1598,7 @@ def save_training_session(payload: dict[str, Any] = Body(...),
     )
     participant_by_athlete = save_session_participants(db, session_id, athlete_id, session.get("participants", []))
     video_file_by_index = save_training_video_files(db, session_id, session.get("videoFiles", []))
+    db.execute(text("DELETE FROM participant_pose_frames WHERE session_id = :session_id"), {"session_id": session_id})
     db.execute(text("DELETE FROM participant_repetitions WHERE session_id = :session_id"), {"session_id": session_id})
     db.execute(text("DELETE FROM action_repetitions WHERE session_id = :session_id"), {"session_id": session_id})
     action_repetition_ids: list[str] = []
@@ -1551,6 +1614,8 @@ def save_training_session(payload: dict[str, Any] = Body(...),
             repetition["participantId"] = participant_by_athlete.get(str(rep_athlete_id), "")
         linked_action_id = action_repetition_ids[index] if index < len(action_repetition_ids) else None
         insert_participant_repetition(db, session_id, action_standard_id, repetition, participant_by_athlete, video_file_by_index, linked_action_id)
+    for frame in participant_pose_frames:
+        insert_participant_pose_frame(db, session_id, frame, participant_by_athlete, video_file_by_index)
     if session.get("taskId"):
         status_value = "completed" if int(session.get("validReps", 0)) >= int(session.get("targetReps", 0)) else "active"
         db.execute(text("UPDATE training_tasks SET status = :status, updated_at = now() WHERE id = :id"), {"id": parse_uuid(session.get("taskId")), "status": status_value})
@@ -1999,6 +2064,78 @@ def repetitions(session_id: str,
         {"session_id": session_id},
     ).mappings()
     return [repetition_row(dict(row)) for row in rows]
+
+
+def pose_frame_row(row: dict[str, Any]) -> dict[str, Any]:
+    pose_summary = row.get("pose_summary") or {}
+    if isinstance(pose_summary, str):
+        try:
+            pose_summary = json.loads(pose_summary)
+        except json.JSONDecodeError:
+            pose_summary = {}
+    return {
+        "id": str(row["id"]),
+        "sessionId": str(row["session_id"]),
+        "participantId": str(row.get("participant_id") or ""),
+        "athleteId": str(row.get("athlete_id") or ""),
+        "athleteName": row.get("athlete_name") or "",
+        "videoFileId": str(row.get("video_file_id") or ""),
+        "videoIndex": row["video_index"],
+        "frameTimeMs": str(row["frame_time_ms"]),
+        "cameraId": row["camera_id"],
+        "trackId": row["track_id"] if row.get("track_id") is not None else -1,
+        "identityStatus": row.get("identity_status") or "unknown",
+        "identityConfidence": row["identity_confidence"] if row.get("identity_confidence") is not None else -1,
+        "identitySource": row.get("identity_source") or "",
+        "bboxX": row["bbox_x"] if row.get("bbox_x") is not None else 0,
+        "bboxY": row["bbox_y"] if row.get("bbox_y") is not None else 0,
+        "bboxWidth": row["bbox_width"] if row.get("bbox_width") is not None else 0,
+        "bboxHeight": row["bbox_height"] if row.get("bbox_height") is not None else 0,
+        "anchorX": row["anchor_x"] if row.get("anchor_x") is not None else 0,
+        "anchorY": row["anchor_y"] if row.get("anchor_y") is not None else 0,
+        "fieldX": row["field_x"] if row.get("field_x") is not None else 0,
+        "fieldY": row["field_y"] if row.get("field_y") is not None else 0,
+        "hasFieldPoint": bool(row.get("has_field_point", False)),
+        "poseConfidence": row["pose_confidence"] if row.get("pose_confidence") is not None else -1,
+        "poseSummary": pose_summary,
+    }
+
+
+@app.get("/training/sessions/{session_id}/pose-frames")
+def participant_pose_frames(session_id: str,
+                            participantId: str = "",
+                            athleteId: str = "",
+                            fromMs: int = -1,
+                            toMs: int = -1,
+                            limit: int = 5000,
+                            db: Session = Depends(db_session),
+                            _: dict[str, Any] = Depends(require_user)) -> list[dict[str, Any]]:
+    where = ["ppf.session_id = :session_id"]
+    args: dict[str, Any] = {"session_id": parse_uuid(session_id)}
+    if participantId:
+        where.append("ppf.participant_id = :participant_id")
+        args["participant_id"] = parse_uuid(participantId)
+    if athleteId:
+        where.append("ppf.athlete_id = :athlete_id")
+        args["athlete_id"] = parse_uuid(athleteId)
+    if fromMs >= 0:
+        where.append("ppf.frame_time_ms >= :from_ms")
+        args["from_ms"] = fromMs
+    if toMs >= 0:
+        where.append("ppf.frame_time_ms <= :to_ms")
+        args["to_ms"] = toMs
+    args["limit"] = max(1, min(limit, 20000))
+    rows = db.execute(
+        text(
+            "SELECT ppf.*, COALESCE(a.name, '') AS athlete_name "
+            "FROM participant_pose_frames ppf "
+            "LEFT JOIN athletes a ON a.id = ppf.athlete_id "
+            f"WHERE {' AND '.join(where)} "
+            "ORDER BY ppf.frame_time_ms ASC, ppf.camera_id ASC, COALESCE(ppf.track_id, -1) ASC LIMIT :limit"
+        ),
+        args,
+    ).mappings()
+    return [pose_frame_row(dict(row)) for row in rows]
 
 
 @app.post("/training/repetitions/{repetition_id}/review")

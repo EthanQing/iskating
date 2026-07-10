@@ -38,6 +38,7 @@
 - 完成 F-20 动作明细检索与导出：新增跨 session 动作实例检索 API 和历史页动作检索对话框，支持按有效性、错误项、分数、时间和片段筛选，并可导出 CSV/XLSX；引入 vendored QXlsx 用于 XLSX 写入。
 - 完成 F-21 多人承接身份/轨迹协议：新增 session 参与者表和动作级身份轨迹字段，采集页支持最多 4 名参与运动员与人工轨迹绑定，关键帧、动作检索和导出展示运动员身份、轨迹 ID、机位和帧时间。
 - 完成 F-22 多人 session/action 表扩展：新增 `participant_repetitions` 作为同一 session 下多人并行结果的权威表，保存、查询、趋势和导入/回填优先使用 participant 结果，旧 `action_repetitions` 自动回退为单 participant 兼容路径。
+- 完成 F-23 多人姿态/轨迹关联存储：新增 `participant_pose_frames`，训练采集中按参与者/机位/轨迹约 5 FPS 保存姿态关键点摘要、轨迹点、视频索引和身份置信度，历史页新增姿态轨迹复盘面板并支持 CSV/XLSX 导出。
 - 开发期数据库策略切换为空库重建：移除 Alembic 增量迁移链，新增 `server/app/schema.py` 当前完整 schema 和 `tools/reset_postgres_schema.py --yes` 手动重建脚本；后续数据库字段变化先更新当前 schema，不做历史数据迁移。
 - 完成 F-13 离线导入文件校验：导入本地视频前校验文件、视频轨、时长、seek 能力和 D3D11VA 首帧硬解，失败时提前展示原因并保留当前播放源。
 

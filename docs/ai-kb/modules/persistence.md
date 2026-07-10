@@ -62,10 +62,10 @@ PostgreSQL 主要表：
 - `competitions`, `competition_events`, `event_athletes`
 - `action_categories`, `action_standards`
 - `training_plans`, `training_tasks`
-- `training_sessions`, `training_session_participants`, `training_video_files`, `offline_analysis_tasks`, `action_repetitions`, `participant_repetitions`
+- `training_sessions`, `training_session_participants`, `training_video_files`, `offline_analysis_tasks`, `action_repetitions`, `participant_repetitions`, `participant_pose_frames`
 - `athlete_action_baselines`
 
-`athletes` 保存运动员档案并用 `active` 做归档；`coaches` 保存教练档案、专项、电话、备注并用 `active` 做归档；`coach_athletes` 保存教练可带训运动员关系。人员删除不会硬删历史外键，只从训练选择与人员管理列表中隐藏。`competitions` 保存比赛名称、地点、日期、类型、备注并用 `active` 做归档；`competition_events` 保存比赛下的 race/event/heat/group、计划时间和备注；`event_athletes` 保存场次内运动员参赛号、道次、排序、结果分和名次。三类比赛数据均软归档，归档后不再出现在新训练选择中，历史 session 仍保留外键和联查展示。`offline_analysis_tasks` 记录离线导入视频的分析任务、原文件、探测摘要、任务状态和多视频预留字段 `batch_id/camera_id/time_offset_ms`；单视频导入会先创建任务，再切换主视图分析。`training_sessions` 记录训练上下文、可选比赛/场次/参赛关系归属、任务/计划归属、离线分析任务归属、分析来源类型与引用、分项分、视频源引用、回退视频源、机位名称、反馈、备注和单次训练教练批注；`training_session_participants` 记录同一 session 最多 4 名参与运动员，主运动员为 `primary`；`training_video_files` 记录 session 级主视频/主机位资产，包含视频序号、机位、源引用、规范目录、文件名、元数据路径、时间覆盖范围、文件大小/修改时间和 `planned/external/recorded` 状态。`source_type/source_ref` 在 session 级统一标记训练、比赛或导入视频来源；离线导入优先以 `analysis_task_id` 作为 `source_ref`，动作分析结果通过 `action_repetitions.session_id` 继承该归属。历史回放可结合 `started_at`、`duration_sec`、`camera` 和 QSettings 中的 NVR 模板生成回放 URL。`action_repetitions` 保留旧复盘和报告兼容路径；`participant_repetitions` 是多人动作结果的权威表，按 session participant 严格保存每名运动员的动作起止、评分、视频片段、轨迹、机位、帧时间、身份状态和人工复核字段。旧记录没有 participant 结果时，服务端按 `training_sessions.athlete_id` 回退为单 participant。`action_standards` 保存本地标准参考视频路径、参考动作实例和参考说明，用于复盘中的标准动作对比。
+`athletes` 保存运动员档案并用 `active` 做归档；`coaches` 保存教练档案、专项、电话、备注并用 `active` 做归档；`coach_athletes` 保存教练可带训运动员关系。人员删除不会硬删历史外键，只从训练选择与人员管理列表中隐藏。`competitions` 保存比赛名称、地点、日期、类型、备注并用 `active` 做归档；`competition_events` 保存比赛下的 race/event/heat/group、计划时间和备注；`event_athletes` 保存场次内运动员参赛号、道次、排序、结果分和名次。三类比赛数据均软归档，归档后不再出现在新训练选择中，历史 session 仍保留外键和联查展示。`offline_analysis_tasks` 记录离线导入视频的分析任务、原文件、探测摘要、任务状态和多视频预留字段 `batch_id/camera_id/time_offset_ms`；单视频导入会先创建任务，再切换主视图分析。`training_sessions` 记录训练上下文、可选比赛/场次/参赛关系归属、任务/计划归属、离线分析任务归属、分析来源类型与引用、分项分、视频源引用、回退视频源、机位名称、反馈、备注和单次训练教练批注；`training_session_participants` 记录同一 session 最多 4 名参与运动员，主运动员为 `primary`；`training_video_files` 记录 session 级主视频/主机位资产，包含视频序号、机位、源引用、规范目录、文件名、元数据路径、时间覆盖范围、文件大小/修改时间和 `planned/external/recorded` 状态。`source_type/source_ref` 在 session 级统一标记训练、比赛或导入视频来源；离线导入优先以 `analysis_task_id` 作为 `source_ref`，动作分析结果通过 `action_repetitions.session_id` 继承该归属。历史回放可结合 `started_at`、`duration_sec`、`camera` 和 QSettings 中的 NVR 模板生成回放 URL。`action_repetitions` 保留旧复盘和报告兼容路径；`participant_repetitions` 是多人动作结果的权威表，按 session participant 严格保存每名运动员的动作起止、评分、视频片段、轨迹、机位、帧时间、身份状态和人工复核字段；`participant_pose_frames` 保存连续姿态/轨迹时间线，按约 5 FPS 为每个参与者或未知轨迹记录视频索引、帧时间、机位、track、bbox、姿态关键点摘要、图像锚点、场地点和身份置信度。旧记录没有 participant 结果时，服务端按 `training_sessions.athlete_id` 回退为单 participant；旧记录没有连续姿态帧时，姿态轨迹复盘返回空时间线。`action_standards` 保存本地标准参考视频路径、参考动作实例和参考说明，用于复盘中的标准动作对比。
 
 复盘、趋势和报告默认使用“人工优先”的有效值：动作有人工复核时使用人工字段，否则使用 AI 原始字段。保存复核或新增手动动作后，`TrainingRepository::recalculateSessionSummary()` 会重算 `training_sessions` 汇总分、动作数和个体基线。
 
@@ -111,6 +111,8 @@ PostgreSQL 主要表：
 
 `searchRepetitions(filters, page)` 是跨 session 动作实例检索入口，优先查询 `participant_repetitions` 并在旧记录缺失新表结果时回退 `action_repetitions`，支持按 session、人员、比赛/场次、动作、来源、有效性、复核状态、分数区间、训练时间、动作片段时间和错误项关键词检索。人员筛选优先匹配 participant 结果的 `athlete_id`，旧记录没有动作级身份时回退到 session 主运动员。筛选和展示默认使用“人工优先”的有效值；历史页动作明细检索对话框可将当前筛选结果导出为 CSV 或 XLSX。
 
+`poseFramesForSession(sessionId, participantId, athleteId, fromMs, toMs, limit)` 查询 `participant_pose_frames`，供历史页“姿态轨迹”复盘面板按参与者、时间轴、机位和轨迹 ID 查看连续姿态摘要。桌面端复盘面板可将当前筛选的时间线导出为 CSV/XLSX；旧 session 没有连续姿态帧时只提示暂无时间线，不影响动作复盘。
+
 `videoFiles(status, withLocalPathOnly, modifiedBefore)` 查询 `training_video_files` 并联查 session、运动员和动作引用数量，供系统设置生成本机视频清理候选列表。桌面端只会把“已登记、路径在配置根目录下、文件实际存在”的视频列为可删除候选；删除本机文件后调用 `markVideoFileCleaned(videoFileId, reason)` 在视频资产 metadata 写入 `cleanupDeletedAt/cleanupReason/cleanupMissing`，不删除训练记录、动作实例或视频资产行，也不扩展 `status` 枚举。
 
 `saveOfflineAnalysisTask(task)` 在离线视频导入通过探测后写入 `offline_analysis_tasks`。当前 UI 只创建单视频任务：`batch_id` 为本次导入批次、`camera_id=0`、`time_offset_ms=0`、状态为 `imported`，metadata 保存探测摘要和“多视频预留”标记。后续多视频导入可以复用同一 `batch_id` 并按机位与时间偏移扩展，不需要新增重复媒体表。
@@ -150,7 +152,7 @@ PostgreSQL 主要表：
 - 删除或重命名 key 会影响旧用户配置；应保留兼容读取。
 - 摄像头配置模板会包含 RTSP 密码，导入确认摘要和日志不得展示明文完整 RTSP URL。
 - 不再向 `trainingHistory` 写入新训练记录。
-- 复盘校准保存的是主码流/回退码流引用、离线分析任务、session 级视频资产、动作片段到视频资产的索引、动作片段时间窗口和关键帧姿态 JSON。`training_video_files` 当前只登记规范化录像路径和元数据，不会录制、剪辑或复制视频文件；离线回看依赖原文件仍在本机，NVR 回看依赖 `cameraDefaults/nvrPlaybackTemplate` 能按机位和时间生成可访问 RTSP 回放 URL。
+- 复盘校准保存的是主码流/回退码流引用、离线分析任务、session 级视频资产、动作片段到视频资产的索引、动作片段时间窗口、关键帧姿态 JSON 和连续姿态/轨迹摘要。`training_video_files` 当前只登记规范化录像路径和元数据，不会录制、剪辑或复制视频文件；离线回看依赖原文件仍在本机，NVR 回看依赖 `cameraDefaults/nvrPlaybackTemplate` 能按机位和时间生成可访问 RTSP 回放 URL。
 - 离线导入现在依赖训练服务先创建 `offline_analysis_tasks`；服务不可用或任务保存失败时不会切换到离线分析源，避免只有本机播放状态、没有数据库任务记录。
 - 视频存储清理只删除用户确认勾选的本机文件，并在视频资产 metadata 记录清理信息；训练记录和动作片段索引继续保留，历史回看会提示文件已清理或移动并回退 NVR/RTSP。
 - 默认动作标准 seed 只插入缺失项，不应覆盖用户本地编辑的阈值、权重、提示文案或参考视频。
