@@ -2,10 +2,13 @@
 #define PERSONMANAGEMENTDIALOG_H
 
 #include "trainingdomain.h"
+#include "tensortrtathletebackend.h"
 
 #include <QDialog>
+#include <QByteArray>
 #include <QString>
 #include <QVector>
+#include <memory>
 
 class QLabel;
 class QLineEdit;
@@ -13,6 +16,7 @@ class QListWidget;
 class QPlainTextEdit;
 class QTableWidget;
 class QDoubleSpinBox;
+class QPushButton;
 class TrainingRepository;
 
 class PersonManagementDialog : public QDialog
@@ -35,6 +39,9 @@ private:
     void newAthlete();
     void saveAthlete();
     void archiveAthlete();
+    void addIdentitySample();
+    void deleteIdentitySample();
+    void populateIdentitySamples();
     void newCoach();
     void saveCoach();
     void archiveCoach();
@@ -68,6 +75,11 @@ private:
     QLineEdit *m_takeoffFootEdit = nullptr;
     QPlainTextEdit *m_injuryNotesEdit = nullptr;
     QPlainTextEdit *m_goalsEdit = nullptr;
+    QTableWidget *m_identitySampleTable = nullptr;
+    QPushButton *m_addIdentitySampleButton = nullptr;
+    QPushButton *m_deleteIdentitySampleButton = nullptr;
+    std::unique_ptr<TensorRtAthleteBackend> m_identityBackend;
+    bool m_identityBackendInitialized = false;
 
     QTableWidget *m_coachTable = nullptr;
     QLineEdit *m_coachNameEdit = nullptr;

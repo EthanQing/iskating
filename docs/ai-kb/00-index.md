@@ -26,7 +26,7 @@
 - [[modules/frontend|Qt Widgets 界面]]
 - [[modules/video-streaming|RTSP/D3D 视频链路]]
 - [[modules/ai-inference|TensorRT 推理]]
-- [[modules/pose-analysis|姿态评分与可视化]]
+- [[modules/pose-analysis|旧姿态数据兼容模块]]
 - [[modules/persistence|本地持久化]]
 - [[modules/background-workers|后台线程]]
 
@@ -35,7 +35,7 @@
 - [[flows/README|流程总览]]
 - [[flows/main-user-flow|主用户流程]]
 - [[flows/video-streaming-flow|视频播放流程]]
-- [[flows/pose-analysis-flow|姿态分析流程]]
+- [[flows/pose-analysis-flow|运动员检测与身份流程]]
 - [[flows/training-record-flow|训练记录流程]]
 
 ## 运维与调试入口

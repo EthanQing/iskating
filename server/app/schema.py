@@ -5,6 +5,8 @@ from sqlalchemy.engine import Engine
 
 
 BUSINESS_TABLES = [
+    "athlete_identity_embeddings",
+    "athlete_identity_samples",
     "athlete_action_baselines",
     "participant_pose_frames",
     "participant_repetitions",
@@ -54,6 +56,28 @@ CREATE TABLE athletes (
     injury_notes text,
     goals text,
     active boolean NOT NULL DEFAULT true,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE athlete_identity_samples (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    athlete_id uuid NOT NULL REFERENCES athletes(id) ON DELETE CASCADE,
+    file_path text NOT NULL,
+    file_name text NOT NULL,
+    model_version text NOT NULL,
+    preprocessing_version text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE athlete_identity_embeddings (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    sample_id uuid NOT NULL UNIQUE REFERENCES athlete_identity_samples(id) ON DELETE CASCADE,
+    athlete_id uuid NOT NULL REFERENCES athletes(id) ON DELETE CASCADE,
+    embedding double precision[] NOT NULL,
+    embedding_dimension integer NOT NULL,
+    model_version text NOT NULL,
+    preprocessing_version text NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -410,6 +434,8 @@ CREATE INDEX ix_competition_events_competition ON competition_events(competition
 CREATE INDEX ix_event_athletes_event ON event_athletes(event_id);
 CREATE INDEX ix_event_athletes_athlete ON event_athletes(athlete_id);
 CREATE INDEX ix_training_sessions_saved_at ON training_sessions(saved_at);
+CREATE INDEX ix_athlete_identity_samples_athlete ON athlete_identity_samples(athlete_id);
+CREATE INDEX ix_athlete_identity_embeddings_athlete ON athlete_identity_embeddings(athlete_id);
 CREATE INDEX ix_training_sessions_athlete ON training_sessions(athlete_id);
 CREATE INDEX ix_training_sessions_coach ON training_sessions(coach_id);
 CREATE INDEX ix_training_sessions_action ON training_sessions(action_standard_id);

@@ -2,12 +2,12 @@
 
 上级入口：[[00-index|AI 知识库索引]]、[[flows/README|流程地图]]
 相关模块：[[modules/core|应用核心]]、[[modules/frontend|Qt Widgets 前端]]、[[modules/persistence|本地持久化]]、[[modules/pose-analysis|姿态分析]]
-后续流程：[[video-streaming-flow|视频播放流程]]、[[pose-analysis-flow|姿态分析流程]]、[[training-record-flow|训练记录流程]]
+后续流程：[[video-streaming-flow|视频播放流程]]、[[pose-analysis-flow|运动员检测与身份流程]]、[[training-record-flow|训练记录流程]]
 相关 Runbook：[[runbooks/local-development|本地开发]]、[[runbooks/debugging|调试]]
 
 ## 简介
 
-用户维护人员档案，配置 12 路摄像头和场地覆盖段后启动采集，系统显示多路预览和主视图，对参与轨迹的相机流做姿态分析并拼接全场轨迹，最后保存训练记录并查看历史和建议。
+用户维护人员档案和 ReID 样本，配置 12 路摄像头后启动采集，系统显示多路预览和主视图，对活动相机流做运动员检测与身份识别，最后保存检测记录并查看历史兼容数据。
 
 ## 触发条件
 

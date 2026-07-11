@@ -1,8 +1,8 @@
 # Debugging Runbook
 
 上级入口：[[00-index|AI 知识库索引]]、[[runbooks/README|Runbook 地图]]
-相关模块：[[modules/core|应用核心]]、[[modules/video-streaming|视频流]]、[[modules/ai-inference|AI 推理]]、[[modules/pose-analysis|姿态分析]]、[[modules/persistence|本地持久化]]
-相关流程：[[flows/video-streaming-flow|视频播放流程]]、[[flows/pose-analysis-flow|姿态分析流程]]、[[flows/training-record-flow|训练记录流程]]
+相关模块：[[modules/core|应用核心]]、[[modules/video-streaming|视频流]]、[[modules/ai-inference|AI 推理]]、[[modules/persistence|本地持久化]]
+相关流程：[[flows/video-streaming-flow|视频播放流程]]、[[flows/pose-analysis-flow|运动员检测与身份流程]]、[[flows/training-record-flow|训练记录流程]]
 相关风险：[[05-pitfalls|坑点]]
 
 ## 常见 bug 排查方法
@@ -11,8 +11,8 @@
 
 - 启动失败：看 `main.cpp`, `mainwindow.pro`, 输出目录 DLL/插件。
 - 视频不播放：看 `videoopenglwidget.cpp`, `streamregistry.cpp`, `rtspstream.cpp`。
-- AI 无结果：看 `handanalysismanager.cpp`, `d3dframeextractor.cpp`, `tensorrtbodyposebackend.cpp`。
-- 分数异常：看 `posestandardnessscorer.cpp`, `MainWindow::updateActionCounter()`。
+- AI 无结果：看 `athleteanalysismanager.cpp`, `d3dframeextractor.cpp`, `tensortrtathletebackend.cpp`。
+- 身份异常：看 `tensortrtathletebackend.cpp` 的 gallery、阈值、人工绑定和 track 逻辑。
 - 配置丢失：看 `MainWindow::loadCameraSettings()` 和 `persistSystemSettings()`。
 
 ## 日志位置
@@ -38,7 +38,7 @@ TODO: 未确认发布包中日志如何收集。`x64/Release` 中曾出现 `uia-
 
 ## 数据库排查
 
-没有数据库。排查 QSettings：
+训练数据位于 FastAPI/PostgreSQL，摄像头和采集偏好仍排查 QSettings：
 
 - 检查 `QApplication::setApplicationName("iSkating Coach")` 和 organization `iSkating`。
 - 检查 `cameraDefaults/*`, `capture/*`, `cameras/cameraXX/*`, `trainingHistory`。
@@ -67,10 +67,11 @@ TODO: 未确认发布包中日志如何收集。`x64/Release` 中曾出现 `uia-
 
 - 模型文件不存在会在 `TensorRtRunner::initialize()` 返回错误。
 - `.fp16.engine` 反序列化失败时，尝试删除本机 engine 后重新构建。
-- RTMW3D 缺失时状态会显示 3D 模型缺失，但 2D 可以继续。
+- PersonViT 缺失时 YOLO26x 检测仍可继续；YOLO26x 缺失时视频播放仍可继续但 AI 停止。
+- 使用 `python tools/check_athlete_models.py` 检查 ONNX SHA256；TensorRT engine 与目标 GPU 绑定，失败时删除同目录 `.fp16.engine` 后重建。
 
 相关文件：
 
 - `tensorrtrunner.cpp`
-- `tensorrtbodyposebackend.cpp`
-- `tensorrtrtmw3dbackend.cpp`
+- `tensortrtathletebackend.cpp`
+- `models/athlete/athlete_models.json`

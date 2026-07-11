@@ -2,7 +2,7 @@
 
 上级入口：[[00-index|AI 知识库索引]]、[[modules/README|模块地图]]
 相关模块：[[frontend|Qt Widgets 前端]]、[[background-workers|后台线程]]、[[ai-inference|AI 推理]]
-相关流程：[[flows/video-streaming-flow|视频播放流程]]、[[flows/pose-analysis-flow|姿态分析流程]]
+相关流程：[[flows/video-streaming-flow|视频播放流程]]、[[flows/pose-analysis-flow|运动员检测与身份流程]]
 排查入口：[[runbooks/debugging|调试 Runbook]]、[[references/external-apis|外部 API]]、[[05-pitfalls|坑点]]
 
 ## 作用
@@ -20,7 +20,7 @@
 - `offlinevideoprobe.h/.cpp`: 离线视频导入前校验文件、视频轨、时长、seek 能力和 D3D11VA 首帧硬解。
 - `d3d11videodevice.cpp`: 全局 D3D11 设备和 FFmpeg hw device。
 - `d3dframe.h`: D3D11 硬件帧封装。
-- `d3dvideosurface.cpp`: D3D11 swap chain、shader、视频渲染和骨架叠加。
+- `d3dvideosurface.cpp`: D3D11 swap chain、shader、视频渲染和检测框叠加。
 - `d3dframeextractor.cpp`: 将 D3D 帧复制/转换为 RGB，供 AI 推理使用。
 - `nvrplayback.h/.cpp`: 根据系统设置中的 NVR 回放模板、session 开始时间、机位 IP 和动作片段窗口生成 RTSP 回放 URL。
 - `cameraconnectivitytester.h/.cpp`: 系统设置中的批量连通测试，逐路探测 RTSP 预览流并返回首帧、协议、分辨率、帧率和错误原因。
@@ -34,7 +34,7 @@
 - 离线视频导入先由 `OfflineVideoProbe` 校验本地文件、视频轨、时长、seek 能力、D3D11VA 支持和首帧硬解；通过后由 `MainWindow::importOfflineVideo()` 创建 `offline_analysis_tasks` 任务，再切换主视图并通过 `VideoOpenGLWidget::playFile()` 打开文件交给 AI 分析。
 - 解码必须输出 `AV_PIX_FMT_D3D11`，否则视为 fatal error。
 - `D3DVideoSurface` 负责把最新 `D3DFrame` 显示到 Qt 控件。
-- `HandAnalysisManager` 用 `D3DFrameExtractor` 从当前分析流转 RGB；采集中会由 `MainWindow::syncAnalysisStreams()` 按“主机位优先、最大分析路数、每路目标 FPS、自动降级”策略把参与轨迹的相机活动流同步给 AI。
+- `AthleteAnalysisManager` 用 `D3DFrameExtractor` 从当前分析流转 RGB；采集中会由 `MainWindow::syncAnalysisStreams()` 按“主机位优先、最大分析路数、每路目标 FPS、自动降级”策略把活动相机流同步给 AI。
 - RTSP 训练时，主视图仍优先播放主码流并保留预览 fallback；多路 AI 默认订阅预览流，当前选中机位可按设置复用主视图活动流。默认分析预算为 12 路、每路 5 FPS，超载时优先降低非主机位有效分析频率；当前离线视频 UI 仍只分析主视图单路本地文件，多视频导入仅在离线任务表中预留 `batch_id/camera_id/time_offset_ms` 协议。
 - 本地文件回放使用独立 `RtspStream`，不经过 `StreamRegistry` 共享；RTSP/网络源继续走共享低延迟流。
 - `D3DFrame::mediaTimeMs` 保存媒体时间戳，供 UI 查询当前位置、片段定位和逐帧回放使用。
@@ -62,7 +62,7 @@
 - `pausePlayback()`
 - `stopPlayback()`
 - `activeStream()`
-- `setPoseFrame(frame)`
+- `setAthleteFrame(frame)`
 
 ## 常见修改任务
 

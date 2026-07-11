@@ -2,7 +2,7 @@
 
 上级入口：[[00-index|AI 知识库索引]]、[[modules/README|模块地图]]
 相关模块：[[video-streaming|视频流]]、[[ai-inference|AI 推理]]、[[core|应用核心]]
-相关流程：[[flows/video-streaming-flow|视频播放流程]]、[[flows/pose-analysis-flow|姿态分析流程]]
+相关流程：[[flows/video-streaming-flow|视频播放流程]]、[[flows/pose-analysis-flow|运动员检测与身份流程]]
 排查入口：[[runbooks/debugging|调试 Runbook]]、[[05-pitfalls|坑点]]
 
 ## 作用
@@ -12,26 +12,25 @@
 ## 关键文件
 
 - `rtspstream.cpp`: 每个视频源使用 `QThread::create()` 后台读取和解码。
-- `handanalysismanager.cpp`: `HandAnalysisWorker` 后台初始化 TensorRT 并循环分析最新帧。
+- `athleteanalysismanager.cpp`: `AthleteAnalysisWorker` 后台初始化 TensorRT 并循环分析最新帧。
 - `streamregistry.cpp`: 管理共享 `RtspStream` 生命周期。
-- `mainwindow.cpp`: 创建 `HandAnalysisManager` 并设置回调。
+- `mainwindow.cpp`: 创建 `AthleteAnalysisManager` 并设置回调。
 
 ## 当前设计
 
 - `RtspStream::start()` 创建线程，循环 `openAndDecodeOnce()`，断流后重连。
 - `RtspStream::stop()` 设置 stop flag，最多等待 8 秒后 terminate。
-- `HandAnalysisWorker::run()` 初始化模型，然后按分析档位轮询最新帧：`fast` 约 100ms，`balanced` 约 66ms，`high` 约 33ms。
-- `HandAnalysisManager::setActiveStreams()` 支持多路 `RtspStream`，worker 按轮询顺序在有新帧且达到目标 FPS 间隔的流之间 round-robin 分析，并把 `cameraId` 写回 `PoseFrameResult`。
+- `AthleteAnalysisWorker::run()` 初始化模型，然后按分析档位轮询最新帧：`fast` 约 100ms，`balanced` 约 66ms，`high` 约 33ms。
+- `AthleteAnalysisManager::setActiveStreams()` 支持多路 `RtspStream`，worker 按轮询顺序在有新帧且达到目标 FPS 间隔的流之间 round-robin 分析，并把 `cameraId` 写回 `AthleteFrameResult`。
 - AI 分析结果通过 `QMetaObject::invokeMethod(..., Qt::QueuedConnection)` 发送回 `MainWindow`。
-- `HandAnalysisWorker::stop()` 等待最长 180 秒，因为 TensorRT 关闭可能很慢。
+- `AthleteAnalysisWorker::stop()` 等待最长 180 秒，因为 TensorRT 关闭可能很慢。
 
 ## 对外接口
 
-- `HandAnalysisManager::setActiveStream(cameraId, stream)`：兼容旧单路调用。
-- `HandAnalysisManager::setActiveStreams(streams)`：采集中用于同步多路相机分析流。
-- `HandAnalysisManager::setAnalysisProfile(profile)`：设置 `fast` / `balanced` / `high` 轮询间隔。
-- `HandAnalysisManager::setPaused(paused)`
-- `HandAnalysisManager::stop()`
+- `AthleteAnalysisManager::setActiveStreams(streams)`：采集中用于同步多路相机分析流。
+- `AthleteAnalysisManager::setAnalysisProfile(profile)`：设置 `fast` / `balanced` / `high` 轮询间隔。
+- `AthleteAnalysisManager::setPaused(paused)`
+- `AthleteAnalysisManager::stop()`
 - `RtspStream::latestFrame()`
 - `RtspStream::statusText()`
 
@@ -39,14 +38,14 @@
 
 ### 调整 AI 分析频率
 
-1. 优先检查 `intervalForProfile()` in `handanalysismanager.cpp`。
+1. 优先检查 `intervalForProfile()` in `athleteanalysismanager.cpp`。
 2. 评估 TensorRT 推理耗时和 GPU 占用。
 3. 验证 UI 刷新、动作计数和视频播放是否稳定。
 
 ### 调整结果过期策略
 
-1. 修改 `kResultTtlMs` in `handanalysismanager.cpp`。
-2. 确认短暂断帧时骨架是否应该保留。
+1. 修改 `kResultTtlMs` in `athleteanalysismanager.cpp`。
+2. 确认短暂断帧时检测框是否应该保留。
 3. 验证暂停/停止时 `clearRealtimePose()` 行为。
 
 ## 注意事项

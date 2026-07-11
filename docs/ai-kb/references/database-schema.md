@@ -10,7 +10,7 @@
 项目使用两类持久化：
 
 - Qt `QSettings`: 保存摄像头配置和采集偏好。
-- PostgreSQL: 保存训练动作标准闭环与训练复盘校准的运动员/教练档案、教练-运动员关系、比赛基础信息、场次/分组、参赛运动员关系、动作标准、计划任务、训练记录、动作明细、视频引用、视频资产、人工复核、标准参考视频、教练批注、个体基线和应用用户。
+- PostgreSQL: 保存运动员/教练档案、ReID 样本元数据和 embedding、教练-运动员关系、比赛基础信息、场次/分组、训练记录、旧动作/评分兼容数据、视频引用、视频资产、人工复核、个体基线和应用用户。
 
 相关文件：
 
@@ -56,7 +56,7 @@ PostgreSQL schema 在开发期由 `server/app/schema.py` 集中维护，使用 `
 - `analysisMaxStreams`: 同时进入 AI worker 的最大分析路数，默认 12。
 - `analysisAutoDegrade`: 超载时是否自动降低非主机位分析频率，默认 `true`。
 
-`modelPrecision` 当前同时用于 UI 选项和 AI 轮询间隔：`fast` 约 100ms，`balanced` 约 66ms，`high` 约 33ms。多路分析还会按 `analysisTargetFps` 对每路跳帧；实际 FPS 受单个 `HandAnalysisWorker`、GPU、解码和自动降级影响。
+`modelPrecision` 当前同时用于 UI 选项和 AI 轮询间隔：`fast` 约 100ms，`balanced` 约 66ms，`high` 约 33ms。多路分析还会按 `analysisTargetFps` 对每路跳帧；实际 FPS 受单个 AI worker、GPU、解码和自动降级影响。
 
 ### `videoStorage`
 
@@ -86,7 +86,7 @@ PostgreSQL schema 在开发期由 `server/app/schema.py` 集中维护，使用 `
 - `qualityNote`
 - `compatibilityNote`
 
-P1 轨迹拼接默认把 12 路相机按 5m 一段初始化为 CAM 01: 0-5m 至 CAM 12: 55-60m。`fieldStartM/fieldEndM/lateralOffsetM` 会传给 `TrajectoryWidget` 做全场轨迹线性映射；`mountHeightM/yawDeg/pitchDeg` 先作为机位标定信息保存。
+旧版本 P1 轨迹拼接默认把 12 路相机按 5m 一段初始化；当前实时主流程不再刷新轨迹，这些机位字段仅为历史设置和兼容数据保留。
 
 ### 摄像头 JSON 模板
 
@@ -114,6 +114,14 @@ P1 轨迹拼接默认把 12 路相机按 5m 一段初始化为 CAM 01: 0-5m 至 
 #### `athletes`
 
 运动员档案：姓名、编号、年龄组、身高体重、项目类型、技术等级、惯用方向/起跳脚、伤病限制、训练目标和 `active` 归档状态。人员管理中的删除会把 `active` 设为 0，不硬删历史训练记录引用。
+
+#### `athlete_identity_samples`
+
+ReID 样本图片元数据：`athlete_id`, `file_path`, `file_name`, `model_version`, `preprocessing_version`, `created_at`。实际图片位于服务端 `ISKATING_IDENTITY_GALLERY_ROOT` 下按运动员分目录保存。
+
+#### `athlete_identity_embeddings`
+
+ReID 向量：`sample_id`, `athlete_id`, `embedding`, `embedding_dimension`, `model_version`, `preprocessing_version`, `created_at`, `updated_at`。删除样本时级联删除对应 embedding。
 
 #### `coaches`, `coach_athletes`
 

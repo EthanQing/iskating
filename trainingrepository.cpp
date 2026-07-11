@@ -1,6 +1,7 @@
 #include "trainingrepository.h"
 
 #include <QCoreApplication>
+#include <QByteArray>
 #include <QDate>
 #include <QEventLoop>
 #include <QJsonArray>
@@ -115,6 +116,36 @@ AthleteProfile athleteFromJson(const QJsonObject &object)
     athlete.goals = jsonString(object, QStringLiteral("goals"));
     athlete.active = object.value(QStringLiteral("active")).toBool(true);
     return athlete;
+}
+
+AthleteIdentitySample identitySampleFromJson(const QJsonObject &object)
+{
+    AthleteIdentitySample sample;
+    sample.id = jsonString(object, QStringLiteral("id"));
+    sample.athleteId = jsonString(object, QStringLiteral("athleteId"));
+    sample.filePath = jsonString(object, QStringLiteral("filePath"));
+    sample.fileName = jsonString(object, QStringLiteral("fileName"));
+    sample.modelVersion = jsonString(object, QStringLiteral("modelVersion"));
+    sample.preprocessingVersion = jsonString(object, QStringLiteral("preprocessingVersion"));
+    sample.embeddingDimension = jsonInt(object, QStringLiteral("embeddingDimension"));
+    sample.createdAt = dateTimeFromJson(object.value(QStringLiteral("createdAt")));
+    return sample;
+}
+
+AthleteIdentityEmbedding identityEmbeddingFromJson(const QJsonObject &object)
+{
+    AthleteIdentityEmbedding galleryEntry;
+    galleryEntry.sampleId = jsonString(object, QStringLiteral("sampleId"));
+    galleryEntry.athleteId = jsonString(object, QStringLiteral("athleteId"));
+    galleryEntry.embeddingDimension = jsonInt(object, QStringLiteral("embeddingDimension"));
+    galleryEntry.modelVersion = jsonString(object, QStringLiteral("modelVersion"));
+    galleryEntry.preprocessingVersion = jsonString(object, QStringLiteral("preprocessingVersion"));
+    const QJsonArray values = object.value(QStringLiteral("embedding")).toArray();
+    galleryEntry.embedding.reserve(values.size());
+    for (const QJsonValue &value : values) {
+        galleryEntry.embedding.append(static_cast<float>(value.toDouble()));
+    }
+    return galleryEntry;
 }
 
 QJsonObject coachToJson(const CoachProfile &coach, const QVector<QString> &athleteIds = {})
@@ -1013,6 +1044,8 @@ QJsonObject TrainingRepository::requestObject(const QString &method,
         reply = m_network.get(request);
     } else if (method == QStringLiteral("PATCH")) {
         reply = m_network.sendCustomRequest(request, "PATCH", payload);
+    } else if (method == QStringLiteral("DELETE")) {
+        reply = m_network.sendCustomRequest(request, "DELETE", payload);
     } else {
         reply = m_network.post(request, payload);
     }
@@ -1142,6 +1175,42 @@ QVector<AthleteProfile> TrainingRepository::athletes() const
     }
     for (const QJsonValue &value : array) {
         result.append(athleteFromJson(value.toObject()));
+    }
+    return result;
+}
+
+QVector<AthleteIdentitySample> TrainingRepository::identitySamples(const QString &athleteId, bool includeData) const
+{
+    QVector<AthleteIdentitySample> result;
+    bool ok = false;
+    const QJsonArray array = requestArray(QStringLiteral("/athletes/%1/identity-samples").arg(athleteId), {}, &ok, nullptr);
+    if (!ok) {
+        return result;
+    }
+    for (const QJsonValue &value : array) {
+        AthleteIdentitySample sample = identitySampleFromJson(value.toObject());
+        if (!includeData) {
+            sample.dataBase64.clear();
+        }
+        result.append(sample);
+    }
+    return result;
+}
+
+QVector<AthleteIdentityEmbedding> TrainingRepository::identityGallery(const QString &athleteId,
+                                                                       const QString &modelVersion,
+                                                                       const QString &preprocessingVersion) const
+{
+    QVector<AthleteIdentityEmbedding> result;
+    QVariantMap query{{QStringLiteral("modelVersion"), modelVersion},
+                      {QStringLiteral("preprocessingVersion"), preprocessingVersion}};
+    bool ok = false;
+    const QJsonArray array = requestArray(QStringLiteral("/athletes/%1/identity-gallery").arg(athleteId), query, &ok, nullptr);
+    if (!ok) {
+        return result;
+    }
+    for (const QJsonValue &value : array) {
+        result.append(identityEmbeddingFromJson(value.toObject()));
     }
     return result;
 }
@@ -1658,6 +1727,69 @@ bool TrainingRepository::archiveAthlete(const QString &athleteId, QString *error
     requestObject(QStringLiteral("PATCH"),
                   QStringLiteral("/athletes/%1").arg(athleteId),
                   {{QStringLiteral("active"), false}},
+                  {},
+                  &ok,
+                  errorMessage);
+    return ok;
+}
+
+bool TrainingRepository::uploadIdentitySample(const QString &athleteId,
+                                              const QString &fileName,
+                                              const QByteArray &data,
+                                              const QString &modelVersion,
+                                              const QString &preprocessingVersion,
+                                              AthleteIdentitySample *sample,
+                                              QString *errorMessage)
+{
+    const QJsonObject body{{QStringLiteral("fileName"), fileName},
+                           {QStringLiteral("dataBase64"), QString::fromLatin1(data.toBase64())},
+                           {QStringLiteral("modelVersion"), modelVersion},
+                           {QStringLiteral("preprocessingVersion"), preprocessingVersion}};
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("POST"),
+                                               QStringLiteral("/athletes/%1/identity-samples").arg(athleteId),
+                                               body,
+                                               {},
+                                               &ok,
+                                               errorMessage);
+    if (ok && sample) {
+        *sample = identitySampleFromJson(response);
+    }
+    return ok;
+}
+
+bool TrainingRepository::saveIdentityEmbedding(const QString &athleteId,
+                                               const QString &sampleId,
+                                               const QVector<float> &embedding,
+                                               const QString &modelVersion,
+                                               const QString &preprocessingVersion,
+                                               QString *errorMessage)
+{
+    QJsonArray values;
+    for (const float value : embedding) {
+        values.append(value);
+    }
+    const QJsonObject body{{QStringLiteral("embedding"), values},
+                           {QStringLiteral("modelVersion"), modelVersion},
+                           {QStringLiteral("preprocessingVersion"), preprocessingVersion}};
+    bool ok = false;
+    requestObject(QStringLiteral("POST"),
+                  QStringLiteral("/athletes/%1/identity-samples/%2/embedding").arg(athleteId, sampleId),
+                  body,
+                  {},
+                  &ok,
+                  errorMessage);
+    return ok;
+}
+
+bool TrainingRepository::deleteIdentitySample(const QString &athleteId,
+                                              const QString &sampleId,
+                                              QString *errorMessage)
+{
+    bool ok = false;
+    requestObject(QStringLiteral("DELETE"),
+                  QStringLiteral("/athletes/%1/identity-samples/%2").arg(athleteId, sampleId),
+                  {},
                   {},
                   &ok,
                   errorMessage);

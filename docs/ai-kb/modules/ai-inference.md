@@ -1,74 +1,41 @@
 # AI 推理模块
 
 上级入口：[[00-index|AI 知识库索引]]、[[modules/README|模块地图]]
-相关模块：[[video-streaming|视频流]]、[[pose-analysis|姿态分析]]、[[background-workers|后台线程]]
-相关流程：[[flows/pose-analysis-flow|姿态分析流程]]
-相关 Reference：[[references/third-party-services|第三方服务]]、[[references/external-apis|外部 API]]、[[05-pitfalls|坑点]]
+相关模块：[[video-streaming|视频流]]、[[background-workers|后台线程]]
+相关流程：[[flows/pose-analysis-flow|运动员检测与身份流程]]
+相关 Reference：[[references/third-party-services|第三方服务]]、[[references/environment-variables|环境变量]]、[[05-pitfalls|坑点]]
 
 ## 作用
 
-负责加载 ONNX/TensorRT 模型，对 RGB 帧进行人体 2D 姿态、RTMW3D 3D 姿态和手部姿态推理。
+负责使用 TensorRT 加载 YOLO26x 和 PersonViT，为视频帧输出运动员检测框、ReID embedding、身份匹配和跨帧 trackId。
 
 ## 关键文件
 
-- `tensorrtrunner.h`: 通用 TensorRT runner 接口。
-- `tensorrtrunner.cpp`: ONNX 解析、FP16 engine 构建/缓存、CUDA buffer 和推理。
-- `tensorrtbodyposebackend.cpp`: YOLOv8n-pose 2D Body17 检测与 NMS。
-- `tensorrtrtmw3dbackend.cpp`: RTMW3D 3D 关键点补充。
-- `tensortrthandposebackend.cpp`: palm detector + hand landmark 手部模型后端。
-- `handposeadapter.cpp`: 将手部结果转为 `PoseFrameResult`。
-- `models/body/body_model.json`: 人体模型配置说明。
-- `models/hand/hand_model.json`: 手部模型配置说明。
+- `tensorrtrunner.h/cpp`：ONNX 解析、FP16 engine 构建/缓存、CUDA buffer 和推理。
+- `tensortrtathletebackend.h/cpp`：YOLO26x 解码、PersonViT crop、余弦匹配、人工绑定和 per-camera track。
+- `athleteanalysismanager.h/cpp`：后台 worker、多路流 round-robin、结果 TTL 和主线程回调。
+- `athleteanalysisresult.h`：`AthleteFrameResult`、`AthleteInstance`、gallery 和人工绑定结构。
+- `models/athlete/athlete_models.json`：模型来源、shape、阈值、版本和运行时要求。
+- `tools/download_athlete_models.ps1`：下载、YOLO 导出和 PersonViT 转换。
+- `tools/convert_personvit_msmt17.py`：TransReID checkpoint 到 ONNX 的转换。
+- `tools/check_athlete_models.py`：模型存在性和 SHA256 校验。
 
 ## 当前设计
 
-- `TensorRtRunner::initialize()` 优先读取同目录 `.fp16.engine`，没有则从 ONNX 构建。
-- 所有 engine 使用 FP16 flag。
-- `TensorRtBodyPoseBackend` 是当前主流程使用的后端。
-- `TensorRtBodyPoseBackend` 会先跑 YOLOv8n-pose，再尝试调用 `TensorRtRtmw3dBackend`。
-- `TensorRtRtmw3dBackend` 缺失时不阻止 2D 人体姿态使用。
-- 手部后端存在，但当前未接入 `HandAnalysisManager` 主流程。
+- YOLO26x 输入 `1x3x640x640`，端到端输出 `1x300x6`，解析为 `x1,y1,x2,y2,score,classId`，只接受 class 0。
+- PersonViT 输入 `1x3x256x128`，RGB，`(pixel - 0.5) / 0.5`，输出 `1x768` 并再次 L2 归一化。
+- gallery 只加载当前 session 参与者且模型版本、预处理版本匹配的 embedding。
+- 默认阈值为检测 `0.35`、ReID `0.60`、ambiguous margin `0.05`、结果 TTL `350ms`、track TTL `1200ms`，均从 `athlete_models.json` 读取。
+- 使用框 IoU 维护同一机位的 track；不同机位不共享 trackId，但共享 athleteId。
+- 缺少 PersonViT 时保留 YOLO26x 检测和视频播放，身份状态为 unknown。
+- 缺少 YOLO26x 时停止 AI 推理，不影响视频播放。
 
-## 对外接口
+## 模型与运行时
 
-- `TensorRtRunner::initialize(onnxPath, error)`
-- `TensorRtRunner::infer(input, outputs, error)`
-- `TensorRtBodyPoseBackend::initialize(modelDir, error)`
-- `TensorRtBodyPoseBackend::infer(rgbFrame, cameraId, timestampMs)`
+- TensorRT 10.x、CUDA 11.8、FP16 engine、兼容的 NVIDIA 驱动和 GPU。
+- `.fp16.engine` 是机器和 GPU 相关的缓存，不提交 Git。
+- 模型二进制默认忽略，发布规则只复制 `models/athlete` 清单和校验文件；部署时需另行准备模型文件。
 
-## 常见修改任务
+## 历史兼容
 
-### 替换人体 2D 模型
-
-1. 更新 `models/body/body_model.json`。
-2. 确认 `tensorrtbodyposebackend.cpp` 的输出解析仍匹配模型 layout。
-3. 删除旧本地 `.fp16.engine` 后重新构建验证。
-
-### 调整阈值
-
-1. 阅读 `tensorrtbodyposebackend.cpp` 中的 `kBoxScoreThreshold`, `kKeypointThreshold`, `kNmsIouThreshold`。
-2. 结合真实视频验证误检/漏检。
-3. 更新知识库中的风险或模型说明。
-
-### 接入手部后端
-
-1. 阅读 `tensortrthandposebackend.cpp` 和 `handposeadapter.cpp`。
-2. 设计人体/手部结果合并策略。
-3. 修改 `HandAnalysisManager` 时注意线程和回调生命周期。
-
-## 注意事项
-
-- `.fp16.engine` 是生成缓存，不要提交。
-- 首次构建 engine 可能耗时数分钟。
-- engine 与 TensorRT/CUDA/GPU/模型版本相关，不应跨环境复用。
-- `tensorrtrunner.cpp` 硬编码了默认 TensorRT/CUDA DLL 搜索路径。
-- 修改输出解析时必须同步 `PoseFrameResult` 的 skeletonType 和 keypoint 语义。
-
-## 相关流程
-
-- `../flows/pose-analysis-flow.md`
-
-## 未确认问题
-
-- TODO: 未确认模型精度选项 `fast/balanced/high` 是否实际影响推理后端；当前主要用于 UI 与记录字段。
-- TODO: 未确认手部模型是否仍是规划内能力。
+`PoseFrameResult`、旧姿态后端源文件、历史姿态字段和复盘读取代码仍可存在于仓库或数据库中，但不再进入新实时主流程和 Release 模型复制规则。

@@ -4,10 +4,13 @@ import json
 import os
 import uuid
 from datetime import date, datetime, timedelta, timezone
+from base64 import b64decode
+from pathlib import Path
 from typing import Any
 
 import jwt
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, status
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from passlib.context import CryptContext
 from sqlalchemy import create_engine, text
@@ -24,6 +27,7 @@ def env(name: str, default: str | None = None) -> str:
 
 DATABASE_URL = env("ISKATING_DATABASE_URL")
 JWT_SECRET = env("ISKATING_JWT_SECRET", "change-me-before-production")
+IDENTITY_GALLERY_ROOT = Path(os.getenv("ISKATING_IDENTITY_GALLERY_ROOT", "data/identity-gallery")).expanduser()
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_MINUTES = 12 * 60
 
@@ -304,6 +308,59 @@ def coach_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def identity_sample_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row["id"]),
+        "athleteId": str(row["athlete_id"]),
+        "filePath": row["file_path"] or "",
+        "fileName": row["file_name"] or "",
+        "modelVersion": row["model_version"] or "",
+        "preprocessingVersion": row["preprocessing_version"] or "",
+        "embeddingDimension": int(row.get("embedding_dimension") or 0),
+        "createdAt": row["created_at"].isoformat() if row.get("created_at") else "",
+    }
+
+
+def identity_gallery_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "sampleId": str(row["sample_id"]),
+        "athleteId": str(row["athlete_id"]),
+        "embedding": [float(value) for value in (row["embedding"] or [])],
+        "embeddingDimension": int(row["embedding_dimension"]),
+        "modelVersion": row["model_version"] or "",
+        "preprocessingVersion": row["preprocessing_version"] or "",
+    }
+
+
+def safe_sample_suffix(file_name: str) -> str:
+    suffix = Path(file_name).suffix.lower()
+    return suffix if suffix in {".jpg", ".jpeg", ".png", ".webp", ".bmp"} else ".jpg"
+
+
+def identity_sample_file(sample_id: str, athlete_id: str, file_name: str) -> Path:
+    root = (IDENTITY_GALLERY_ROOT / athlete_id).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    return root / f"{sample_id}{safe_sample_suffix(file_name)}"
+
+
+def identity_sample_query(db: Session, athlete_id: str, sample_id: str | None = None) -> dict[str, Any] | None:
+    where = "s.athlete_id = :athlete_id"
+    args: dict[str, Any] = {"athlete_id": athlete_id}
+    if sample_id:
+        where += " AND s.id = :sample_id"
+        args["sample_id"] = sample_id
+    row = db.execute(
+        text(
+            "SELECT s.*, e.embedding_dimension "
+            "FROM athlete_identity_samples s "
+            "LEFT JOIN athlete_identity_embeddings e ON e.sample_id = s.id "
+            f"WHERE {where}"
+        ),
+        args,
+    ).mappings().first()
+    return dict(row) if row else None
+
+
 def competition_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(row["id"]),
@@ -498,6 +555,155 @@ def archive_athlete(athlete_id: str,
                     _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
     active = bool(payload.get("active", False))
     db.execute(text("UPDATE athletes SET active = :active, updated_at = now() WHERE id = :id"), {"id": athlete_id, "active": active})
+    return {"ok": True}
+
+
+@app.get("/athletes/{athlete_id}/identity-samples")
+def identity_samples(athlete_id: str,
+                     db: Session = Depends(db_session),
+                     _: dict[str, Any] = Depends(require_user)) -> list[dict[str, Any]]:
+    rows = db.execute(
+        text(
+            "SELECT s.*, e.embedding_dimension "
+            "FROM athlete_identity_samples s "
+            "LEFT JOIN athlete_identity_embeddings e ON e.sample_id = s.id "
+            "WHERE s.athlete_id = :athlete_id ORDER BY s.created_at DESC"
+        ),
+        {"athlete_id": athlete_id},
+    ).mappings()
+    return [identity_sample_row(dict(row)) for row in rows]
+
+
+@app.post("/athletes/{athlete_id}/identity-samples")
+def upload_identity_sample(athlete_id: str,
+                           payload: dict[str, Any] = Body(...),
+                           db: Session = Depends(db_session),
+                           _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    file_name = str(payload.get("fileName", "sample.jpg")).strip() or "sample.jpg"
+    encoded = str(payload.get("dataBase64", "")).strip()
+    if not encoded:
+        raise HTTPException(status_code=400, detail="dataBase64 is required")
+    try:
+        data = b64decode(encoded, validate=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid base64 image data") from exc
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Identity sample is too large")
+    athlete = db.execute(text("SELECT id FROM athletes WHERE id = :id"), {"id": athlete_id}).first()
+    if not athlete:
+        raise HTTPException(status_code=404, detail="Athlete not found")
+    sample_id = new_uuid()
+    file_path = identity_sample_file(sample_id, athlete_id, file_name)
+    file_path.write_bytes(data)
+    try:
+        db.execute(
+            text(
+                "INSERT INTO athlete_identity_samples "
+                "(id, athlete_id, file_path, file_name, model_version, preprocessing_version) "
+                "VALUES (:id, :athlete_id, :file_path, :file_name, :model_version, :preprocessing_version)"
+            ),
+            {
+                "id": sample_id,
+                "athlete_id": athlete_id,
+                "file_path": str(file_path),
+                "file_name": file_name,
+                "model_version": str(payload.get("modelVersion", "")).strip(),
+                "preprocessing_version": str(payload.get("preprocessingVersion", "")).strip(),
+            },
+        )
+    except Exception:
+        file_path.unlink(missing_ok=True)
+        raise
+    row = identity_sample_query(db, athlete_id, sample_id)
+    return identity_sample_row(row) if row else {"id": sample_id, "athleteId": athlete_id, "fileName": file_name}
+
+
+@app.get("/athletes/{athlete_id}/identity-gallery")
+def identity_gallery(athlete_id: str,
+                     modelVersion: str = "",
+                     preprocessingVersion: str = "",
+                     db: Session = Depends(db_session),
+                     _: dict[str, Any] = Depends(require_user)) -> list[dict[str, Any]]:
+    where = ["athlete_id = :athlete_id"]
+    args: dict[str, Any] = {"athlete_id": athlete_id}
+    if modelVersion.strip():
+        where.append("model_version = :model_version")
+        args["model_version"] = modelVersion.strip()
+    if preprocessingVersion.strip():
+        where.append("preprocessing_version = :preprocessing_version")
+        args["preprocessing_version"] = preprocessingVersion.strip()
+    rows = db.execute(
+        text(
+            "SELECT * FROM athlete_identity_embeddings WHERE " + " AND ".join(where) + " ORDER BY created_at"
+        ),
+        args,
+    ).mappings()
+    return [identity_gallery_row(dict(row)) for row in rows]
+
+
+@app.post("/athletes/{athlete_id}/identity-samples/{sample_id}/embedding")
+def save_identity_embedding(athlete_id: str,
+                            sample_id: str,
+                            payload: dict[str, Any] = Body(...),
+                            db: Session = Depends(db_session),
+                            _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    sample = identity_sample_query(db, athlete_id, sample_id)
+    if not sample:
+        raise HTTPException(status_code=404, detail="Identity sample not found")
+    values = [float(value) for value in payload.get("embedding", [])]
+    if not values:
+        raise HTTPException(status_code=400, detail="embedding is required")
+    model_version = str(payload.get("modelVersion", sample["model_version"])).strip()
+    preprocessing_version = str(payload.get("preprocessingVersion", sample["preprocessing_version"])).strip()
+    db.execute(
+        text(
+            "INSERT INTO athlete_identity_embeddings "
+            "(sample_id, athlete_id, embedding, embedding_dimension, model_version, preprocessing_version) "
+            "VALUES (:sample_id, :athlete_id, :embedding, :embedding_dimension, :model_version, :preprocessing_version) "
+            "ON CONFLICT (sample_id) DO UPDATE SET embedding=excluded.embedding, "
+            "embedding_dimension=excluded.embedding_dimension, model_version=excluded.model_version, "
+            "preprocessing_version=excluded.preprocessing_version, updated_at=now()"
+        ),
+        {
+            "sample_id": sample_id,
+            "athlete_id": athlete_id,
+            "embedding": values,
+            "embedding_dimension": len(values),
+            "model_version": model_version,
+            "preprocessing_version": preprocessing_version,
+        },
+    )
+    row = db.execute(
+        text("SELECT * FROM athlete_identity_embeddings WHERE sample_id = :sample_id"),
+        {"sample_id": sample_id},
+    ).mappings().one()
+    return identity_gallery_row(dict(row))
+
+
+@app.get("/athletes/{athlete_id}/identity-samples/{sample_id}/file")
+def identity_sample_file_response(athlete_id: str,
+                                  sample_id: str,
+                                  db: Session = Depends(db_session),
+                                  _: dict[str, Any] = Depends(require_user)) -> FileResponse:
+    sample = identity_sample_query(db, athlete_id, sample_id)
+    if not sample:
+        raise HTTPException(status_code=404, detail="Identity sample not found")
+    file_path = Path(sample["file_path"]).resolve()
+    if not file_path.is_file() or not file_path.is_relative_to(IDENTITY_GALLERY_ROOT.resolve() / athlete_id):
+        raise HTTPException(status_code=404, detail="Identity sample file not found")
+    return FileResponse(file_path, filename=sample["file_name"])
+
+
+@app.delete("/athletes/{athlete_id}/identity-samples/{sample_id}")
+def delete_identity_sample(athlete_id: str,
+                           sample_id: str,
+                           db: Session = Depends(db_session),
+                           _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    sample = identity_sample_query(db, athlete_id, sample_id)
+    if not sample:
+        raise HTTPException(status_code=404, detail="Identity sample not found")
+    db.execute(text("DELETE FROM athlete_identity_samples WHERE id = :id"), {"id": sample_id})
+    Path(sample["file_path"]).unlink(missing_ok=True)
     return {"ok": True}
 
 
@@ -1619,7 +1825,8 @@ def save_training_session(payload: dict[str, Any] = Body(...),
     if session.get("taskId"):
         status_value = "completed" if int(session.get("validReps", 0)) >= int(session.get("targetReps", 0)) else "active"
         db.execute(text("UPDATE training_tasks SET status = :status, updated_at = now() WHERE id = :id"), {"id": parse_uuid(session.get("taskId")), "status": status_value})
-    refresh_baseline(db, athlete_id, action_standard_id)
+    if repetitions or participant_repetitions:
+        refresh_baseline(db, athlete_id, action_standard_id)
     return {"id": session_id}
 
 

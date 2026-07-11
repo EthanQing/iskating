@@ -1,98 +1,19 @@
-# 姿态分析模块
+# 旧姿态数据兼容模块
 
 上级入口：[[00-index|AI 知识库索引]]、[[modules/README|模块地图]]
-相关模块：[[ai-inference|AI 推理]]、[[frontend|Qt Widgets 前端]]、[[core|应用核心]]、[[persistence|本地持久化]]
-相关流程：[[flows/pose-analysis-flow|姿态分析流程]]、[[flows/training-record-flow|训练记录流程]]
-相关术语：[[06-glossary|术语表]]
+相关模块：[[ai-inference|AI 推理]]、[[persistence|本地持久化]]
+相关流程：[[flows/pose-analysis-flow|运动员检测与身份流程]]、[[flows/training-record-flow|训练记录流程]]
 
-## 作用
+## 当前状态
 
-定义统一姿态数据结构，绘制骨架/轨迹，并基于姿态关键点生成训练分数和反馈。
+`PoseFrameResult`、旧姿态评分结构、旧动作字段和历史复盘读取代码仍保留，用于读取已有训练记录。当前实时主流程不再调用姿态推理、骨架绘制、轨迹刷新、关键点评分或自动动作计数。
 
-## 关键文件
+## 兼容范围
 
-- `poseresult.h`: `PoseFrameResult`, `PoseInstance`, `PoseKeypoint`, skeleton enum。
-- `poseresult.cpp`: 不同 skeleton 的连线关系和名称转换。
-- `posestandardnessscorer.h`: 通用姿态分数结果结构和 scorer 接口。
-- `posestandardnessscorer.cpp`: 关键点、对称、重心、稳定、3D 分项评分。
-- `actionstandardscorer.h/.cpp`: 根据所选动作标准重算动作分、生成错误项，并追踪单次动作实例。
-- `skeletonviewwidget.cpp`: 骨架视图绘制。
-- `trajectorywidget.cpp`: 关键点轨迹历史、3D 偏移绘制和 12 路相机场地段轨迹重建。
-- `d3dvideosurface.cpp`: 主视频上的姿态覆盖层。
-- `mainwindow.cpp`: 动作计数、评分刷新、历史与建议文案。
+- 旧 `participant_pose_frames.pose_summary` 和 `key_frame_pose` 可以继续读取。
+- 旧 `action_repetitions`、`participant_repetitions` 和评分字段可以继续复盘、导出和人工修正。
+- 新训练使用同一兼容存储接口保存检测框、身份状态、身份置信度、cameraId、trackId 和 ReID 相似度摘要，不填充虚假的关键点。
 
-## 当前设计
+## 不应重新接入实时主流程
 
-- `PoseFrameResult` 是跨 AI、渲染、评分模块的统一交换格式。
-- `PoseInstance` 带 `athleteId`, `participantId`, `identityStatus`, `identityConfidence`, `identitySource`，用于承接多人身份/轨迹协议；`PoseFrameResult.timestampMs` 是保存到动作明细中的 `frameTimeMs`。
-- 主流程使用 `PoseSkeletonType::Body17`。
-- RTMW3D 成功后，关键点会带 `point3d` 和 `hasPoint3d`。
-- `PoseStandardnessScorer` 维护上一帧，用于计算稳定性。
-- 训练采集时 `HandAnalysisManager` 可轮询多路 `RtspStream`，每个 `PoseFrameResult.cameraId` 会标识来源相机。
-- `TrajectoryWidget` 支持接收每路相机的场地段配置，将画面中的主运动员锚点按相机覆盖起止距离映射为场地坐标，并把 12 路片段拼成全场轨迹。
-- `ActionStandardScorer` 复用通用分项分，再按动作标准中的权重、最低分和纠错提示生成 `ActionAssessment`。
-- `ActionRepetitionTracker` 通过动作标准中的髋/膝屈伸阈值和防抖时间识别一次动作，并输出动作明细。
-- 每次自动识别动作会保留最低分/关键错误帧对应的 `PoseFrameResult`，保存训练记录时序列化为 `ActionRepetition::keyFramePoseJson`，供复盘校准姿态叠加使用。
-- 训练采集中会按约 5 FPS 为每个已识别参与者或未知 `cameraId + trackId` 采样连续姿态/轨迹摘要，保存到 `participant_pose_frames`。摘要只保留 Body17 的关键点子集、bbox、图像锚点、线性场地点、来源相机、track 和身份置信度，不保存完整原始视频帧或全量推理输出。
-- `PoseIdentityResolver` 在推理结果进入 UI/评分前补全身份字段：算法已写入身份时保留，未写入时按人工绑定的 `cameraId + trackId` 映射到 session participant，仍无法识别时标记 `unknown`。
-- 人工复核字段不会覆盖 AI 原始姿态评分；复盘、趋势和报告按“人工优先”读取有效分数，AI 原始分仍用于追溯模型表现。
-
-## 对外接口
-
-- `PoseStandardnessScorer::scoreFrame(frame)`
-- `ActionStandardScorer::score(baseResult, standard)`
-- `ActionRepetitionTracker::update(frame, assessment, nowMsec, sessionStartMsec, completedRepetition)`
-- `ActionRepetitionTracker::bestPoseFrameJson()`
-- `poseSkeletonBones(skeletonType)`
-- `poseSkeletonTypeName(skeletonType)`
-- `poseInstanceKindName(kind)`
-- `PoseIdentityResolver::resolve(frame)`
-- `TrajectoryWidget::setCameraSegments(segments)`
-- `TrainingRepository::poseFramesForSession(sessionId, participantId, athleteId, fromMs, toMs, limit)`
-
-## 常见修改任务
-
-### 修改评分权重
-
-1. 阅读 `PoseStandardnessScorer::scoreFrame()`。
-2. 调整分项函数或总分权重。
-3. 用真实姿态帧手动验证反馈文案是否合理。
-
-### 新增 skeleton 类型
-
-1. 更新 `PoseSkeletonType` in `poseresult.h`。
-2. 更新 `poseSkeletonBones()` 和 `poseSkeletonTypeName()`。
-3. 更新渲染和评分模块对 keypoint index 的假设。
-
-### 修改动作计数
-
-1. 阅读 `ActionRepetitionTracker::update()`。
-2. 确认关键点 index 仍对应 Body17。
-3. 调整动作标准库中的 `arm_threshold`, `release_threshold`, `debounce_ms`，而不是写死在 `MainWindow`。
-4. 验证保存后的 `action_repetitions` 明细。
-
-### 修改复盘姿态叠加
-
-1. 先确认 `ActionRepetition::keyFramePoseJson` 是否存在；旧记录没有该字段数据时 UI 应禁用或提示姿态叠加不可用。
-2. 如果改变 `PoseFrameResult` JSON 结构，需要同步更新 `ActionStandardScorer` 的序列化/反序列化和 `TrainingReviewDialog` 的读取逻辑。
-3. 人工新增动作可以没有关键帧姿态 JSON，不能因此影响手动复核、统计或报告导出。
-
-## 注意事项
-
-- 评分和动作计数逻辑强依赖 Body17 keypoint index，替换模型时要重新校验。
-- `depthScore()` 依赖 3D 关键点数量；RTMW3D 缺失时分数会受影响。
-- `PoseStandardnessScorer` 内部保存上一帧，复用同一 scorer 实例时注意状态延续。
-- 当前仍未做动作类型自动分类；必须先在训练上下文中手动选择动作标准。动作实例可由阈值规则自动计数，也可在复盘校准中人工新增或修正。
-- 关键帧姿态 JSON 是动作复盘辅助数据，不是视频帧缓存；连续姿态/轨迹时间线使用 `participant_pose_frames` 的 5 FPS 摘要，两者都不能替代原视频，也不会复制或裁剪媒体文件。
-- 当前 YOLO 人体检测生成的 `trackId` 来自当帧检测排序，只是临时轨迹标识，不是跨帧 ReID；F-21 第一版只提供协议、人工绑定和算法接入壳子。
-- 当前多机位轨迹重建使用线性场地段映射：画面纵向位置映射到相机覆盖距离，画面横向位置映射到横向偏移。它能覆盖 12 路分段拼接的 P1 需求，但还不是基于相机内外参、畸变参数或 homography 的精标定。
-
-## 相关流程
-
-- `../flows/pose-analysis-flow.md`
-- `../flows/training-record-flow.md`
-
-## 未确认问题
-
-- TODO: 当前动作标准阈值仍是内置启发式，需要真实滑冰视频和教练反馈校准。
-- TODO: 自动动作识别和更细的动作阶段拆分尚未实现。
+不要在新采集流程中重新添加 `TensorRtBodyPoseBackend`、`TensorRtRtmw3dBackend`、`PoseIdentityResolver`、`PoseStandardnessScorer`、`TrajectoryWidget` 或自动 repetition tracker。若未来恢复姿态能力，需要单独设计版本化结果类型和产品开关。

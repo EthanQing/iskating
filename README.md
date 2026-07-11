@@ -1,24 +1,26 @@
 # iSkating Coach
 
-Windows Qt/C++ 滑冰训练辅助应用，包含多路 RTSP/离线视频采集、人体姿态分析、动作评分、比赛归属、训练复盘和报告导出。
+Windows Qt/C++ 滑冰训练辅助应用，当前实时 AI 主流程为：`YOLO26x person 检测 → PersonViT/MSMT17 ReID → 当前 session 参与者匹配 → trackId/athleteId`。
 
-RTSP 视频接入支持 UDP 优先、TCP fallback 和断流自动重连；离线视频导入会先校验文件、视频轨、时长、seek 能力和 D3D11VA 硬解兼容性，并创建可反查的离线分析任务。界面会显示连接中、断流重连、长时间断流、编码/硬解不兼容等状态，日志中的 RTSP 密码会脱敏。
+当前版本提供运动员检测与身份识别，不再提供实时姿态关键点、骨架、轨迹、动作评分或自动动作计数。历史训练记录中的旧姿态、评分和动作数据仍可读取与复盘；新训练只保存检测框、机位、trackId、身份状态和置信度。
 
-系统设置支持配置 NVR 回放模板，并可导入/导出 JSON 摄像头配置模板。模板包含公共 RTSP 参数、预览/主码流路径、NVR 回放模板、分析偏好、分析流策略和 12 路相机 IP/场地标定信息，便于现场批量落地；还可一键测试 12 路 RTSP 预览流连通性，查看成功/失败、UDP/TCP、分辨率、帧率和错误原因。多路 AI 分析默认按主机位优先订阅预览流，最多 12 路、每路目标 5 FPS，并在超载时自动降低非主机位分析频率。系统设置也支持配置视频存储根目录、容量阈值和保留天数，扫描已登记的本机视频资产并手动确认清理候选。应用内部仍使用 QSettings 保存本机配置并兼容旧字段。
+## AI 模型
+
+- `models/athlete/yolo26x.onnx`：官方 Ultralytics YOLO26x，`640x640`，端到端 NMS-free，输出 `300x6`，只接受 COCO `person` 类别。
+- `models/athlete/personvit_msmt17_vit_base.onnx`：TransReID ViT-Base MSMT17 baseline，输入 `3x256x128`，RGB，均值/方差 `0.5`，输出 `768` 维 L2 归一化 embedding。
+- 默认检测阈值 `0.35`、ReID 匹配阈值 `0.60`、候选差值 `0.05`、track TTL `1200 ms`。
+- 二进制模型和 TensorRT engine 不提交 Git；模型来源、版本、shape 和 SHA256 见 `models/athlete/athlete_models.json` 与 `models/athlete/athlete_models.sha256`。
+
+模型下载、YOLO 导出、PersonViT 转换和校验：
+
+```powershell
+.	ools\download_athlete_models.ps1
+python tools\check_athlete_models.py
+```
 
 ## 数据服务
 
-训练业务数据已切换为服务端架构：
-
-- 桌面端：Qt Widgets + QtNetwork
-- 服务端：FastAPI
-- 数据库：PostgreSQL
-
-训练记录可关联比赛基础信息（名称、地点、日期、类型、备注）、比赛场次/项目/轮次/分组和参赛运动员关系（参赛号、道次、成绩、名次），并自动标记分析结果归属为训练、比赛或导入视频。采集页支持最多 4 名 session 参与运动员和人工轨迹绑定，动作明细按参与运动员独立保存结果，并记录运动员身份、轨迹 ID、机位和帧时间。保存训练时会登记 session 级视频资产，按 `videoStorage/rootDir` 或默认本机数据目录生成可反查的录像目录、文件名、时间覆盖范围和元数据路径；离线视频训练会关联 `offline_analysis_tasks`，报告展示任务编号、状态、批次、机位和时间偏移。动作片段会关联到对应视频序号和视频文件索引；连续姿态/轨迹时间线会按参与者、机位和轨迹约 5 FPS 保存关键点摘要、bbox、场地点、视频帧时间和身份置信度。历史回看、复盘校准和姿态轨迹复盘优先使用关联的视频资产并按片段或帧时间 seek，本地文件缺失时回退 NVR/RTSP 并提示无法精确定位。当前只保存规范化引用，不从 RTSP 实际录制文件，不复制离线视频，也不做多视频同步；存储清理也只删除用户确认的本机文件，不删除训练记录或动作索引。历史页支持统一比赛管理、按比赛/场次/来源筛选、跨 session 动作明细检索和按人查看姿态轨迹时间线，并在报告导出中展示比赛归属、分析归属、身份轨迹信息和视频资产信息；动作明细和姿态轨迹时间线可导出 CSV/XLSX。
-
-桌面端默认连接 `http://127.0.0.1:8000`，可通过 `QSettings server/baseUrl` 或环境变量 `ISKATING_API_BASE_URL` 覆盖。默认开发登录可用 `ISKATING_API_USERNAME` / `ISKATING_API_PASSWORD` 覆盖。
-
-## 后端启动
+桌面端使用 Qt Widgets + QtNetwork，服务端使用 FastAPI，训练业务数据保存到 PostgreSQL。运动员管理页可以添加、查看和删除 ReID 样本，样本图片和 embedding 通过 `athlete_identity_samples` / `athlete_identity_embeddings` 保存。服务端样本文件目录由 `ISKATING_IDENTITY_GALLERY_ROOT` 配置。
 
 ```powershell
 cd server
@@ -26,26 +28,21 @@ python -m venv .venv
 .\.venv\Scripts\pip install -r requirements.txt
 $env:ISKATING_DATABASE_URL="postgresql+psycopg://iskating:password@127.0.0.1:5432/iskating"
 $env:ISKATING_JWT_SECRET="change-this"
+$env:ISKATING_IDENTITY_GALLERY_ROOT="data/identity-gallery"
 python ..\tools\reset_postgres_schema.py --yes
 .\.venv\Scripts\uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-旧 SQLite 数据可在切换前导入：
-
-```powershell
-python tools/import_sqlite_to_postgres.py --sqlite "$env:APPDATA/iSkating/iSkating Coach/iskating.db"
-```
-
-已有 PostgreSQL 开发库如需保留数据并补齐视频索引、离线分析任务字段和多人结果表，可执行：
-
-```powershell
-python tools/backfill_video_indexes.py
-```
+桌面端默认连接 `http://127.0.0.1:8000`，可通过 `ISKATING_API_BASE_URL` 覆盖。模型缺失或 PersonViT 初始化失败时，视频播放仍可继续；对应身份识别能力会在状态栏提示不可用。
 
 ## 桌面端构建
+
+需要 Qt 6.7.3 MSVC 2022 x64、FFmpeg shared dev package、TensorRT 10.1 和 CUDA 11.8：
 
 ```powershell
 & "C:/Qt/6.7.3/msvc2022_64/bin/qmake.exe" mainwindow.pro "CONFIG+=release"
 nmake release
 .\x64\Release\iskating.exe
 ```
+
+Release 规则始终复制 `models/athlete` 的清单和校验文件；如果构建机已准备被忽略的 ONNX 二进制，也会一并复制到发布目录，否则需按下载脚本在发布机补齐。

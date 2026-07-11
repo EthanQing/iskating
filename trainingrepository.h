@@ -5,6 +5,7 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QByteArray>
 #include <QNetworkAccessManager>
 #include <QString>
 #include <QVariant>
@@ -23,6 +24,10 @@ public:
     QString lastError() const;
 
     QVector<AthleteProfile> athletes() const;
+    QVector<AthleteIdentitySample> identitySamples(const QString &athleteId, bool includeData = false) const;
+    QVector<AthleteIdentityEmbedding> identityGallery(const QString &athleteId,
+                                                      const QString &modelVersion = QString(),
+                                                      const QString &preprocessingVersion = QString()) const;
     QVector<CoachProfile> coaches() const;
     QVector<Competition> competitions(bool includeInactive = false, const QString &query = QString()) const;
     QVector<CompetitionEvent> competitionEvents(const QString &competitionId = QString(),
@@ -76,6 +81,22 @@ public:
     bool createCoach(const QString &name, QString *coachId, QString *errorMessage = nullptr);
     bool saveAthleteProfile(AthleteProfile *athlete,
                             QString *errorMessage = nullptr);
+    bool uploadIdentitySample(const QString &athleteId,
+                              const QString &fileName,
+                              const QByteArray &data,
+                              const QString &modelVersion,
+                              const QString &preprocessingVersion,
+                              AthleteIdentitySample *sample,
+                              QString *errorMessage = nullptr);
+    bool saveIdentityEmbedding(const QString &athleteId,
+                               const QString &sampleId,
+                               const QVector<float> &embedding,
+                               const QString &modelVersion,
+                               const QString &preprocessingVersion,
+                               QString *errorMessage = nullptr);
+    bool deleteIdentitySample(const QString &athleteId,
+                              const QString &sampleId,
+                              QString *errorMessage = nullptr);
     bool archiveAthlete(const QString &athleteId,
                         QString *errorMessage = nullptr);
     bool saveCoachProfile(CoachProfile *coach,

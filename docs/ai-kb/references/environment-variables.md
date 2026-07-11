@@ -17,6 +17,7 @@
 | `ISKATING_ADMIN_USER` | 否 | 首次 seed 默认管理员用户名 | `admin` | `server/app/main.py` |
 | `ISKATING_ADMIN_PASSWORD` | 否 | 首次 seed 默认管理员密码 | `admin123` | `server/app/main.py` |
 | `ISKATING_CORS_ORIGINS` | 否 | FastAPI CORS 来源 | `*` | `server/app/main.py` |
+| `ISKATING_IDENTITY_GALLERY_ROOT` | 否 | ReID 样本图片文件存储目录 | `data/identity-gallery` | `server/app/main.py` |
 | `ISKATING_API_BASE_URL` | 否 | 桌面端训练服务地址覆盖 | `http://127.0.0.1:8000` | `trainingrepository.cpp` |
 | `ISKATING_API_TOKEN` | 否 | 桌面端访问令牌覆盖 | 无 | `trainingrepository.cpp` |
 | `ISKATING_API_USERNAME` | 否 | 桌面端自动登录用户名 | `admin` | `trainingrepository.cpp` |
@@ -28,6 +29,7 @@
 
 - `QT_ROOT = C:/Qt/6.7.3/msvc2022_64` 写死在 `mainwindow.pro`。
 - `tensorrtrunner.cpp` 还会通过 `AddDllDirectory()` 添加默认 TensorRT/CUDA DLL 路径。
+- `models/athlete` 是桌面端模型目录；二进制模型文件被忽略，部署时需要按 `tools/download_athlete_models.ps1` 准备。
 
 ## 未确认信息
 

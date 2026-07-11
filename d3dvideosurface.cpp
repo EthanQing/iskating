@@ -109,19 +109,15 @@ float4 psMain(PSIn input) : SV_TARGET {
 }
 )HLSL";
 
-OverlayColor colorForInstance(const PoseInstance &instance)
+OverlayColor colorForInstance(const AthleteInstance &instance)
 {
-    switch (instance.kind) {
-    case PoseInstanceKind::LeftHand:
-        return {0.22f, 0.55f, 1.0f, 0.95f};
-    case PoseInstanceKind::RightHand:
+    if (instance.identityStatus == QStringLiteral("identified")) {
         return {0.10f, 0.86f, 0.54f, 0.95f};
-    case PoseInstanceKind::Person:
-        return {0.44f, 0.80f, 1.0f, 0.95f};
-    case PoseInstanceKind::Unknown:
-    default:
+    }
+    if (instance.identityStatus == QStringLiteral("ambiguous")) {
         return {1.0f, 0.74f, 0.22f, 0.95f};
     }
+    return {0.44f, 0.80f, 1.0f, 0.95f};
 }
 
 bool mapLandmarkToNdc(const QPointF &point,
@@ -159,6 +155,18 @@ void appendLine(std::vector<OverlayVertex> *vertices,
     vertices->push_back({x1, y1, color.r, color.g, color.b, color.a});
 }
 
+void appendBox(std::vector<OverlayVertex> *vertices,
+               const std::array<std::pair<float, float>, 4> &mappedBox,
+               OverlayColor color)
+{
+    for (int i = 0; i < 4; ++i) {
+        const int next = (i + 1) % 4;
+        const auto [x0, y0] = mappedBox[static_cast<size_t>(i)];
+        const auto [x1, y1] = mappedBox[static_cast<size_t>(next)];
+        appendLine(vertices, x0, y0, x1, y1, color);
+    }
+}
+
 } // namespace
 
 D3DVideoSurface::D3DVideoSurface(QWidget *parent)
@@ -192,6 +200,11 @@ void D3DVideoSurface::clearFrame()
     auto *context = D3D11VideoDevice::context();
     context->ClearRenderTargetView(m_renderTargetView.Get(), clearColor);
     m_swapChain->Present(0, 0);
+}
+
+void D3DVideoSurface::setAthleteFrame(const AthleteFrameResult &frame)
+{
+    m_athleteFrame = frame;
 }
 
 void D3DVideoSurface::setPoseFrame(const PoseFrameResult &frame)
@@ -634,86 +647,36 @@ void D3DVideoSurface::render(const D3DFrame &frame)
 
     ID3D11ShaderResourceView *nullViews[] = {nullptr, nullptr};
     context->PSSetShaderResources(0, 2, nullViews);
-    renderPoseOverlay(frame, u0, u1, v0, v1, viewport);
+    renderAthleteOverlay(frame, u0, u1, v0, v1, viewport);
     m_swapChain->Present(0, 0);
 }
 
-void D3DVideoSurface::renderPoseOverlay(const D3DFrame &frame,
-                                        float u0,
-                                        float u1,
-                                        float v0,
-                                        float v1,
-                                        const D3D11_VIEWPORT &viewport)
+void D3DVideoSurface::renderAthleteOverlay(const D3DFrame &frame,
+                                           float u0,
+                                           float u1,
+                                           float v0,
+                                           float v1,
+                                           const D3D11_VIEWPORT &viewport)
 {
-    if (m_poseFrame.instances.isEmpty() || !m_overlayVertexBuffer) {
+    if (m_athleteFrame.instances.isEmpty() || !m_overlayVertexBuffer) {
         return;
     }
 
     std::vector<OverlayVertex> vertices;
     vertices.reserve(512);
-    const float pointDx = 2.0f * 4.0f / std::max(1.0f, viewport.Width);
-    const float pointDy = 2.0f * 4.0f / std::max(1.0f, viewport.Height);
-
-    for (const PoseInstance &pose : m_poseFrame.instances) {
-        if (pose.keypoints.isEmpty()) {
-            continue;
-        }
-
-        QSizeF sourceSize = m_poseFrame.frameSize;
+    for (const AthleteInstance &instance : m_athleteFrame.instances) {
+        QSizeF sourceSize = m_athleteFrame.frameSize;
         if (sourceSize.width() <= 0.0 || sourceSize.height() <= 0.0) {
             sourceSize = QSizeF(frame.width, frame.height);
         }
 
-        const OverlayColor color = colorForInstance(pose);
-        std::vector<std::pair<float, float>> mappedPoints(static_cast<size_t>(pose.keypoints.size()));
-        std::vector<bool> visible(static_cast<size_t>(pose.keypoints.size()), false);
-        for (int i = 0; i < pose.keypoints.size(); ++i) {
-            const PoseKeypoint &keypoint = pose.keypoints.at(i);
-            if (!keypoint.valid) {
-                continue;
-            }
-            float x = 0.0f;
-            float y = 0.0f;
-            visible[static_cast<size_t>(i)] = mapLandmarkToNdc(keypoint.imagePoint,
-                                                               sourceSize,
-                                                               u0,
-                                                               u1,
-                                                               v0,
-                                                               v1,
-                                                               &x,
-                                                               &y);
-            mappedPoints[static_cast<size_t>(i)] = {x, y};
-        }
-
-        for (const auto &bone : poseSkeletonBones(pose.skeletonType)) {
-            if (bone.first < 0 || bone.second < 0
-                || bone.first >= static_cast<int>(visible.size())
-                || bone.second >= static_cast<int>(visible.size())
-                || !visible[static_cast<size_t>(bone.first)]
-                || !visible[static_cast<size_t>(bone.second)]) {
-                continue;
-            }
-            const auto [x0, y0] = mappedPoints[static_cast<size_t>(bone.first)];
-            const auto [x1, y1] = mappedPoints[static_cast<size_t>(bone.second)];
-            appendLine(&vertices, x0, y0, x1, y1, color);
-        }
-
-        const OverlayColor pointColor = {1.0f, 1.0f, 1.0f, 0.95f};
-        for (int i = 0; i < static_cast<int>(visible.size()); ++i) {
-            if (!visible[static_cast<size_t>(i)]) {
-                continue;
-            }
-            const auto [x, y] = mappedPoints[static_cast<size_t>(i)];
-            appendLine(&vertices, x - pointDx, y, x + pointDx, y, pointColor);
-            appendLine(&vertices, x, y - pointDy, x, y + pointDy, pointColor);
-        }
-
-        if (pose.box.isValid()) {
+        const OverlayColor color = colorForInstance(instance);
+        if (instance.box.isValid()) {
             const QPointF corners[] = {
-                pose.box.topLeft(),
-                pose.box.topRight(),
-                pose.box.bottomRight(),
-                pose.box.bottomLeft(),
+                instance.box.topLeft(),
+                instance.box.topRight(),
+                instance.box.bottomRight(),
+                instance.box.bottomLeft(),
             };
             std::array<std::pair<float, float>, 4> mappedBox = {};
             std::array<bool, 4> boxVisible = {};
@@ -730,14 +693,8 @@ void D3DVideoSurface::renderPoseOverlay(const D3DFrame &frame,
                                                                       &y);
                 mappedBox[static_cast<size_t>(i)] = {x, y};
             }
-            for (int i = 0; i < 4; ++i) {
-                const int next = (i + 1) % 4;
-                if (!boxVisible[static_cast<size_t>(i)] || !boxVisible[static_cast<size_t>(next)]) {
-                    continue;
-                }
-                const auto [x0, y0] = mappedBox[static_cast<size_t>(i)];
-                const auto [x1, y1] = mappedBox[static_cast<size_t>(next)];
-                appendLine(&vertices, x0, y0, x1, y1, color);
+            if (std::all_of(boxVisible.begin(), boxVisible.end(), [](bool visible) { return visible; })) {
+                appendBox(&vertices, mappedBox, color);
             }
         }
     }

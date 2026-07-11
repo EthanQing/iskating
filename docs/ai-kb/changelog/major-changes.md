@@ -44,7 +44,7 @@
 
 ## 2026-07-08
 
-- 完成 F-07 多路分析流订阅策略：系统设置新增分析流来源、最大分析路数、目标 FPS 和自动降级；RTSP 多路分析按主机位优先准入，默认 12 路/5 FPS，并由单个 `HandAnalysisWorker` 对每路跳帧和非主机位降级。
+- 完成 F-07 多路分析流订阅策略：系统设置新增分析流来源、最大分析路数、目标 FPS 和自动降级；RTSP 多路分析按主机位优先准入，默认 12 路/5 FPS，并由单个 AI worker 对每路跳帧和非主机位降级。
 - 完成 F-09 视频存储规范与训练记录关联：新增 `training_video_files`，训练保存时登记主视频/主机位的视频序号、规范目录、文件名、元数据路径和 `planned/external/recorded` 状态。
 - 历史卡片和 Markdown/CSV/PDF 报告展示视频资产信息；当前不从 RTSP 实际录制或复制视频文件，回放仍沿用 NVR、RTSP 引用或离线原文件。
 - 完成 F-10 录像索引入库：`training_video_files` 增加时间覆盖范围、文件大小/修改时间和校验预留字段，`action_repetitions` 通过 `video_file_id/video_index` 关联动作片段到视频资产。
@@ -53,3 +53,11 @@
 - 完成 F-12 回放复盘录像片段定位：历史回看和复盘校准优先使用动作关联的本地视频资产并按片段起点 seek，本地文件缺失时回退 NVR/RTSP 并提示无法保证精确定位。
 - 完成 F-14 离线导入单视频分析记录闭环：新增 `offline_analysis_tasks` 和 `training_sessions.analysis_task_id`，离线视频通过探测后先创建分析任务，再保存训练 session、视频资产和动作片段关联；历史卡和 Markdown/CSV/PDF 报告展示离线任务摘要。
 - 完成 F-15 离线多视频导入与同步预留：离线分析任务预留 `batch_id/camera_id/time_offset_ms`，导入工具和开发库回填会为旧离线记录补任务；当前 UI 仍只做单视频导入，不复制视频、不做多文件同步或自动对齐。
+
+## 2026-07-11
+
+- 将实时主流程从 `YOLOv8n-pose + RTMW3D` 替换为 `YOLO26x person + PersonViT/MSMT17 ReID`。
+- 新增当前 session gallery、余弦相似度匹配、ambiguous 状态、per-camera trackId、身份 TTL 和人工身份绑定。
+- 新增 ReID 样本图片、embedding、模型版本和预处理版本的 FastAPI/PostgreSQL 存储及人员管理入口。
+- 新训练不再生成姿态关键点、骨架、轨迹、评分或动作 repetition；旧历史数据保留读取兼容。
+- 删除旧 body 模型资产和下载入口，发布复制规则改为 athlete 模型清单和校验值。

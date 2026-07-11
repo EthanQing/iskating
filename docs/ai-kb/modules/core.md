@@ -1,8 +1,8 @@
 # 应用核心模块
 
 上级入口：[[00-index|AI 知识库索引]]、[[modules/README|模块地图]]
-相关模块：[[frontend|Qt Widgets 前端]]、[[persistence|本地持久化]]、[[background-workers|后台线程]]、[[pose-analysis|姿态分析]]
-相关流程：[[flows/main-user-flow|主用户流程]]、[[flows/pose-analysis-flow|姿态分析流程]]、[[flows/training-record-flow|训练记录流程]]
+相关模块：[[frontend|Qt Widgets 前端]]、[[persistence|本地持久化]]、[[background-workers|后台线程]]
+相关流程：[[flows/main-user-flow|主用户流程]]、[[flows/pose-analysis-flow|运动员检测与身份流程]]、[[flows/training-record-flow|训练记录流程]]
 相关约定：[[04-conventions|代码约定]]、[[05-pitfalls|坑点]]
 
 ## 作用
@@ -21,8 +21,8 @@
 
 `MainWindow` 是集中式编排对象：
 
-- 构造时创建 `PoseStandardnessScorer` 和 `HandAnalysisManager`。
-- 将 AI 回调结果同步到主视频、骨架视图、轨迹视图、动作计数和分项评分。
+- 构造时创建 `AthleteAnalysisManager`。
+- 将 AI 回调结果同步到主视频检测框、身份标签和训练记录兼容字段。
 - 按页面维护实时采集、历史分析、纠正建议三个主页面。
 - 训练上下文区通过 `openPersonManagement()` 打开人员管理对话框，保存后重新加载人员下拉、历史和建议。
 - 使用 `QTimer` 每秒累计训练时长。
@@ -32,7 +32,7 @@
 
 该模块没有稳定公共 API。其他代码主要通过 Qt 信号/回调与 `MainWindow` 交互：
 
-- `HandAnalysisManager::setResultCallback()` 将姿态结果回调给 `MainWindow`。
+- `AthleteAnalysisManager::setResultCallback()` 将运动员检测结果回调给 `MainWindow`。
 - `VideoOpenGLWidget::setStreamChangedHandler()` 通知主视图活动流变化。
 - UI 按钮通过 `setupConnections()` 绑定到私有方法。
 
@@ -53,7 +53,7 @@
 ### 修改采集状态逻辑
 
 1. 阅读 `startCapture()`, `pauseCapture()`, `stopCapture()`。
-2. 确认 `m_isRecording`, `m_isPaused`, `m_timer`, `HandAnalysisManager` 的状态同步。
+2. 确认 `m_isRecording`, `m_isPaused`, `m_timer`, `AthleteAnalysisManager` 的状态同步。
 3. 手动验证开始、暂停、停止、保存记录。
 
 ## 注意事项

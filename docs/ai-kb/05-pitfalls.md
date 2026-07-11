@@ -71,14 +71,14 @@ F-15 的多视频能力当前只是数据协议预留：`offline_analysis_tasks.
 
 - `tensorrtrunner.cpp`
 - `.gitignore`
-- `models/body/body_model.json`
+- `models/athlete/athlete_models.json`
 - `models/hand/hand_model.json`
 
 ## ⚠️ 高风险区域：多相机轨迹 P1 边界
 
-当前 12 路相机轨迹还原是 P1 版本：系统设置保存每路相机覆盖的场地起止距离和横向偏移，`TrajectoryWidget` 把人体图像锚点线性映射到对应场地段，再拼成全场轨迹。它不是基于内参/外参、单应矩阵、AprilTag/棋盘格或多视角三角化的真实几何标定。
+旧版本 12 路相机轨迹还原是 P1 版本；当前实时主流程不再刷新轨迹。历史轨迹数据仍可按旧结构读取。
 
-多路 AI 分析由一个 `HandAnalysisWorker` 在多路流之间 round-robin 处理，不是每路一个 TensorRT worker。F-07 新增的订阅策略默认最多 12 路、每路目标 5 FPS，并在超载时优先拉长非主机位分析间隔；这只是应用层准入和跳帧策略，不等于每路都能稳定达到目标 FPS。实际有效 FPS 仍会受 GPU、解码、码流分辨率、`capture/modelPrecision` 档位和 TensorRT 推理耗时影响。
+多路 AI 分析由一个 `AthleteAnalysisWorker` 在多路流之间 round-robin 处理，不是每路一个 TensorRT worker。默认最多 12 路、每路目标 5 FPS，并在超载时优先拉长非主机位分析间隔；实际有效 FPS仍会受 GPU、解码、码流分辨率、`capture/modelPrecision` 档位和 TensorRT 推理耗时影响。
 
 相关文件：
 
@@ -135,7 +135,7 @@ F-15 的多视频能力当前只是数据协议预留：`offline_analysis_tasks.
 
 - Release 构建才调用 `windeployqt`，Debug 是否完整部署需要本机验证。
 - `mainwindow.pro` 会复制 FFmpeg/TensorRT/CUDA DLL、`Qt6PrintSupport.dll` 和 `models/` 到输出目录；SQLite driver 已移除，训练业务依赖外部 FastAPI/PostgreSQL 服务。
-- `models/body/rtmw3d-x.onnx` 很大且被 `.gitignore` 忽略，缺失时 RTMW3D 会不可用，但 2D 姿态仍可初始化。
+- 模型二进制被 `.gitignore` 忽略，缺失时视频仍可播放；YOLO26x 缺失会停用 AI，PersonViT 缺失会停用身份匹配。
 - 如果 `x64/Release/iskating.exe` 正在运行，Release 构建复制 FFmpeg DLL 时会失败并提示文件被占用；先关闭该进程再重新构建。
 - 在普通 PowerShell 中可能没有 `nmake`，Release 构建前需要通过 Visual Studio `vcvars64.bat` 初始化 MSVC 环境。
 
@@ -149,3 +149,11 @@ F-15 的多视频能力当前只是数据协议预留：`offline_analysis_tasks.
 ## 测试坑点
 
 TODO: 当前没有测试目录和测试命令。修改核心逻辑后至少应做手动启动、采集、保存记录、复盘校准、导出报告和模型加载验证。
+
+## ReID 与模型分发坑点
+
+- YOLO26x 只输出通用 `person`，不能把 YOLO 类别直接配置成运动员姓名；身份必须来自当前 session gallery、人工绑定或 unknown。
+- PersonViT embedding 只在模型版本和预处理版本一致时有效。模型升级后旧向量会被查询过滤，需要重新生成样本 embedding。
+- `yolo26x.onnx` 和 `personvit_msmt17_vit_base.onnx` 被 `.gitignore` 忽略；发布目录必须额外准备二进制，并用 `tools/check_athlete_models.py` 校验 SHA256。
+- 不同机位维护独立 trackId；跨机位只能通过 athleteId 识别为同一运动员，不能假设 trackId 全局唯一。
+- ReID 样本文件不放在 Git，服务端文件根目录由 `ISKATING_IDENTITY_GALLERY_ROOT` 控制，数据库只保存路径和元数据。

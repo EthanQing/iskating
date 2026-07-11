@@ -1,10 +1,15 @@
 #include "personmanagementdialog.h"
 
 #include "trainingrepository.h"
+#include "tensortrtathletebackend.h"
 
 #include <QAbstractItemView>
+#include <QCoreApplication>
+#include <QDir>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QFile>
+#include <QFileDialog>
 #include <QFormLayout>
 #include <QHeaderView>
 #include <QHBoxLayout>
@@ -24,6 +29,18 @@
 #include <algorithm>
 
 namespace {
+
+constexpr const char *kIdentityModelVersion = "personvit-msmt17-vit-base-v1";
+constexpr const char *kIdentityPreprocessingVersion = "rgb-256x128-mean0.5-std0.5-l2-v1";
+
+QString identityModelDir()
+{
+    const QDir appDir(QCoreApplication::applicationDirPath());
+    const QString deployed = appDir.absoluteFilePath(QStringLiteral("models/athlete"));
+    return QDir(deployed).exists()
+               ? deployed
+               : QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("../../models/athlete"));
+}
 
 QTableWidgetItem *readOnlyItem(const QString &text)
 {
@@ -175,6 +192,23 @@ QWidget *PersonManagementDialog::buildAthletePage()
     form->addRow(QStringLiteral("训练目标"), m_goalsEdit);
     formLayout->addLayout(form);
 
+    auto *galleryTitle = new QLabel(QStringLiteral("ReID 样本图片"), formPanel);
+    galleryTitle->setProperty("role", "sectionTitle");
+    formLayout->addWidget(galleryTitle);
+    m_identitySampleTable = new QTableWidget(0, 3, formPanel);
+    m_identitySampleTable->setHorizontalHeaderLabels({QStringLiteral("文件"), QStringLiteral("向量维度"), QStringLiteral("版本")});
+    configureTable(m_identitySampleTable);
+    m_identitySampleTable->setMinimumHeight(110);
+    formLayout->addWidget(m_identitySampleTable);
+
+    auto *galleryButtonRow = new QHBoxLayout();
+    m_addIdentitySampleButton = secondaryButton(QStringLiteral("添加样本"), formPanel);
+    m_deleteIdentitySampleButton = secondaryButton(QStringLiteral("删除样本"), formPanel);
+    m_deleteIdentitySampleButton->setProperty("variant", "danger");
+    galleryButtonRow->addWidget(m_addIdentitySampleButton);
+    galleryButtonRow->addWidget(m_deleteIdentitySampleButton);
+    formLayout->addLayout(galleryButtonRow);
+
     auto *buttonRow = new QHBoxLayout();
     buttonRow->setSpacing(8);
     auto *newButton = secondaryButton(QStringLiteral("新增"), formPanel);
@@ -194,6 +228,8 @@ QWidget *PersonManagementDialog::buildAthletePage()
     connect(newButton, &QPushButton::clicked, this, [this]() { newAthlete(); });
     connect(saveButton, &QPushButton::clicked, this, [this]() { saveAthlete(); });
     connect(deleteButton, &QPushButton::clicked, this, [this]() { archiveAthlete(); });
+    connect(m_addIdentitySampleButton, &QPushButton::clicked, this, [this]() { addIdentitySample(); });
+    connect(m_deleteIdentitySampleButton, &QPushButton::clicked, this, [this]() { deleteIdentitySample(); });
     return page;
 }
 
@@ -360,6 +396,7 @@ void PersonManagementDialog::selectAthleteRow(int row)
         return;
     }
     setAthleteForm(m_athletes.at(row));
+    populateIdentitySamples();
 }
 
 void PersonManagementDialog::selectCoachRow(int row)
@@ -380,6 +417,7 @@ void PersonManagementDialog::newAthlete()
     athlete.level = QStringLiteral("基础");
     athlete.ageGroup = QStringLiteral("未分组");
     setAthleteForm(athlete);
+    populateIdentitySamples();
     if (m_athleteTable) {
         m_athleteTable->clearSelection();
     }
@@ -403,6 +441,117 @@ void PersonManagementDialog::saveAthlete()
     m_changed = true;
     reload();
     setStatus(QStringLiteral("运动员档案已保存：%1").arg(athlete.name));
+}
+
+void PersonManagementDialog::populateIdentitySamples()
+{
+    if (!m_identitySampleTable) {
+        return;
+    }
+    const QVector<AthleteIdentitySample> samples = m_currentAthleteId.isEmpty()
+                                                       ? QVector<AthleteIdentitySample>()
+                                                       : m_repository->identitySamples(m_currentAthleteId);
+    QSignalBlocker blocker(m_identitySampleTable);
+    m_identitySampleTable->setRowCount(samples.size());
+    for (int row = 0; row < samples.size(); ++row) {
+        const AthleteIdentitySample &sample = samples.at(row);
+        m_identitySampleTable->setItem(row, 0, readOnlyItem(displayText(sample.fileName)));
+        m_identitySampleTable->setItem(row, 1, readOnlyItem(QString::number(sample.embeddingDimension)));
+        m_identitySampleTable->setItem(row, 2, readOnlyItem(QStringLiteral("%1 / %2")
+                                                                  .arg(displayText(sample.modelVersion),
+                                                                       displayText(sample.preprocessingVersion))));
+        m_identitySampleTable->item(row, 0)->setData(Qt::UserRole, sample.id);
+    }
+    m_identitySampleTable->resizeColumnsToContents();
+}
+
+void PersonManagementDialog::addIdentitySample()
+{
+    if (m_currentAthleteId.isEmpty() || !m_repository || !m_repository->isOpen()) {
+        setStatus(QStringLiteral("请先保存运动员档案，再添加 ReID 样本。"));
+        return;
+    }
+    const QString filePath = QFileDialog::getOpenFileName(this,
+                                                          QStringLiteral("选择运动员样本图片"),
+                                                          QString(),
+                                                          QStringLiteral("图片 (*.jpg *.jpeg *.png *.webp *.bmp)"));
+    if (filePath.isEmpty()) {
+        return;
+    }
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(this, QStringLiteral("添加失败"), QStringLiteral("无法读取样本图片。"));
+        return;
+    }
+    const QByteArray imageData = file.readAll();
+    const QImage image = QImage::fromData(imageData);
+    if (image.isNull()) {
+        QMessageBox::warning(this, QStringLiteral("添加失败"), QStringLiteral("样本文件不是有效图片。"));
+        return;
+    }
+    if (!m_identityBackend) {
+        m_identityBackend = std::make_unique<TensorRtAthleteBackend>();
+    }
+    if (!m_identityBackendInitialized) {
+        QString initError;
+        if (!m_identityBackend->initialize(identityModelDir(), &initError) || !m_identityBackend->hasReid()) {
+            QMessageBox::warning(this, QStringLiteral("添加失败"), QStringLiteral("PersonViT 未就绪：%1").arg(initError));
+            return;
+        }
+        m_identityBackendInitialized = true;
+    }
+    QString embeddingError;
+    const QVector<float> embedding = m_identityBackend->extractEmbedding(image, &embeddingError);
+    if (embedding.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("添加失败"), embeddingError);
+        return;
+    }
+    AthleteIdentitySample sample;
+    QString errorMessage;
+    if (!m_repository->uploadIdentitySample(m_currentAthleteId,
+                                            QFileInfo(filePath).fileName(),
+                                            imageData,
+                                            QString::fromLatin1(kIdentityModelVersion),
+                                            QString::fromLatin1(kIdentityPreprocessingVersion),
+                                            &sample,
+                                            &errorMessage)
+        || !m_repository->saveIdentityEmbedding(m_currentAthleteId,
+                                                sample.id,
+                                                embedding,
+                                                QString::fromLatin1(kIdentityModelVersion),
+                                                QString::fromLatin1(kIdentityPreprocessingVersion),
+                                                &errorMessage)) {
+        QMessageBox::warning(this, QStringLiteral("添加失败"), errorMessage);
+        return;
+    }
+    m_changed = true;
+    populateIdentitySamples();
+    setStatus(QStringLiteral("ReID 样本已添加。"));
+}
+
+void PersonManagementDialog::deleteIdentitySample()
+{
+    if (!m_identitySampleTable || m_currentAthleteId.isEmpty()) {
+        return;
+    }
+    const int row = m_identitySampleTable->currentRow();
+    if (row < 0 || !m_identitySampleTable->item(row, 0)) {
+        setStatus(QStringLiteral("请先选择要删除的样本。"));
+        return;
+    }
+    if (QMessageBox::question(this, QStringLiteral("删除样本"), QStringLiteral("确定删除当前 ReID 样本吗？")) != QMessageBox::Yes) {
+        return;
+    }
+    QString errorMessage;
+    if (!m_repository->deleteIdentitySample(m_currentAthleteId,
+                                            m_identitySampleTable->item(row, 0)->data(Qt::UserRole).toString(),
+                                            &errorMessage)) {
+        QMessageBox::warning(this, QStringLiteral("删除失败"), errorMessage);
+        return;
+    }
+    m_changed = true;
+    populateIdentitySamples();
+    setStatus(QStringLiteral("ReID 样本已删除。"));
 }
 
 void PersonManagementDialog::archiveAthlete()

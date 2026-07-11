@@ -1,0 +1,46 @@
+{
+  "detector": {
+    "name": "Ultralytics YOLO26x",
+    "onnx": "yolo26x.onnx",
+    "input": [1, 3, 640, 640],
+    "output": [1, 300, 6],
+    "class": "COCO person (class 0)",
+    "threshold": 0.35,
+    "nms": "end-to-end NMS-free"
+  },
+  "reid": {
+    "name": "TransReID ViT-Base MSMT17 baseline",
+    "checkpoint": "transreid_msmt17_vit_base.pth",
+    "onnx": "personvit_msmt17_vit_base.onnx",
+    "input": [1, 3, 256, 128],
+    "output": [1, 768],
+    "pixelMean": [0.5, 0.5, 0.5],
+    "pixelStd": [0.5, 0.5, 0.5],
+    "normalizeEmbedding": true,
+    "dataset": "MSMT17"
+  },
+  "runtime": {
+    "detectorThreshold": 0.35,
+    "reidThreshold": 0.60,
+    "ambiguousMargin": 0.05,
+    "resultTtlMs": 350,
+    "trackTtlMs": 1200,
+    "modelVersion": "personvit-msmt17-vit-base-v1",
+    "preprocessingVersion": "rgb-256x128-mean0.5-std0.5-l2-v1"
+  },
+    "sources": {
+    "detector": {
+      "url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x.pt",
+      "license": "Ultralytics AGPL-3.0 or Enterprise license"
+    },
+    "reid": {
+      "repository": "https://github.com/damo-cv/TransReID",
+      "checkpointUrl": "https://drive.google.com/file/d/1iF5JNPw9xi-rLY3Ri9EY-PFAkK6Vg_Pf/view",
+      "dataset": "MSMT17",
+      "license": "TransReID repository license; MSMT17 dataset terms apply"
+    },
+    "runtime": {
+      "input": "TensorRT 10.x, CUDA 11.8, FP16 engine; GPU and driver must match the deployment host"
+    }
+  }
+}

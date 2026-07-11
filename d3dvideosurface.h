@@ -2,6 +2,7 @@
 #define D3DVIDEOSURFACE_H
 
 #include "d3dframe.h"
+#include "athleteanalysisresult.h"
 #include "poseresult.h"
 
 #include <QWidget>
@@ -21,6 +22,7 @@ public:
 
     void presentFrame(const std::shared_ptr<D3DFrame> &frame);
     void clearFrame();
+    void setAthleteFrame(const AthleteFrameResult &frame);
     void setPoseFrame(const PoseFrameResult &frame);
     QString lastError() const;
 
@@ -36,7 +38,7 @@ private:
     bool ensureCopyTexture(const D3DFrame &frame);
     bool uploadFrame(const D3DFrame &frame);
     void render(const D3DFrame &frame);
-    void renderPoseOverlay(const D3DFrame &frame, float u0, float u1, float v0, float v1, const D3D11_VIEWPORT &viewport);
+    void renderAthleteOverlay(const D3DFrame &frame, float u0, float u1, float v0, float v1, const D3D11_VIEWPORT &viewport);
     void releaseSizeDependentResources();
     void setError(const QString &error);
 
@@ -60,6 +62,7 @@ private:
     int m_copyWidth = 0;
     int m_copyHeight = 0;
     QString m_lastError;
+    AthleteFrameResult m_athleteFrame;
     PoseFrameResult m_poseFrame;
 };
 

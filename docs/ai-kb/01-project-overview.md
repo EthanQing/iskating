@@ -3,7 +3,7 @@
 上级入口：[[00-index|AI 知识库索引]]
 相关文档：[[02-architecture|架构说明]]、[[03-commands|运行命令]]、[[07-open-questions|未确认问题]]
 核心模块：[[modules/core|应用核心]]、[[modules/frontend|Qt Widgets 前端]]、[[modules/video-streaming|视频流]]、[[modules/ai-inference|AI 推理]]、[[modules/persistence|本地持久化]]
-核心流程：[[flows/main-user-flow|主用户流程]]、[[flows/pose-analysis-flow|姿态分析流程]]
+核心流程：[[flows/main-user-flow|主用户流程]]、[[flows/pose-analysis-flow|运动员检测与身份流程]]
 
 ## 项目是什么
 
@@ -29,17 +29,17 @@ TODO: 当前代码中无法确认实际用户角色、权限边界和使用场�
 ## 核心业务目标
 
 - 接入最多 12 路 RTSP 摄像头预览，并把选中机位主码流显示到主视图。
-- 对主视图活动视频流做 TensorRT 姿态推理，输出 2D Body17 和可选 RTMW3D 3D 关键点。
-- 实时计算关键点、对称、重心、稳定、3D 等评分，并保存训练记录。
-- 根据最近训练记录生成纠正建议和下次训练建议。
+- 对活动视频流做 TensorRT YOLO26x person 检测和 PersonViT/MSMT17 ReID。
+- 在当前 session 参与者 gallery 中匹配 athleteId，并维护 per-camera trackId。
+- 保存检测框、身份状态和置信度；旧姿态、评分和动作记录保留读取兼容。
 
 相关文件：
 
 - `videoopenglwidget.cpp`
 - `rtspstream.cpp`
 - `handanalysismanager.cpp`
-- `tensorrtbodyposebackend.cpp`
-- `tensorrtrtmw3dbackend.cpp`
+- `tensortrtathletebackend.cpp`
+- `tensortrtathletebackend.cpp`
 - `posestandardnessscorer.cpp`
 
 ## 主要技术栈
@@ -50,7 +50,7 @@ TODO: 当前代码中无法确认实际用户角色、权限边界和使用场�
 - FFmpeg/libav + D3D11VA：`rtspstream.cpp`, `d3d11videodevice.cpp`
 - Direct3D 11/DXGI/D3DCompiler：`d3dvideosurface.cpp`
 - TensorRT 10.1 + CUDA 11.8：`tensorrtrunner.cpp`, `mainwindow.pro`
-- ONNX 模型：`models/body/`, `models/hand/`
+- ONNX 模型：`models/athlete/`, `models/hand/`
 - QSettings 本地配置与训练历史：`mainwindow.cpp`
 
 ## 主要入口文件
@@ -62,12 +62,12 @@ TODO: 当前代码中无法确认实际用户角色、权限边界和使用场�
 
 ## 主要目录
 
-- `models/body/`: 人体姿态模型配置与 ONNX/engine 文件。
+- `models/athlete/`: YOLO26x、PersonViT 模型清单、校验值和本地二进制文件。
 - `models/hand/`: 手部模型配置与 ONNX 文件；当前主分析链路未直接接入。
 - `icons/`: Qt 资源中引用的 SVG 图标。
 - `images/`: Qt 资源中引用的装饰图片。
 - `styles/`: QSS 样式。
-- `tools/`: 辅助脚本，例如下载 RTMW3D ONNX。
+- `tools/`: 模型下载、转换、校验和数据维护脚本。
 - `x64/`: 本地构建输出，已在 `.gitignore` 中忽略，不应作为源码事实来源。
 
 ## 当前不确定信息

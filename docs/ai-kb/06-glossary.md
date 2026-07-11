@@ -2,7 +2,7 @@
 
 上级入口：[[00-index|AI 知识库索引]]
 相关文档：[[01-project-overview|项目概览]]、[[02-architecture|架构说明]]
-相关模块：[[modules/core|应用核心]]、[[modules/video-streaming|视频流]]、[[modules/ai-inference|AI 推理]]、[[modules/pose-analysis|姿态分析]]、[[modules/persistence|本地持久化]]
+相关模块：[[modules/core|应用核心]]、[[modules/video-streaming|视频流]]、[[modules/ai-inference|AI 推理]]、[[modules/persistence|本地持久化]]
 
 ## iSkating Coach
 
@@ -15,7 +15,7 @@
 
 ## MainWindow
 
-应用编排中心，负责 UI、摄像头配置、采集控制、训练记录、评分和建议。
+应用编排中心，负责 UI、摄像头配置、采集控制、训练记录和运动员检测/身份识别。
 
 相关文件：
 
@@ -70,7 +70,7 @@
 
 ## D3DVideoSurface
 
-负责把 D3D11 视频纹理绘制到 Qt 控件上，并绘制姿态覆盖层。
+负责把 D3D11 视频纹理绘制到 Qt 控件上，并绘制运动员检测框覆盖层。
 
 相关文件：
 
@@ -86,29 +86,36 @@ TensorRT 通用推理封装，负责从 ONNX 构建/加载 `.fp16.engine`、分�
 - `tensorrtrunner.h`
 - `tensorrtrunner.cpp`
 
-## Body17
+## AthleteAnalysisManager
 
-项目当前人体姿态主干使用的 17 点骨架格式，来自 YOLOv8 pose 和 RTMW3D 的身体关键点子集。
-
-相关文件：
-
-- `poseresult.h`
-- `poseresult.cpp`
-- `tensorrtbodyposebackend.cpp`
-
-## RTMW3D
-
-用于补充 3D 姿态关键点的 TensorRT 后端。模型文件为 `rtmw3d-x.onnx`。
+运动员检测与身份识别后台管理器，负责多路流调度、YOLO26x/PersonViT 推理回调和结果 TTL。
 
 相关文件：
 
-- `tensorrtrtmw3dbackend.cpp`
-- `models/body/body_model.json`
-- `tools/download_rtmw3d_x.ps1`
+- `athleteanalysismanager.h`
+- `athleteanalysismanager.cpp`
+
+## PersonViT ReID
+
+基于 TransReID MSMT17 ViT-Base baseline 的人员重识别 embedding 模型，输出 768 维 L2 归一化向量。
+
+相关文件：
+
+- `tensortrtathletebackend.cpp`
+- `models/athlete/athlete_models.json`
+- `tools/convert_personvit_msmt17.py`
+
+## AthleteFrameResult
+
+一帧运动员检测结果，包含 cameraId、时间戳、画面尺寸、检测框、trackId、athleteId、身份状态和置信度。
+
+相关文件：
+
+- `athleteanalysisresult.h`
 
 ## PoseFrameResult
 
-一帧姿态结果的统一数据结构，包含相机编号、时间戳、画面尺寸、实例和关键点。
+旧实时姿态结果结构，仅用于读取历史记录和兼容旧复盘。
 
 相关文件：
 
@@ -116,7 +123,7 @@ TensorRT 通用推理封装，负责从 ONNX 构建/加载 `.fp16.engine`、分�
 
 ## PoseStandardnessScorer
 
-根据姿态结果计算关键点、对称、重心、稳定和 3D 分项分数，输出总分和反馈。
+旧姿态评分器，不再由新实时采集流程调用；保留源码和历史字段以支持旧数据读取。
 
 相关文件：
 
@@ -125,7 +132,7 @@ TensorRT 通用推理封装，负责从 ONNX 构建/加载 `.fp16.engine`、分�
 
 ## QSettings
 
-当前项目的本地持久化机制，用于保存摄像头配置、采集偏好和训练历史。
+当前项目的本地配置机制，用于保存摄像头配置和采集偏好；训练历史与 ReID gallery 由 FastAPI/PostgreSQL 及服务端文件目录保存。
 
 相关文件：
 

@@ -114,38 +114,33 @@ win32:msvc {
 }
 
 SOURCES += \
-    actionstandardscorer.cpp \
+    athleteanalysismanager.cpp \
     cameraconfigtemplate.cpp \
     cameraconnectivitytester.cpp \
     d3d11videodevice.cpp \
     d3dframeextractor.cpp \
     d3dvideosurface.cpp \
     framelessdialog.cpp \
-    handanalysismanager.cpp \
     iconutils.cpp \
     main.cpp \
     mainwindow.cpp \
     nvrplayback.cpp \
     offlinevideoprobe.cpp \
     personmanagementdialog.cpp \
-    poseidentityresolver.cpp \
     poseresult.cpp \
-    posestandardnessscorer.cpp \
     rtspstream.cpp \
-    skeletonviewwidget.cpp \
     streamregistry.cpp \
     systemsettingsdialog.cpp \
-    tensorrtbodyposebackend.cpp \
-    tensorrtrtmw3dbackend.cpp \
+    tensortrtathletebackend.cpp \
     tensorrtrunner.cpp \
-    trajectorywidget.cpp \
     trainingreviewdialog.cpp \
     trainingrepository.cpp \
     videostorageplan.cpp \
     videoopenglwidget.cpp
 
 HEADERS += \
-    actionstandardscorer.h \
+    athleteanalysismanager.h \
+    athleteanalysisresult.h \
     cameraconfigtemplate.h \
     cameraconnectivitytester.h \
     d3d11videodevice.h \
@@ -153,23 +148,17 @@ HEADERS += \
     d3dframeextractor.h \
     d3dvideosurface.h \
     framelessdialog.h \
-    handanalysismanager.h \
     iconutils.h \
     mainwindow.h \
     nvrplayback.h \
     offlinevideoprobe.h \
     personmanagementdialog.h \
-    poseidentityresolver.h \
     poseresult.h \
-    posestandardnessscorer.h \
     rtspstream.h \
-    skeletonviewwidget.h \
     streamregistry.h \
     systemsettingsdialog.h \
-    tensorrtbodyposebackend.h \
-    tensorrtrtmw3dbackend.h \
+    tensortrtathletebackend.h \
     tensorrtrunner.h \
-    trajectorywidget.h \
     trainingdomain.h \
     trainingreviewdialog.h \
     trainingrepository.h \
@@ -256,7 +245,11 @@ QMAKE_EXTRA_TARGETS += tensorrt_dlls
 POST_TARGETDEPS += tensorrt_dlls
 
 ai_models.commands = \
-    $(COPY_DIR) $$shell_quote($$shell_path($$PWD/models)) $$shell_quote($$shell_path($$DESTDIR/models))
+    if not exist $$shell_quote($$shell_path($$DESTDIR/models/athlete)) $(MKDIR) $$shell_quote($$shell_path($$DESTDIR/models/athlete)) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_quote($$shell_path($$PWD/models/athlete/athlete_models.json)) $$shell_quote($$shell_path($$DESTDIR/models/athlete/athlete_models.json)) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_quote($$shell_path($$PWD/models/athlete/athlete_models.sha256)) $$shell_quote($$shell_path($$DESTDIR/models/athlete/athlete_models.sha256)) $$escape_expand(\\n\\t) \
+    if exist $$shell_quote($$shell_path($$PWD/models/athlete/yolo26x.onnx)) $(COPY_FILE) $$shell_quote($$shell_path($$PWD/models/athlete/yolo26x.onnx)) $$shell_quote($$shell_path($$DESTDIR/models/athlete/yolo26x.onnx)) $$escape_expand(\\n\\t) \
+    if exist $$shell_quote($$shell_path($$PWD/models/athlete/personvit_msmt17_vit_base.onnx)) $(COPY_FILE) $$shell_quote($$shell_path($$PWD/models/athlete/personvit_msmt17_vit_base.onnx)) $$shell_quote($$shell_path($$DESTDIR/models/athlete/personvit_msmt17_vit_base.onnx))
 QMAKE_EXTRA_TARGETS += ai_models
 POST_TARGETDEPS += ai_models
 

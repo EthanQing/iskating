@@ -2,7 +2,7 @@
 
 上级入口：[[00-index|AI 知识库索引]]、[[flows/README|流程地图]]
 相关模块：[[modules/video-streaming|视频流]]、[[modules/background-workers|后台线程]]、[[modules/frontend|Qt Widgets 前端]]
-相邻流程：[[main-user-flow|主用户流程]]、[[pose-analysis-flow|姿态分析流程]]
+相邻流程：[[main-user-flow|主用户流程]]、[[pose-analysis-flow|运动员检测与身份流程]]
 排查入口：[[runbooks/debugging|调试 Runbook]]、[[references/external-apis|外部 API]]、[[05-pitfalls|坑点]]
 
 ## 简介

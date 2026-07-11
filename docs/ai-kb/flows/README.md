@@ -8,7 +8,7 @@
 
 - [[main-user-flow|主用户流程]]: 从配置摄像头到采集、保存记录、查看建议的主流程。
 - [[video-streaming-flow|视频播放流程]]: RTSP 视频接入、解码、显示和 fallback。
-- [[pose-analysis-flow|姿态分析流程]]: 主视频帧进入 AI 分析并回写 UI 的流程。
+- [[pose-analysis-flow|运动员检测与身份流程]]: 视频帧进入 YOLO26x/PersonViT 并回写 UI 的流程。
 - [[training-record-flow|训练记录流程]]: 训练记录保存、读取、历史和建议生成流程。
 
 ## 对应模块

@@ -60,6 +60,29 @@ struct AthleteProfile
     bool active = true;
 };
 
+struct AthleteIdentitySample
+{
+    QString id;
+    QString athleteId;
+    QString filePath;
+    QString fileName;
+    QString modelVersion;
+    QString preprocessingVersion;
+    int embeddingDimension = 0;
+    QString dataBase64;
+    QDateTime createdAt;
+};
+
+struct AthleteIdentityEmbedding
+{
+    QString sampleId;
+    QString athleteId;
+    QVector<float> embedding;
+    int embeddingDimension = 0;
+    QString modelVersion;
+    QString preprocessingVersion;
+};
+
 struct CoachProfile
 {
     QString id;

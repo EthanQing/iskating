@@ -1,13 +1,13 @@
 # Qt Widgets 前端模块
 
 上级入口：[[00-index|AI 知识库索引]]、[[modules/README|模块地图]]
-相关模块：[[core|应用核心]]、[[video-streaming|视频流]]、[[pose-analysis|姿态分析]]
+相关模块：[[core|应用核心]]、[[video-streaming|视频流]]、[[persistence|本地持久化]]
 相关流程：[[flows/main-user-flow|主用户流程]]、[[flows/video-streaming-flow|视频播放流程]]
 相关约定：[[04-conventions|代码约定]]、[[05-pitfalls|坑点]]
 
 ## 作用
 
-负责桌面界面布局、暗色仪表盘样式、视频占位/控制浮层、骨架/轨迹可视化和历史/建议卡片展示。
+负责桌面界面布局、暗色仪表盘样式、视频占位/控制浮层、检测框/身份标签和历史/兼容复盘卡片展示。
 
 ## 关键文件
 
@@ -20,15 +20,13 @@
 - `videoopenglwidget.cpp`: 视频控件占位状态和浮层按钮。
 - `trainingreviewdialog.cpp`: 历史复盘校准对话框，包含主视频回放、动作列表、人工修正表单和标准参考视频。
 - `personmanagementdialog.cpp`: 人员管理对话框，维护运动员档案、教练档案和教练-运动员绑定关系。
-- `skeletonviewwidget.cpp`: 2D/3D 骨架绘制。
-- `trajectorywidget.cpp`: 三维轨迹绘制；配置了相机场地段后会切换到全场轨迹视图，并显示各相机覆盖段。
+- `videoopenglwidget.cpp`: 视频检测框和身份标签覆盖层。
 
 ## 当前设计
 
 界面基础来自 `mainwindow.ui`，但多个区域在运行时动态装配：
 
-- `installSkeletonView()` 用 `SkeletonViewWidget` 替换原 pose 占位控件。
-- `installTrajectoryWidget()` 用 `TrajectoryWidget` 替换原轨迹占位控件。
+- 实时采集页隐藏旧姿态、轨迹和评分卡；历史旧记录入口仍可保留读取兼容。
 - `installMetricBars()` 动态插入分项评分进度条。
 - 历史记录和建议卡片在 `refreshHistory()` / `refreshSuggestions()` 中动态生成。
 - 历史卡片保留摘要、教练批注和导出入口；动作级复盘进入独立 `TrainingReviewDialog`，避免继续膨胀历史卡片。
@@ -49,7 +47,7 @@
 
 - 资源路径使用 Qt resource 形式，例如 `:/icons/start_cap.svg`。
 - 动态样式通过 `setProperty()` 与 `repolish()` 刷新。
-- 视频控件通过 `VideoOpenGLWidget` 的 public 方法设置播放源、占位文本和姿态叠加。
+- 视频控件通过 `VideoOpenGLWidget` 的 public 方法设置播放源、占位文本和检测框/身份叠加。
 - 复盘回放使用 `VideoOpenGLWidget::seekTo()`, `setPlaybackRate()`, `stepForward()`, `positionMs()`, `durationMs()`, `isSeekable()`；这些能力仅在本地文件路径上完整可用。
 - 离线视频导入按钮使用 `:/icons/video.svg` 和固定尺寸 `secondaryButton` 样式，避免挤压主视频标题栏。
 

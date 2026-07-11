@@ -15,6 +15,7 @@
 #include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QImage>
+#include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QMouseEvent>
@@ -115,6 +116,15 @@ VideoOpenGLWidget::VideoOpenGLWidget(QWidget *parent)
     m_videoSurface->hide();
     m_videoSurface->lower();
 
+    for (int index = 0; index < 4; ++index) {
+        auto *label = new QLabel(this);
+        label->setAttribute(Qt::WA_TransparentForMouseEvents);
+        label->setStyleSheet(QStringLiteral("QLabel { color: white; background: rgba(20, 24, 32, 210); border: 1px solid rgba(127, 183, 255, 190); border-radius: 3px; padding: 2px 5px; }"));
+        label->setFont(QFont(QStringLiteral("Microsoft YaHei"), 9, QFont::DemiBold));
+        label->hide();
+        m_athleteLabels.append(label);
+    }
+
     m_renderTimer->setInterval(15);
     connect(m_renderTimer, &QTimer::timeout, this, [this]() { refreshVideoFrame(); });
 
@@ -207,7 +217,9 @@ void VideoOpenGLWidget::stopPlayback()
     m_usingFallback = false;
     m_statusText.clear();
     m_renderTimer->stop();
-    m_videoSurface->setPoseFrame({});
+    m_videoSurface->setAthleteFrame({});
+    m_athleteFrame = {};
+    refreshAthleteLabels();
     m_videoSurface->clearFrame();
     m_videoSurface->hide();
     notifyStreamChanged();
@@ -264,6 +276,15 @@ QString VideoOpenGLWidget::currentVideoPath() const
 std::shared_ptr<RtspStream> VideoOpenGLWidget::activeStream() const
 {
     return m_stream;
+}
+
+void VideoOpenGLWidget::setAthleteFrame(const AthleteFrameResult &frame)
+{
+    if (m_videoSurface) {
+        m_videoSurface->setAthleteFrame(frame);
+    }
+    m_athleteFrame = frame;
+    refreshAthleteLabels();
 }
 
 void VideoOpenGLWidget::setPoseFrame(const PoseFrameResult &frame)
@@ -522,6 +543,65 @@ void VideoOpenGLWidget::refreshVideoFrame()
     m_videoSurface->presentFrame(frame);
 }
 
+void VideoOpenGLWidget::refreshAthleteLabels()
+{
+    for (QLabel *label : std::as_const(m_athleteLabels)) {
+        label->hide();
+    }
+    if (m_athleteFrame.instances.isEmpty() || m_athleteFrame.frameSize.width() <= 0.0
+        || m_athleteFrame.frameSize.height() <= 0.0 || width() <= 0 || height() <= 0) {
+        return;
+    }
+
+    const float widgetAspect = static_cast<float>(width()) / static_cast<float>(height());
+    const float frameAspect = static_cast<float>(m_athleteFrame.frameSize.width())
+                              / static_cast<float>(m_athleteFrame.frameSize.height());
+    float u0 = 0.0f;
+    float u1 = 1.0f;
+    float v0 = 0.0f;
+    float v1 = 1.0f;
+    if (frameAspect > widgetAspect) {
+        const float visibleWidth = widgetAspect / frameAspect;
+        u0 = (1.0f - visibleWidth) * 0.5f;
+        u1 = 1.0f - u0;
+    } else if (frameAspect < widgetAspect) {
+        const float visibleHeight = frameAspect / widgetAspect;
+        v0 = (1.0f - visibleHeight) * 0.5f;
+        v1 = 1.0f - v0;
+    }
+
+    const int count = std::min(m_athleteFrame.instances.size(), m_athleteLabels.size());
+    for (int index = 0; index < count; ++index) {
+        const AthleteInstance &instance = m_athleteFrame.instances.at(index);
+        if (!instance.box.isValid()) {
+            continue;
+        }
+        const QRectF &box = instance.box;
+        const float normalizedX = static_cast<float>(box.x() / m_athleteFrame.frameSize.width());
+        const float normalizedY = static_cast<float>(box.y() / m_athleteFrame.frameSize.height());
+        if (normalizedX < u0 || normalizedY < v0
+            || normalizedX + box.width() / m_athleteFrame.frameSize.width() > u1
+            || normalizedY + box.height() / m_athleteFrame.frameSize.height() > v1) {
+            continue;
+        }
+        auto *label = m_athleteLabels.at(index);
+        const QString identity = instance.label.trimmed().isEmpty()
+                                     ? QStringLiteral("未识别")
+                                     : instance.label.trimmed();
+        const QString track = instance.trackId >= 0
+                                  ? QStringLiteral(" · track %1").arg(instance.trackId)
+                                  : QString();
+        label->setText(identity + track);
+        label->adjustSize();
+        const int x = static_cast<int>(((normalizedX - u0) / (u1 - u0)) * width());
+        const int y = static_cast<int>(((normalizedY - v0) / (v1 - v0)) * height());
+        label->move(std::clamp(x, 0, std::max(0, width() - label->width())),
+                    std::clamp(y - label->height(), 0, std::max(0, height() - label->height())));
+        label->show();
+        label->raise();
+    }
+}
+
 void VideoOpenGLWidget::paintEvent(QPaintEvent *)
 {
     QPainter painter(this);
@@ -630,6 +710,7 @@ void VideoOpenGLWidget::resizeEvent(QResizeEvent *event)
     QWidget::resizeEvent(event);
     m_videoSurface->setGeometry(rect().adjusted(1, 1, -1, -1));
     layoutOverlayControls();
+    refreshAthleteLabels();
 }
 
 void VideoOpenGLWidget::enterEvent(QEnterEvent *event)

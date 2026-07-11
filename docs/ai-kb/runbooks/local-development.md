@@ -75,8 +75,9 @@ python ..\tools\reset_postgres_schema.py --yes
 
 ## 模型准备
 
-- `models/body/yolov8n-pose.onnx` 已在仓库中。
-- `models/body/rtmw3d-x.onnx` 很大，可能需要运行 `tools/download_rtmw3d_x.ps1`。
+- 运行 `tools/download_athlete_models.ps1` 下载 YOLO26x 和 TransReID MSMT17 checkpoint，并生成两个 ONNX 文件。
+- 运行 `python tools/check_athlete_models.py` 检查模型文件和 SHA256。
+- YOLO26x ONNX 输入为 `1x3x640x640`、输出为 `1x300x6`；PersonViT ONNX 输入为 `1x3x256x128`、输出为 `1x768`。
 - 首次运行 TensorRT 可能生成 `.fp16.engine`。
 
 ## 常见启动失败原因
@@ -85,4 +86,4 @@ python ..\tools\reset_postgres_schema.py --yes
 - FFmpeg/TensorRT/CUDA 默认路径不存在，且没有设置覆盖环境变量。
 - 输出目录缺少 Qt platforms 插件或 FFmpeg/TensorRT/CUDA DLL。
 - GPU/驱动不支持当前 TensorRT/CUDA 或 D3D11VA 路径。
-- `models/body/rtmw3d-x.onnx` 缺失导致 3D 姿态不可用。
+- 任一模型缺失时，视频播放仍可用；YOLO26x 缺失会停用 AI，PersonViT 缺失会停用身份匹配。

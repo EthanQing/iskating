@@ -105,18 +105,22 @@ python tools/backfill_video_indexes.py
 
 FastAPI 服务启动时会 seed 默认管理员、默认运动员、默认教练、8 个动作类别和 8 条动作标准。
 
-## 模型下载
+## 模型下载与校验
 
-RTMW3D-x ONNX 可通过脚本下载：
+YOLO26x 和 TransReID MSMT17 PersonViT 可通过脚本下载、转换：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools/download_rtmw3d_x.ps1
+powershell -ExecutionPolicy Bypass -File tools/download_athlete_models.ps1
+python tools/check_athlete_models.py
 ```
 
 相关文件：
 
-- `tools/download_rtmw3d_x.ps1`
-- `models/body/body_model.json`
+- `tools/download_athlete_models.ps1`
+- `tools/convert_personvit_msmt17.py`
+- `tools/check_athlete_models.py`
+- `models/athlete/athlete_models.json`
+- `models/athlete/athlete_models.sha256`
 
 ## 部署相关命令
 
@@ -125,6 +129,6 @@ Release 构建后，`mainwindow.pro` 会调用：
 - `windeployqt.exe --release --no-translations`
 - 复制 FFmpeg DLL
 - 复制 TensorRT/CUDA DLL
-- 复制 `models/`
+- 复制 `models/athlete` 的模型清单和校验文件
 
 TODO: 未找到打包安装器、发布脚本或 CI/CD 发布命令。

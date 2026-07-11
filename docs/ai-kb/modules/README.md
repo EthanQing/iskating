@@ -10,14 +10,14 @@
 - [[frontend|Qt Widgets 前端]]: Qt Widgets、QSS、资源和动态 UI。
 - [[video-streaming|视频流]]: RTSP、FFmpeg、D3D11VA 和视频显示。
 - [[ai-inference|AI 推理]]: TensorRT runner、人体/3D/手部模型后端。
-- [[pose-analysis|姿态分析]]: 姿态数据结构、评分、骨架和轨迹。
+- [[pose-analysis|旧姿态数据兼容]]: 旧姿态、评分、骨架和轨迹数据的读取边界。
 - [[persistence|本地持久化]]: QSettings 配置和训练历史。
 - [[background-workers|后台线程]]: 视频与 AI 分析后台线程。
 
 ## 常用组合
 
 - 视频显示链路：[[video-streaming]] + [[background-workers]] + [[../flows/video-streaming-flow]]
-- 姿态分析链路：[[ai-inference]] + [[pose-analysis]] + [[../flows/pose-analysis-flow]]
+- 运动员识别链路：[[ai-inference]] + [[../flows/pose-analysis-flow]]；旧姿态兼容：[[pose-analysis]]
 - 用户操作链路：[[core]] + [[frontend]] + [[persistence]] + [[../flows/main-user-flow]]
 
 ## 当前未识别出的模块

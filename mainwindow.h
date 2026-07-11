@@ -1,11 +1,10 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
-#include "poseresult.h"
+#include "athleteanalysisresult.h"
 #include "systemsettingsdialog.h"
 #include "trainingdomain.h"
 #include "offlinevideoprobe.h"
-#include "actionstandardscorer.h"
 
 #include <QHash>
 #include <QMainWindow>
@@ -23,16 +22,12 @@ class QDateEdit;
 class QLineEdit;
 class QSpinBox;
 class QPlainTextEdit;
-class PoseStandardnessScorer;
-class PoseIdentityResolver;
 class QEvent;
 class QProgressBar;
 class QPushButton;
-class SkeletonViewWidget;
 class QVBoxLayout;
-class TrajectoryWidget;
 class VideoOpenGLWidget;
-class HandAnalysisManager;
+class AthleteAnalysisManager;
 class TrainingRepository;
 
 namespace Ui {
@@ -57,8 +52,6 @@ private:
     void installMetricBars();
     void installTrainingContextPanel();
     void installHistorySearchPanel();
-    void installTrajectoryWidget();
-    void installSkeletonView();
     void installStaticImages();
     void applyStyleSheet();
     void loadCameraSettings();
@@ -74,12 +67,13 @@ private:
     int historyMaxPage() const;
     void refreshHistoryPager();
     void refreshTrainingContextDetails();
+    void reloadAthleteIdentityGallery();
+    void editManualIdentityBindings();
     void addAthleteFromDialog();
     void addCoachFromDialog();
     void openPersonManagement();
     void openCompetitionManagement();
     void openRepetitionSearchDialog();
-    void openTrackBindingDialog();
     ActionStandard selectedActionStandard() const;
     QString selectedAthleteId() const;
     QString selectedCoachId() const;
@@ -88,13 +82,11 @@ private:
     QString selectedEventAthleteId() const;
     QVector<TrainingSessionParticipant> currentSessionParticipants() const;
     void resetCurrentTrainingSession();
-    void recordCompletedRepetition(const ActionRepetition &repetition);
-    void recordParticipantPoseFrames(const PoseFrameResult &poseFrame);
+    void recordAthleteFrames(const AthleteFrameResult &athleteFrame);
     void importOfflineVideo();
     void showOfflineVideoInMainView(bool autoPlay = true);
     void showCameraInMainView(int cameraIndex, bool autoPlay = true);
     void applyCameraSettingsToWidgets(bool restorePlayback);
-    void updateTrajectoryCameraSegments();
     void syncAnalysisStreams();
     QString cameraReadinessSummary() const;
     void applyCapturePreferencesToUi();
@@ -112,16 +104,11 @@ private:
     void toggleFullScreen();
     void exitFullScreenMode();
     void selectCamera(int cameraId);
-    void setTrajectoryExpanded(bool expanded);
-    void cycleTrajectoryMode();
-    void setTrajectoryMode(int mode);
-    void refreshTrajectoryModeButton();
     void startCapture();
     void pauseCapture();
     void stopCapture();
     void saveRecord();
     void tick();
-    void updateActionCounter(const PoseFrameResult &poseFrame);
 
     void refreshNavButtons();
     void refreshCameraButtons();
@@ -159,13 +146,8 @@ private:
     QVector<QLabel *> m_metricValueLabels;
     QPushButton *m_fullScreenButton = nullptr;
     QPushButton *m_importVideoButton = nullptr;
-    std::unique_ptr<HandAnalysisManager> m_handAnalysisManager;
-    std::unique_ptr<PoseStandardnessScorer> m_poseStandardnessScorer;
-    std::unique_ptr<ActionStandardScorer> m_actionStandardScorer;
-    std::unique_ptr<ActionRepetitionTracker> m_actionRepetitionTracker;
-    std::unique_ptr<PoseIdentityResolver> m_poseIdentityResolver;
+    std::unique_ptr<AthleteAnalysisManager> m_athleteAnalysisManager;
     std::unique_ptr<TrainingRepository> m_trainingRepository;
-    SkeletonViewWidget *m_skeletonView = nullptr;
     QWidget *m_trainingContextPanel = nullptr;
     QComboBox *m_athleteComboBox = nullptr;
     QComboBox *m_coachComboBox = nullptr;
@@ -173,7 +155,6 @@ private:
     QComboBox *m_competitionEventComboBox = nullptr;
     QComboBox *m_actionStandardComboBox = nullptr;
     QVector<QComboBox *> m_participantComboBoxes;
-    QPushButton *m_trackBindingButton = nullptr;
     QLineEdit *m_siteLineEdit = nullptr;
     QComboBox *m_trainingPhaseComboBox = nullptr;
     QLineEdit *m_goalLineEdit = nullptr;
@@ -203,7 +184,6 @@ private:
     QPushButton *m_historyPreviousPageButton = nullptr;
     QPushButton *m_historyNextPageButton = nullptr;
 
-    TrajectoryWidget *m_trajectoryWidget = nullptr;
     QTimer m_timer;
     QVector<SessionHistoryItem> m_records;
     QVector<AthleteProfile> m_athletes;
@@ -212,11 +192,10 @@ private:
     QVector<CompetitionEvent> m_competitionEvents;
     QVector<EventAthlete> m_eventAthletes;
     QVector<ActionStandard> m_actionStandards;
-    QVector<ActionRepetition> m_currentRepetitions;
     QVector<ParticipantPoseFrame> m_currentPoseFrames;
-    QHash<QString, ActionRepetitionTracker> m_participantActionTrackers;
     QHash<QString, qint64> m_participantPoseSampleTimes;
-    PoseFrameResult m_lastPoseFrame;
+    AthleteFrameResult m_lastAthleteFrame;
+    QVector<AthleteIdentityBinding> m_manualIdentityBindings;
     QString m_lastSavedAt;
     int m_historyPageNumber = 1;
     int m_historyPageSize = 10;
@@ -229,15 +208,10 @@ private:
     int m_sidebarLayoutSpacing = 10;
     int m_sidebarNormalMinimumWidth = 0;
     int m_sidebarNormalMaximumWidth = QWIDGETSIZE_MAX;
-    int m_trajectoryMode = -1;
     int m_middleLayoutNormalSpacing = 14;
     int m_middleLayoutNormalStretch0 = 0;
     int m_middleLayoutNormalStretch1 = 0;
     int m_cameraGridNormalSpacing = 10;
-    QSize m_trajectoryViewNormalMinSize;
-    QSize m_trajectoryViewNormalMaxSize;
-    QSize m_trajectoryCardNormalMinSize;
-    QSize m_trajectoryCardNormalMaxSize;
     int m_selectedCamera = 1;
     bool m_isRecording = false;
     bool m_isPaused = false;
@@ -248,16 +222,13 @@ private:
     int m_validActionCount = 0;
     int m_bestActionScore = 0;
     int m_actionScoreTotal = 0;
-    int m_realtimeScore = 90;
+    int m_realtimeScore = 0;
     int m_detectionScore = 0;
     int m_symmetryScore = 0;
     int m_balanceScore = 0;
     int m_stabilityScore = 0;
     int m_depthScore = 0;
-    qreal m_previousKneeBend = 0.0;
-    bool m_actionArmed = false;
-    qint64 m_lastActionMsec = 0;
-    QString m_feedbackText = QStringLiteral("动作标准");
+    QString m_feedbackText = QStringLiteral("运动员检测与身份识别");
     QString m_offlineVideoPath;
     QString m_offlineVideoName;
     OfflineVideoProbeResult m_offlineVideoProbe;

@@ -90,7 +90,7 @@ Observed
 
 - `tensorrtrunner.cpp`
 - `.gitignore`
-- `models/body/body_model.json`
+- `models/athlete/athlete_models.json`
 - `models/hand/hand_model.json`
 
 ### Consequences
@@ -136,7 +136,7 @@ Observed
 
 ### Context
 
-仓库有手部模型后端和 adapter，但 `HandAnalysisManager` 实际初始化 `TensorRtBodyPoseBackend`。
+仓库保留旧手部/姿态后端源文件，但实时主流程使用 `AthleteAnalysisManager` 初始化 `TensorRtAthleteBackend`。
 
 ### Evidence
 
@@ -147,7 +147,7 @@ Observed
 
 ### Consequences
 
-好处是主流程聚焦人体 Body17/RTMW3D；代价是类名和文件名可能误导维护者。
+好处是主流程聚焦 YOLO26x person 检测和 PersonViT ReID；旧姿态类名和文件名仍可能误导维护者，但只作为历史兼容代码保留。
 
 ### Uncertainty
 

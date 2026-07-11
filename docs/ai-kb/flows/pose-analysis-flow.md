@@ -1,65 +1,36 @@
-# 姿态分析流程
+# 运动员检测与身份流程
 
 上级入口：[[00-index|AI 知识库索引]]、[[flows/README|流程地图]]
-相关模块：[[modules/video-streaming|视频流]]、[[modules/ai-inference|AI 推理]]、[[modules/pose-analysis|姿态分析]]、[[modules/background-workers|后台线程]]
+相关模块：[[modules/video-streaming|视频流]]、[[modules/ai-inference|AI 推理]]、[[modules/background-workers|后台线程]]
 相邻流程：[[video-streaming-flow|视频播放流程]]、[[training-record-flow|训练记录流程]]
-排查入口：[[runbooks/debugging|调试 Runbook]]、[[references/third-party-services|第三方服务]]、[[05-pitfalls|坑点]]
 
 ## 简介
 
-把采集中参与轨迹的相机活动流转换成 RGB 图像，输入 TensorRT 姿态模型，再把结果按 `cameraId` 回写到 UI、轨迹和评分模块。离线视频仍是主视图单路分析。
-
-## 触发条件
-
-- 主视图或相机小窗开始播放并通知 `setStreamChangedHandler()`。
-- 用户点击开始采集、暂停/恢复、切换摄像头或修改系统设置。
-- `HandAnalysisWorker` 未暂停并检测到新帧。
+采集流由 `AthleteAnalysisManager` 读取最新帧，经过 YOLO26x person 检测和 PersonViT ReID 后，回写检测框、身份标签、trackId 和身份状态。此流程不生成姿态、骨架、轨迹或动作评分。
 
 ## 流程步骤
 
-1. `MainWindow::syncAnalysisStreams()` 收集参与轨迹相机的活动流，按主机位优先、最大路数和目标 FPS 生成分析订阅，并调用 `HandAnalysisManager::setActiveStreams()`。
-2. `HandAnalysisWorker` 启动时加载 `models/body` 下的人体模型。
-3. worker 在多路 `RtspStream::latestFrame()` 之间 round-robin 选择有新帧且达到目标 FPS 间隔的流。
-4. `D3DFrameExtractor::copyToRgb()` 将 D3D 帧转换成 `QImage`。
-5. `TensorRtBodyPoseBackend::infer()` 先运行 YOLOv8n-pose。
-6. 如果 RTMW3D 已就绪，继续补充 3D 关键点。
-7. worker 用 queued callback 发布带 `cameraId` 的 `PoseFrameResult`。
-8. `MainWindow` 先用 `PoseIdentityResolver` 处理结果：算法身份字段优先，人工绑定的 `cameraId + trackId` 次之，未匹配则保持 `identityStatus=unknown`。
-9. `MainWindow` 只用选中机位结果更新主视频覆盖层和骨架视图；所有机位结果都会进入轨迹视图。
-10. `TrajectoryWidget` 根据系统设置中的相机覆盖段，把图像锚点线性映射到场地坐标并绘制全场轨迹。
-11. 动作计数和评分默认针对主运动员；若当前帧已有主运动员绑定实例则优先使用该实例，否则回退到最高置信度实例。
+1. `MainWindow::syncAnalysisStreams()` 按主机位优先和 FPS 策略生成活动流。
+2. `AthleteAnalysisWorker` 在活动流之间 round-robin 选择新帧。
+3. `D3DFrameExtractor` 把 D3D11 帧转换为 RGB `QImage`。
+4. `TensorRtAthleteBackend` 运行 YOLO26x，保留 score 不低于 `0.35` 且 classId 为 0 的检测框。
+5. 对每个检测框 crop 并 resize 到 `128x256`，运行 PersonViT，得到 768 维 L2 embedding。
+6. 在当前 session 最多四名参与者 gallery 中计算余弦相似度；最高分达到 `0.60` 且与第二名差值不小于 `0.05` 时标记 identified。
+7. 使用框 IoU 和 `1200ms` TTL 维护 per-camera trackId；session 或参与者变化时清空旧 track；人工绑定在低置信度和 unknown 结果上覆盖身份。
+8. `MainWindow` 更新主视频检测框和标签，并按约 `200ms` 采样保存兼容字段到 `participant_pose_frames`。
+9. 停止采集后保存视频、参与者、检测框、身份状态、机位、trackId 和置信度；不写入伪造姿态、评分或 repetition。
 
-## 涉及文件
+## 样本库流程
 
-- `handanalysismanager.cpp`
-- `d3dframeextractor.cpp`
-- `tensorrtbodyposebackend.cpp`
-- `tensorrtrtmw3dbackend.cpp`
-- `tensorrtrunner.cpp`
-- `mainwindow.cpp`
-- `posestandardnessscorer.cpp`
-
-## 涉及数据
-
-- `D3DFrame`
-- `QImage`
-- `TensorRtOutput`
-- `PoseFrameResult`
-- `PoseIdentityResolver`
-- `PoseStandardnessResult`
+人员管理页上传样本图片到 FastAPI，服务端保存文件和元数据；桌面端使用 PersonViT 生成 embedding，再调用 embedding 接口保存。查询 gallery 时按模型版本和预处理版本过滤；删除样本会级联删除 embedding 和文件。
 
 ## 错误处理
 
-- 模型初始化失败时，状态栏显示“人体姿态 AI 初始化失败”。
-- 取帧失败时发布“人体姿态 AI 取帧失败”。
-- 推理失败时后端返回空结果并更新状态文本。
-- 超过结果 TTL 无新结果时发布空姿态，清除显示。
+- YOLO26x 缺失或初始化失败：状态栏提示，视频播放不停止。
+- PersonViT 缺失：继续显示 YOLO26x 检测框，身份状态为 unknown。
+- ReID 输出维度不一致：跳过该 embedding，不让视频线程崩溃。
+- 没有新结果超过 TTL：清空实时检测覆盖层。
 
-## 边界情况
+## 历史兼容
 
-- 没有活动分析流时不推理。
-- 多路 RTSP 默认最多 12 路、每路目标 5 FPS；自动降级开启时，单次推理持续超出预算会优先拉长非主机位分析间隔，不丢弃主机位。
-- 当前全场轨迹是按相机覆盖段做线性拼接，不是基于棋盘格/AprilTag/内外参的单应性标定，也不是多相机三维三角化。
-- 当前 `trackId` 是检测实例临时标识，不提供跨帧身份重识别；人工轨迹绑定用于把当前可见实例挂接到 session 参与者。
-- `rtmw3d-x.onnx` 缺失时，2D 人体姿态仍可运行。
-- `HandAnalysisManager` 名称含 Hand，但当前主流程实际是人体姿态分析。
+旧姿态字段、旧动作评分和旧姿态复盘入口保留读取兼容，但新训练不会生成这些结果。

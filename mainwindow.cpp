@@ -1,16 +1,11 @@
 #include "mainwindow.h"
-#include "actionstandardscorer.h"
-#include "handanalysismanager.h"
+#include "athleteanalysismanager.h"
 #include "iconutils.h"
 #include "nvrplayback.h"
 #include "offlinevideoprobe.h"
 #include "personmanagementdialog.h"
-#include "poseidentityresolver.h"
-#include "posestandardnessscorer.h"
-#include "skeletonviewwidget.h"
 #include "trainingreviewdialog.h"
 #include "trainingrepository.h"
-#include "trajectorywidget.h"
 #include "ui_mainwindow.h"
 #include "videostorageplan.h"
 #include "videoopenglwidget.h"
@@ -107,74 +102,15 @@ constexpr int kOperationRailWidth = 110;
 constexpr int kOperationButtonHeight = 72;
 constexpr int kHistoryActionButtonWidth = 92;
 constexpr int kScoreTagWidth = 68;
-constexpr qint64 kPoseTimelineSampleIntervalMs = 200;
 constexpr int kMaxParticipantPoseFrames = 20000;
-constexpr qreal kDefaultFieldWidthM = 12.0;
-constexpr std::array<int, 7> kPoseTimelineKeypointIndices = {0, 5, 6, 11, 12, 15, 16};
+constexpr qint64 kAthleteTimelineSampleIntervalMs = 200;
 constexpr const char *kPreviousWindowStateProperty = "previousWindowStateBeforeFullScreen";
 constexpr const char *kMutedInactiveColor = "#8c8c8c";
 constexpr const char *kHoverActionColor = "#3b8dff";
 
-enum TrajectoryMode {
-    TrajectoryNormal = 0,   // 只占用三维轨迹原本所在区域。
-    TrajectoryExpanded = 1, // 占用自身区域和上方 12 路视频区域。
-    TrajectoryMinimized = 2 // 只保留“三维轨迹”标题栏和右侧符号。
-};
-
 QString cameraSettingsGroup(int cameraIndex)
 {
     return QStringLiteral("cameras/camera%1").arg(cameraIndex + 1, 2, 10, QLatin1Char('0'));
-}
-
-const PoseKeypoint *poseKeypointAt(const PoseInstance &instance, int index)
-{
-    if (index < 0 || index >= instance.keypoints.size()) {
-        return nullptr;
-    }
-    const PoseKeypoint &keypoint = instance.keypoints.at(index);
-    return keypoint.valid ? &keypoint : nullptr;
-}
-
-QPointF poseAnchorPointFor(const PoseInstance &instance)
-{
-    const PoseKeypoint *leftHip = poseKeypointAt(instance, 11);
-    const PoseKeypoint *rightHip = poseKeypointAt(instance, 12);
-    if (leftHip && rightHip) {
-        return (leftHip->imagePoint + rightHip->imagePoint) * 0.5;
-    }
-    return instance.box.isValid() ? instance.box.center() : QPointF();
-}
-
-QJsonObject compactPoseSummary(const PoseFrameResult &frame, const PoseInstance &instance, const QPointF &anchor)
-{
-    QJsonArray keypoints;
-    for (const int index : kPoseTimelineKeypointIndices) {
-        const PoseKeypoint *keypoint = poseKeypointAt(instance, index);
-        if (!keypoint) {
-            continue;
-        }
-        QJsonObject item{
-            {QStringLiteral("index"), index},
-            {QStringLiteral("name"), keypoint->name},
-            {QStringLiteral("x"), keypoint->imagePoint.x()},
-            {QStringLiteral("y"), keypoint->imagePoint.y()},
-            {QStringLiteral("dx"), keypoint->imagePoint.x() - anchor.x()},
-            {QStringLiteral("dy"), keypoint->imagePoint.y() - anchor.y()},
-            {QStringLiteral("confidence"), keypoint->confidence}
-        };
-        if (keypoint->hasPoint3d) {
-            item.insert(QStringLiteral("x3d"), keypoint->point3d.x());
-            item.insert(QStringLiteral("y3d"), keypoint->point3d.y());
-            item.insert(QStringLiteral("z3d"), keypoint->point3d.z());
-        }
-        keypoints.append(item);
-    }
-    return {
-        {QStringLiteral("skeletonType"), poseSkeletonTypeName(frame.skeletonType)},
-        {QStringLiteral("frameWidth"), frame.frameSize.width()},
-        {QStringLiteral("frameHeight"), frame.frameSize.height()},
-        {QStringLiteral("keypoints"), keypoints}
-    };
 }
 
 QString defaultCameraChannelName(int cameraIndex)
@@ -1093,129 +1029,36 @@ MainWindow::MainWindow(QWidget *parent)
     setTopbarModule(ui->modelStatusLabel,
                     QStringLiteral("AI"),
                     QStringLiteral("模型状态 Status"),
-                    QStringLiteral("人体姿态 AI 初始化中"));
+                    QStringLiteral("运动员识别 AI 初始化中"));
     setTopbarModule(ui->storageStatusLabel,
                     QStringLiteral("DB"),
                     QStringLiteral("存储 Storage"),
                     QStringLiteral("1.82T/4.00TB"));
 
-    m_poseStandardnessScorer = std::make_unique<PoseStandardnessScorer>();
-    m_actionStandardScorer = std::make_unique<ActionStandardScorer>();
-    m_actionRepetitionTracker = std::make_unique<ActionRepetitionTracker>();
-    m_poseIdentityResolver = std::make_unique<PoseIdentityResolver>();
     m_trainingRepository = std::make_unique<TrainingRepository>();
-    m_handAnalysisManager = std::make_unique<HandAnalysisManager>(this);
-    m_handAnalysisManager->setResultCallback([this](const PoseFrameResult &rawPoseFrame) {
-        const PoseFrameResult poseFrame = m_poseIdentityResolver ? m_poseIdentityResolver->resolve(rawPoseFrame) : rawPoseFrame;
-        m_lastPoseFrame = poseFrame;
-        const bool selectedFrame = poseFrame.cameraId == m_selectedCamera
-                                   || (m_selectedCamera == 0 && poseFrame.cameraId == 0);
-        if (poseFrame.instances.isEmpty()) {
-            if (selectedFrame || poseFrame.cameraId == 0) {
+    m_athleteAnalysisManager = std::make_unique<AthleteAnalysisManager>(this);
+    m_athleteAnalysisManager->setResultCallback([this](const AthleteFrameResult &athleteFrame) {
+        m_lastAthleteFrame = athleteFrame;
+        const bool selectedFrame = athleteFrame.cameraId == m_selectedCamera
+                                   || (m_selectedCamera == 0 && athleteFrame.cameraId == 0);
+        if (athleteFrame.instances.isEmpty()) {
+            m_lastAthleteFrame = {};
+            if (selectedFrame || athleteFrame.cameraId == 0) {
                 clearRealtimePose();
             }
             return;
         }
-
         if (selectedFrame) {
-            ui->mainImageLabel->setPoseFrame(poseFrame);
-            if (m_skeletonView) {
-                m_skeletonView->setPoseFrame(poseFrame);
-            }
+            ui->mainImageLabel->setAthleteFrame(athleteFrame);
         }
-        if (m_trajectoryWidget) {
-            m_trajectoryWidget->setPoseFrame(poseFrame);
-        }
-        recordParticipantPoseFrames(poseFrame);
-        if (m_poseStandardnessScorer) {
-            const ActionStandard standard = selectedActionStandard();
-            PoseFrameResult scoringFrame = poseFrame;
-            const QString primaryAthleteId = selectedAthleteId();
-            if (!primaryAthleteId.isEmpty()) {
-                for (int instanceIndex = 0; instanceIndex < poseFrame.instances.size(); ++instanceIndex) {
-                    const PoseInstance &instance = poseFrame.instances.at(instanceIndex);
-                    if (instance.athleteId == primaryAthleteId) {
-                        scoringFrame.instances = {instance};
-                        break;
-                    }
-                }
-            }
-            const PoseStandardnessResult baseStandardness = m_poseStandardnessScorer->scoreFrame(scoringFrame);
-            ActionAssessment assessment;
-            if (m_actionStandardScorer && !standard.id.isEmpty()) {
-                assessment = m_actionStandardScorer->score(baseStandardness, standard);
-                m_realtimeScore = assessment.score;
-                m_detectionScore = assessment.detectionScore;
-                m_symmetryScore = assessment.symmetryScore;
-                m_balanceScore = assessment.balanceScore;
-                m_stabilityScore = assessment.stabilityScore;
-                m_depthScore = assessment.depthScore;
-                m_feedbackText = assessment.feedback;
-            } else {
-                assessment.score = baseStandardness.score;
-                assessment.detectionScore = baseStandardness.detectionScore;
-                assessment.symmetryScore = baseStandardness.symmetryScore;
-                assessment.balanceScore = baseStandardness.balanceScore;
-                assessment.stabilityScore = baseStandardness.stabilityScore;
-                assessment.depthScore = baseStandardness.depthScore;
-                assessment.feedback = baseStandardness.feedback;
-                assessment.valid = baseStandardness.valid;
-                m_realtimeScore = baseStandardness.score;
-                m_detectionScore = baseStandardness.detectionScore;
-                m_symmetryScore = baseStandardness.symmetryScore;
-                m_balanceScore = baseStandardness.balanceScore;
-                m_stabilityScore = baseStandardness.stabilityScore;
-                m_depthScore = baseStandardness.depthScore;
-                m_feedbackText = baseStandardness.feedback;
-            }
-            if (m_isRecording && !m_isPaused && m_actionRepetitionTracker) {
-                const qint64 nowMsec = QDateTime::currentMSecsSinceEpoch();
-                for (int instanceIndex = 0; instanceIndex < poseFrame.instances.size(); ++instanceIndex) {
-                    const PoseInstance &instance = poseFrame.instances.at(instanceIndex);
-                    PoseFrameResult participantFrame = poseFrame;
-                    participantFrame.instances = {instance};
-                    const PoseStandardnessResult participantStandardness = m_poseStandardnessScorer->scoreFrame(participantFrame);
-                    ActionAssessment participantAssessment = assessment;
-                    if (m_actionStandardScorer && !standard.id.isEmpty()) {
-                        participantAssessment = m_actionStandardScorer->score(participantStandardness, standard);
-                    } else {
-                        participantAssessment.score = participantStandardness.score;
-                        participantAssessment.detectionScore = participantStandardness.detectionScore;
-                        participantAssessment.symmetryScore = participantStandardness.symmetryScore;
-                        participantAssessment.balanceScore = participantStandardness.balanceScore;
-                        participantAssessment.stabilityScore = participantStandardness.stabilityScore;
-                        participantAssessment.depthScore = participantStandardness.depthScore;
-                        participantAssessment.feedback = participantStandardness.feedback;
-                        participantAssessment.valid = participantStandardness.valid;
-                    }
-                    const QString participantKey = !instance.participantId.trimmed().isEmpty()
-                                                       ? QStringLiteral("p:%1").arg(instance.participantId)
-                                                       : (!instance.athleteId.trimmed().isEmpty()
-                                                              ? QStringLiteral("a:%1").arg(instance.athleteId)
-                                                              : (instance.trackId >= 0
-                                                                     ? QStringLiteral("c:%1:t:%2").arg(poseFrame.cameraId).arg(instance.trackId)
-                                                                     : QStringLiteral("c:%1:i:%2").arg(poseFrame.cameraId).arg(instanceIndex)));
-                    if (!m_participantActionTrackers.contains(participantKey)) {
-                        ActionRepetitionTracker tracker;
-                        tracker.reset(standard);
-                        m_participantActionTrackers.insert(participantKey, tracker);
-                    }
-                    ActionRepetition repetition;
-                    if (m_participantActionTrackers[participantKey].update(participantFrame,
-                                                                           participantAssessment,
-                                                                           nowMsec,
-                                                                           m_recordingStartedAtMsec,
-                                                                           &repetition)) {
-                        recordCompletedRepetition(repetition);
-                    }
-                }
-            }
-            refreshStats();
-        }
+        recordAthleteFrames(athleteFrame);
     });
-    m_handAnalysisManager->setStatusCallback([this](const QString &statusText) {
+    m_athleteAnalysisManager->setStatusCallback([this](const QString &statusText) {
         refreshModelStatus(statusText);
     });
+    ui->poseCard->hide();
+    ui->trajectoryCard->hide();
+    ui->metricsCard->hide();
 
     // 在“隐藏侧栏”按钮旁边动态增加全屏按钮，避免修改 .ui 后生成头文件不同步。
     m_fullScreenButton = new QPushButton(ui->toggleSidebarButton->parentWidget());
@@ -1243,7 +1086,7 @@ MainWindow::MainWindow(QWidget *parent)
                                                              18,
                                                              16));
     m_importVideoButton->setIconSize(QSize(18, 18));
-    m_importVideoButton->setToolTip(QStringLiteral("导入本地视频用于姿态分析和训练复盘"));
+    m_importVideoButton->setToolTip(QStringLiteral("导入本地视频用于运动员检测、身份识别和训练复盘"));
     m_importVideoButton->setStatusTip(m_importVideoButton->toolTip());
     m_importVideoButton->setAccessibleName(QStringLiteral("导入离线视频"));
     configureStableButton(m_importVideoButton, kHistoryActionButtonWidth, 32, QSize(18, 18));
@@ -1282,8 +1125,6 @@ MainWindow::MainWindow(QWidget *parent)
 
     applyStyleSheet();
     installStaticImages();
-    installSkeletonView();
-    installTrajectoryWidget();
     installMetricBars();
     installTrainingContextPanel();
     installHistorySearchPanel();
@@ -1341,21 +1182,6 @@ MainWindow::MainWindow(QWidget *parent)
     connect(saveAction, &QAction::triggered, this, [this]() { saveRecord(); });
     connect(settingsAction, &QAction::triggered, this, [this]() { openSystemSettings(); });
 
-    QWidget *trajectoryView = m_trajectoryWidget
-                                  ? static_cast<QWidget *>(m_trajectoryWidget)
-                                  : static_cast<QWidget *>(ui->trajectoryViewFrame);
-    m_trajectoryViewNormalMinSize = trajectoryView->minimumSize();
-    m_trajectoryViewNormalMaxSize = trajectoryView->maximumSize();
-    m_trajectoryCardNormalMinSize = ui->trajectoryCard->minimumSize();
-    m_trajectoryCardNormalMaxSize = ui->trajectoryCard->maximumSize();
-    m_middleLayoutNormalSpacing = ui->middleLayout->spacing();
-    m_middleLayoutNormalStretch0 = ui->middleLayout->stretch(0);
-    m_middleLayoutNormalStretch1 = ui->middleLayout->stretch(1);
-    m_cameraGridNormalSpacing = ui->cameraGridLayout->spacing();
-    // 卡片标题按内容宽度显示，避免标题背景在纵向布局里被拉满整行。
-    ui->poseLayout->setAlignment(ui->poseTitleLabel, Qt::AlignLeft);
-    ui->metricsLayout->setAlignment(Qt::AlignTop);
-    ui->metricsLayout->setAlignment(ui->metricsTitleLabel, Qt::AlignLeft);
     ui->metricsCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     if (auto *captureLayout = qobject_cast<QVBoxLayout *>(ui->capturePage->layout())) {
         captureLayout->setStretch(0, 1);
@@ -1366,16 +1192,15 @@ MainWindow::MainWindow(QWidget *parent)
 
     setupUiState();
     setupConnections();
-    setTrajectoryMode(TrajectoryNormal);
     refreshStats();
 }
 
 // 释放由 Qt Designer 生成的界面对象。
 MainWindow::~MainWindow()
 {
-    if (m_handAnalysisManager) {
-        m_handAnalysisManager->stop();
-        m_handAnalysisManager.reset();
+    if (m_athleteAnalysisManager) {
+        m_athleteAnalysisManager->stop();
+        m_athleteAnalysisManager.reset();
     }
     saveCameraSettings();
     delete ui;
@@ -1487,12 +1312,6 @@ void MainWindow::setupConnections()
             toggleFullScreen();
         });
     }
-    connect(ui->expandTrajectoryButton, &QPushButton::clicked, this, [this]() {
-        cycleTrajectoryMode();
-    });
-    connect(ui->collapseTrajectoryButton, &QPushButton::clicked, this, [this]() {
-        cycleTrajectoryMode();
-    });
 }
 
 // 将资源文件中的静态示例图片贴到界面对应占位控件上。
@@ -1505,38 +1324,6 @@ void MainWindow::installStaticImages()
     ui->poseImageLabelB->setPlaceholderText(QString());
     ui->poseImageLabelB->setPlaceholderIconVisible(false);
     ui->poseImageLabelB->setOverlayControlsVisible(false);
-}
-
-// 将实时 AI 骨架结果显示到下方“运动员3D骨架”窗口；主视频叠加仍走 D3D surface。
-void MainWindow::installSkeletonView()
-{
-    if (m_skeletonView) {
-        return;
-    }
-
-    ui->poseTitleLabel->setText(QStringLiteral("运动员3D骨架"));
-    ui->poseImageLayout->removeWidget(ui->poseImageLabelA);
-    ui->poseImageLayout->removeWidget(ui->poseImageLabelB);
-    ui->poseImageLabelA->hide();
-    ui->poseImageLabelB->hide();
-
-    m_skeletonView = new SkeletonViewWidget(ui->poseCard);
-    ui->poseImageLayout->insertWidget(0, m_skeletonView, 1);
-}
-
-void MainWindow::installTrajectoryWidget()
-{
-    if (m_trajectoryWidget || !ui->trajectoryCardLayout || !ui->trajectoryViewFrame) {
-        return;
-    }
-
-    ui->trajectoryCardLayout->removeWidget(ui->trajectoryViewFrame);
-    ui->trajectoryViewFrame->hide();
-
-    m_trajectoryWidget = new TrajectoryWidget(ui->trajectoryCard);
-    m_trajectoryWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    ui->trajectoryCardLayout->insertWidget(1, m_trajectoryWidget, 1);
-    updateTrajectoryCameraSegments();
 }
 
 // 在训练统计卡片里装配分项评分条，替代原来的单行文字指标。
@@ -1625,21 +1412,21 @@ void MainWindow::installTrainingContextPanel()
     titleLabel->setProperty("role", "sectionTitle");
     auto *editStandardButton = new QPushButton(QStringLiteral("编辑标准"), m_trainingContextPanel);
     auto *managePersonsButton = new QPushButton(QStringLiteral("人员管理"), m_trainingContextPanel);
+    auto *bindIdentityButton = new QPushButton(QStringLiteral("人工绑定"), m_trainingContextPanel);
     auto *manageCompetitionsButton = new QPushButton(QStringLiteral("比赛管理"), m_trainingContextPanel);
-    m_trackBindingButton = new QPushButton(QStringLiteral("轨迹绑定"), m_trainingContextPanel);
     editStandardButton->setProperty("role", "secondaryButton");
     managePersonsButton->setProperty("role", "secondaryButton");
+    bindIdentityButton->setProperty("role", "secondaryButton");
     manageCompetitionsButton->setProperty("role", "secondaryButton");
-    m_trackBindingButton->setProperty("role", "secondaryButton");
-    m_standardDetailLabel = new QLabel(QStringLiteral("动作标准库初始化中"), m_trainingContextPanel);
+    m_standardDetailLabel = new QLabel(QStringLiteral("当前版本只提供运动员检测与身份识别；动作标准仅用于兼容历史记录"), m_trainingContextPanel);
     m_standardDetailLabel->setProperty("role", "muted");
     m_standardDetailLabel->setWordWrap(true);
     m_standardDetailLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     titleRow->addWidget(titleLabel, 0);
     titleRow->addWidget(m_standardDetailLabel, 1);
     titleRow->addWidget(managePersonsButton, 0);
+    titleRow->addWidget(bindIdentityButton, 0);
     titleRow->addWidget(manageCompetitionsButton, 0);
-    titleRow->addWidget(m_trackBindingButton, 0);
     titleRow->addWidget(editStandardButton, 0);
     panelLayout->addLayout(titleRow);
 
@@ -1693,6 +1480,7 @@ void MainWindow::installTrainingContextPanel()
         grid->addWidget(combo, 6, i * 2 + 1);
         connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
             refreshTrainingContextDetails();
+            reloadAthleteIdentityGallery();
         });
     }
 
@@ -1733,14 +1521,15 @@ void MainWindow::installTrainingContextPanel()
     connect(addAthleteButton, &QPushButton::clicked, this, [this]() { addAthleteFromDialog(); });
     connect(addCoachButton, &QPushButton::clicked, this, [this]() { addCoachFromDialog(); });
     connect(managePersonsButton, &QPushButton::clicked, this, [this]() { openPersonManagement(); });
+    connect(bindIdentityButton, &QPushButton::clicked, this, [this]() { editManualIdentityBindings(); });
     connect(manageCompetitionsButton, &QPushButton::clicked, this, [this]() { openCompetitionManagement(); });
-    connect(m_trackBindingButton, &QPushButton::clicked, this, [this]() { openTrackBindingDialog(); });
     connect(editStandardButton, &QPushButton::clicked, this, [this]() { editActionStandard(); });
     connect(m_actionStandardComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
         refreshTrainingContextDetails();
     });
     connect(m_athleteComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
         refreshTrainingContextDetails();
+        reloadAthleteIdentityGallery();
     });
     connect(m_competitionComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
         reloadTrainingContext();
@@ -2217,8 +2006,8 @@ void MainWindow::applyCapturePreferencesToUi()
         const int fpsIndex = ui->fpsComboBox->findData(fpsValue);
         ui->fpsComboBox->setCurrentIndex(fpsIndex >= 0 ? fpsIndex : ui->fpsComboBox->findData(kDefaultAnalysisTargetFps));
     }
-    if (m_handAnalysisManager) {
-        m_handAnalysisManager->setAnalysisProfile(m_capturePreferenceSettings.modelPrecision);
+    if (m_athleteAnalysisManager) {
+        m_athleteAnalysisManager->setAnalysisProfile(m_capturePreferenceSettings.modelPrecision);
     }
 }
 
@@ -2231,7 +2020,6 @@ void MainWindow::applyCameraSettingsToWidgets(bool restorePlayback)
             m_cameraSlotSettings[i] = defaultCameraSlotSettings(i);
         }
     }
-    updateTrajectoryCameraSegments();
 
     const bool offlineMode = !m_offlineVideoPath.trimmed().isEmpty();
     QVector<bool> previewWasPlaying;
@@ -2280,48 +2068,26 @@ void MainWindow::applyCameraSettingsToWidgets(bool restorePlayback)
     }
 }
 
-void MainWindow::updateTrajectoryCameraSegments()
-{
-    if (!m_trajectoryWidget) {
-        return;
-    }
-
-    QVector<TrajectoryWidget::CameraSegment> segments;
-    segments.reserve(m_cameraSlotSettings.size());
-    for (int i = 0; i < m_cameraSlotSettings.size(); ++i) {
-        const CameraSlotSettings &slot = m_cameraSlotSettings.at(i);
-        TrajectoryWidget::CameraSegment segment;
-        segment.cameraId = i + 1;
-        segment.enabled = slot.trajectoryEnabled && slot.fieldEndM > slot.fieldStartM;
-        segment.role = slot.role;
-        segment.fieldStartM = slot.fieldStartM;
-        segment.fieldEndM = slot.fieldEndM;
-        segment.lateralOffsetM = slot.lateralOffsetM;
-        segments.append(segment);
-    }
-    m_trajectoryWidget->setCameraSegments(segments);
-}
-
 void MainWindow::syncAnalysisStreams()
 {
-    if (!m_handAnalysisManager) {
+    if (!m_athleteAnalysisManager) {
         return;
     }
 
     m_capturePreferenceSettings = capturePreferenceSettingsFromUi();
-    m_handAnalysisManager->setAnalysisProfile(m_capturePreferenceSettings.modelPrecision);
+    m_athleteAnalysisManager->setAnalysisProfile(m_capturePreferenceSettings.modelPrecision);
     if (!m_isRecording || m_isPaused) {
-        m_handAnalysisManager->setPaused(true);
-        m_handAnalysisManager->setActiveStreams(QVector<HandAnalysisManager::AnalysisStream>());
+        m_athleteAnalysisManager->setPaused(true);
+        m_athleteAnalysisManager->setActiveStreams(QVector<AthleteAnalysisManager::AnalysisStream>());
         return;
     }
 
-    QVector<HandAnalysisManager::AnalysisStream> streams;
+    QVector<AthleteAnalysisManager::AnalysisStream> streams;
     const int targetFps = m_capturePreferenceSettings.analysisTargetFps > 0
                               ? m_capturePreferenceSettings.analysisTargetFps
                               : kDefaultAnalysisTargetFps;
     if (!m_offlineVideoPath.trimmed().isEmpty()) {
-        HandAnalysisManager::AnalysisStream stream;
+        AthleteAnalysisManager::AnalysisStream stream;
         stream.cameraId = 0;
         stream.sourceName = m_offlineVideoName.trimmed().isEmpty()
                                 ? offlineVideoDisplayName(m_offlineVideoPath)
@@ -2362,7 +2128,7 @@ void MainWindow::syncAnalysisStreams()
             }
             VideoOpenGLWidget *cameraWidget = m_cameraButtons.at(i);
             const bool primaryCamera = i + 1 == m_selectedCamera;
-            HandAnalysisManager::AnalysisStream stream;
+            AthleteAnalysisManager::AnalysisStream stream;
             stream.cameraId = i + 1;
             stream.sourceName = cameraWidget->channelName();
             stream.targetFps = targetFps;
@@ -2381,7 +2147,7 @@ void MainWindow::syncAnalysisStreams()
     }
 
     if (streams.isEmpty() && ui->mainImageLabel->activeStream()) {
-        HandAnalysisManager::AnalysisStream fallback;
+        AthleteAnalysisManager::AnalysisStream fallback;
         fallback.cameraId = m_selectedCamera;
         fallback.sourceName = m_selectedCamera > 0
                                   ? QStringLiteral("CAM %1").arg(m_selectedCamera, 2, 10, QLatin1Char('0'))
@@ -2393,8 +2159,8 @@ void MainWindow::syncAnalysisStreams()
         streams.append(fallback);
     }
 
-    m_handAnalysisManager->setActiveStreams(streams);
-    m_handAnalysisManager->setPaused(streams.isEmpty());
+    m_athleteAnalysisManager->setActiveStreams(streams);
+    m_athleteAnalysisManager->setPaused(streams.isEmpty());
 }
 
 QString MainWindow::cameraReadinessSummary() const
@@ -3078,7 +2844,129 @@ void MainWindow::reloadTrainingContext()
     }
 
     reloadHistorySearchOptions();
+    reloadAthleteIdentityGallery();
     refreshTrainingContextDetails();
+}
+
+void MainWindow::reloadAthleteIdentityGallery()
+{
+    if (!m_athleteAnalysisManager || !m_trainingRepository || !m_trainingRepository->isOpen()) {
+        return;
+    }
+    const QString modelVersion = QStringLiteral("personvit-msmt17-vit-base-v1");
+    const QString preprocessingVersion = QStringLiteral("rgb-256x128-mean0.5-std0.5-l2-v1");
+    QVector<AthleteGalleryEntry> gallery;
+    for (const TrainingSessionParticipant &participant : currentSessionParticipants()) {
+        const QVector<AthleteIdentityEmbedding> embeddings = m_trainingRepository->identityGallery(participant.athleteId,
+                                                                                                    modelVersion,
+                                                                                                    preprocessingVersion);
+        for (const AthleteIdentityEmbedding &embedding : embeddings) {
+            AthleteGalleryEntry entry;
+            entry.athleteId = embedding.athleteId;
+            entry.participantId = participant.id;
+            entry.label = participant.athleteName;
+            entry.embedding = embedding.embedding;
+            gallery.append(entry);
+        }
+    }
+    m_athleteAnalysisManager->setGallery(gallery);
+    m_manualIdentityBindings.clear();
+    m_athleteAnalysisManager->setManualBindings({});
+    m_athleteAnalysisManager->resetTracking();
+}
+
+void MainWindow::editManualIdentityBindings()
+{
+    if (m_lastAthleteFrame.instances.isEmpty()) {
+        QMessageBox::information(this,
+                                 QStringLiteral("暂无可绑定目标"),
+                                 QStringLiteral("请先开始采集并等待运动员检测结果。"));
+        return;
+    }
+
+    const QVector<TrainingSessionParticipant> participants = currentSessionParticipants();
+    if (participants.isEmpty()) {
+        QMessageBox::information(this,
+                                 QStringLiteral("未选择参与者"),
+                                 QStringLiteral("请先在训练上下文中选择 session 参与运动员。"));
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("人工绑定运动员身份"));
+    dialog.resize(760, 420);
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *tip = new QLabel(QStringLiteral("人工绑定只作用于当前机位的 track，优先用于低置信度或未知身份。"), &dialog);
+    tip->setProperty("role", "muted");
+    tip->setWordWrap(true);
+    layout->addWidget(tip);
+
+    auto *table = new QTableWidget(m_lastAthleteFrame.instances.size(), 4, &dialog);
+    table->setHorizontalHeaderLabels({QStringLiteral("机位"), QStringLiteral("trackId"), QStringLiteral("当前身份"), QStringLiteral("绑定到")});
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->verticalHeader()->setVisible(false);
+    table->horizontalHeader()->setStretchLastSection(true);
+    for (int row = 0; row < m_lastAthleteFrame.instances.size(); ++row) {
+        const AthleteInstance &instance = m_lastAthleteFrame.instances.at(row);
+        table->setItem(row, 0, new QTableWidgetItem(QString::number(m_lastAthleteFrame.cameraId)));
+        table->setItem(row, 1, new QTableWidgetItem(QString::number(instance.trackId)));
+        table->setItem(row, 2, new QTableWidgetItem(instance.label.isEmpty() ? QStringLiteral("未识别") : instance.label));
+        auto *combo = new QComboBox(table);
+        combo->addItem(QStringLiteral("自动 / 取消绑定"), QString());
+        for (const TrainingSessionParticipant &participant : participants) {
+            combo->addItem(participant.athleteName.isEmpty() ? participant.athleteId : participant.athleteName,
+                           participant.athleteId);
+        }
+        for (const AthleteIdentityBinding &binding : std::as_const(m_manualIdentityBindings)) {
+            if (binding.cameraId == m_lastAthleteFrame.cameraId && binding.trackId == instance.trackId) {
+                const int index = combo->findData(binding.athleteId);
+                if (index >= 0) {
+                    combo->setCurrentIndex(index);
+                }
+                break;
+            }
+        }
+        table->setCellWidget(row, 3, combo);
+    }
+    table->resizeColumnsToContents();
+    layout->addWidget(table, 1);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    QVector<AthleteIdentityBinding> bindings;
+    for (int row = 0; row < table->rowCount(); ++row) {
+        auto *combo = qobject_cast<QComboBox *>(table->cellWidget(row, 3));
+        if (!combo || combo->currentData().toString().isEmpty()) {
+            continue;
+        }
+        const QString athleteId = combo->currentData().toString();
+        QString label = combo->currentText();
+        AthleteIdentityBinding binding;
+        binding.cameraId = m_lastAthleteFrame.cameraId;
+        binding.trackId = table->item(row, 1)->text().toInt();
+        binding.athleteId = athleteId;
+        binding.label = label;
+        for (const TrainingSessionParticipant &participant : participants) {
+            if (participant.athleteId == athleteId) {
+                binding.participantId = participant.id;
+                break;
+            }
+        }
+        bindings.append(binding);
+    }
+    m_manualIdentityBindings = bindings;
+    if (m_athleteAnalysisManager) {
+        m_athleteAnalysisManager->setManualBindings(m_manualIdentityBindings);
+    }
+    ui->saveTipLabel->setText(QStringLiteral("人工身份绑定已更新。"));
+    ui->saveTipLabel->show();
 }
 
 void MainWindow::refreshTrainingContextDetails()
@@ -3087,7 +2975,7 @@ void MainWindow::refreshTrainingContextDetails()
     if (!standard.id.isEmpty()) {
         if (m_targetRepsSpinBox && m_targetRepsSpinBox->value() <= 1) {
             m_targetRepsSpinBox->setValue(std::max(1, standard.targetReps));
-        } else if (m_targetRepsSpinBox && !m_isRecording && m_actionCount == 0) {
+        } else if (m_targetRepsSpinBox && !m_isRecording) {
             m_targetRepsSpinBox->setValue(std::max(1, standard.targetReps));
         }
         if (m_targetScoreSpinBox && !m_isRecording) {
@@ -3105,9 +2993,6 @@ void MainWindow::refreshTrainingContextDetails()
                                                .arg(standard.level)
                                                .arg(standard.purpose)
                                                .arg(standard.keyPoints));
-        }
-        if (m_actionRepetitionTracker) {
-            m_actionRepetitionTracker->reset(standard);
         }
     } else if (m_standardDetailLabel) {
         m_standardDetailLabel->setText(QStringLiteral("暂无可用动作标准"));
@@ -3715,113 +3600,6 @@ QVector<TrainingSessionParticipant> MainWindow::currentSessionParticipants() con
     return participants;
 }
 
-void MainWindow::openTrackBindingDialog()
-{
-    const QVector<TrainingSessionParticipant> participants = currentSessionParticipants();
-    if (participants.isEmpty()) {
-        QMessageBox::information(this, QStringLiteral("轨迹绑定"), QStringLiteral("请先选择主运动员。"));
-        return;
-    }
-    if (m_lastPoseFrame.instances.isEmpty()) {
-        QMessageBox::information(this, QStringLiteral("轨迹绑定"), QStringLiteral("当前还没有可绑定的姿态实例。"));
-        return;
-    }
-
-    QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("轨迹绑定"));
-    dialog.resize(760, 360);
-    auto *layout = new QVBoxLayout(&dialog);
-    auto *table = new QTableWidget(&dialog);
-    table->setColumnCount(6);
-    table->setHorizontalHeaderLabels({QStringLiteral("机位"),
-                                      QStringLiteral("轨迹ID"),
-                                      QStringLiteral("置信度"),
-                                      QStringLiteral("当前身份"),
-                                      QStringLiteral("绑定运动员"),
-                                      QStringLiteral("来源")});
-    table->horizontalHeader()->setStretchLastSection(true);
-    table->verticalHeader()->setVisible(false);
-    table->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    layout->addWidget(table);
-
-    auto makeItem = [](const QString &text) {
-        auto *item = new QTableWidgetItem(text);
-        item->setFlags(item->flags() & ~Qt::ItemIsEditable);
-        return item;
-    };
-    const QVector<PoseIdentityBinding> existingBindings = m_poseIdentityResolver ? m_poseIdentityResolver->bindings() : QVector<PoseIdentityBinding>();
-    const int rowCount = std::min(4, static_cast<int>(m_lastPoseFrame.instances.size()));
-    table->setRowCount(rowCount);
-    QVector<QComboBox *> bindingCombos;
-    for (int row = 0; row < rowCount; ++row) {
-        const PoseInstance &instance = m_lastPoseFrame.instances.at(row);
-        table->setItem(row, 0, makeItem(QString::number(m_lastPoseFrame.cameraId)));
-        table->setItem(row, 1, makeItem(QString::number(instance.trackId)));
-        table->setItem(row, 2, makeItem(QString::number(instance.confidence, 'f', 2)));
-        QString currentName = QStringLiteral("未标识");
-        for (const TrainingSessionParticipant &participant : participants) {
-            if (participant.athleteId == instance.athleteId) {
-                currentName = participant.athleteName;
-                break;
-            }
-        }
-        table->setItem(row, 3, makeItem(currentName));
-        auto *combo = new QComboBox(table);
-        combo->addItem(QStringLiteral("未绑定"), QString());
-        for (const TrainingSessionParticipant &participant : participants) {
-            combo->addItem(participant.athleteName.isEmpty() ? participant.athleteId : participant.athleteName,
-                           participant.athleteId);
-        }
-        QString boundAthleteId = instance.athleteId;
-        for (const PoseIdentityBinding &binding : existingBindings) {
-            if (binding.cameraId == m_lastPoseFrame.cameraId && binding.trackId == instance.trackId) {
-                boundAthleteId = binding.athleteId;
-                break;
-            }
-        }
-        const int index = combo->findData(boundAthleteId);
-        combo->setCurrentIndex(index >= 0 ? index : 0);
-        table->setCellWidget(row, 4, combo);
-        table->setItem(row, 5, makeItem(instance.identitySource.isEmpty() ? QStringLiteral("unknown") : instance.identitySource));
-        bindingCombos.append(combo);
-    }
-
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    layout->addWidget(buttons);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    if (dialog.exec() != QDialog::Accepted) {
-        return;
-    }
-
-    QVector<PoseIdentityBinding> bindings;
-    for (int row = 0; row < rowCount; ++row) {
-        const QString athleteId = bindingCombos.at(row)->currentData().toString();
-        if (athleteId.isEmpty()) {
-            continue;
-        }
-        const PoseInstance &instance = m_lastPoseFrame.instances.at(row);
-        PoseIdentityBinding binding;
-        binding.cameraId = m_lastPoseFrame.cameraId;
-        binding.trackId = instance.trackId;
-        binding.athleteId = athleteId;
-        for (const TrainingSessionParticipant &participant : participants) {
-            if (participant.athleteId == athleteId) {
-                binding.participantId = participant.id;
-                binding.label = participant.athleteName;
-                break;
-            }
-        }
-        bindings.append(binding);
-    }
-    if (m_poseIdentityResolver) {
-        m_poseIdentityResolver->setBindings(bindings);
-    }
-    ui->saveTipLabel->setText(QStringLiteral("轨迹绑定已更新。"));
-    ui->saveTipLabel->show();
-}
-
 QString MainWindow::selectedCompetitionId() const
 {
     return m_competitionComboBox ? m_competitionComboBox->currentData().toString() : QString();
@@ -3854,70 +3632,41 @@ void MainWindow::resetCurrentTrainingSession()
     m_validActionCount = 0;
     m_bestActionScore = 0;
     m_actionScoreTotal = 0;
-    m_currentRepetitions.clear();
     m_currentPoseFrames.clear();
-    m_participantActionTrackers.clear();
     m_participantPoseSampleTimes.clear();
-    m_previousKneeBend = 0.0;
-    m_actionArmed = false;
-    m_lastActionMsec = 0;
+    m_manualIdentityBindings.clear();
+    if (m_athleteAnalysisManager) {
+        m_athleteAnalysisManager->setManualBindings({});
+        m_athleteAnalysisManager->resetTracking();
+    }
     m_recordingStartedAtMsec = QDateTime::currentMSecsSinceEpoch();
     m_recordingStartedAt = QDateTime::currentDateTime();
-    if (m_actionRepetitionTracker) {
-        m_actionRepetitionTracker->reset(selectedActionStandard());
-    }
 }
 
-void MainWindow::recordCompletedRepetition(const ActionRepetition &repetition)
+void MainWindow::recordAthleteFrames(const AthleteFrameResult &athleteFrame)
 {
-    m_currentRepetitions.append(repetition);
-    m_actionCount = m_currentRepetitions.size();
-    m_validActionCount = 0;
-    m_bestActionScore = 0;
-    m_actionScoreTotal = 0;
-    for (const ActionRepetition &item : std::as_const(m_currentRepetitions)) {
-        if (item.valid) {
-            ++m_validActionCount;
-        }
-        m_bestActionScore = std::max(m_bestActionScore, item.score);
-        m_actionScoreTotal += item.score;
-    }
-    refreshStats();
-}
-
-void MainWindow::recordParticipantPoseFrames(const PoseFrameResult &poseFrame)
-{
-    if (!m_isRecording || m_isPaused || poseFrame.instances.isEmpty()) {
+    if (!m_isRecording || m_isPaused || athleteFrame.instances.isEmpty()) {
         return;
     }
-
-    const qint64 timestampMs = poseFrame.timestampMs > 0
-                                   ? poseFrame.timestampMs
+    const qint64 timestampMs = athleteFrame.timestampMs > 0
+                                   ? athleteFrame.timestampMs
                                    : std::max<qint64>(0, QDateTime::currentMSecsSinceEpoch() - m_recordingStartedAtMsec);
-    for (int instanceIndex = 0; instanceIndex < poseFrame.instances.size(); ++instanceIndex) {
-        const PoseInstance &instance = poseFrame.instances.at(instanceIndex);
-        if (instance.kind != PoseInstanceKind::Person) {
-            continue;
-        }
-        const QString sampleKey = !instance.participantId.trimmed().isEmpty()
-                                      ? QStringLiteral("p:%1").arg(instance.participantId)
-                                      : (!instance.athleteId.trimmed().isEmpty()
-                                             ? QStringLiteral("a:%1").arg(instance.athleteId)
-                                             : (instance.trackId >= 0
-                                                    ? QStringLiteral("c:%1:t:%2").arg(poseFrame.cameraId).arg(instance.trackId)
-                                                    : QStringLiteral("c:%1:i:%2").arg(poseFrame.cameraId).arg(instanceIndex)));
-        const qint64 previousTimestamp = m_participantPoseSampleTimes.value(sampleKey, -kPoseTimelineSampleIntervalMs);
-        if (timestampMs - previousTimestamp < kPoseTimelineSampleIntervalMs) {
+    for (int index = 0; index < athleteFrame.instances.size(); ++index) {
+        const AthleteInstance &instance = athleteFrame.instances.at(index);
+        const QString sampleKey = instance.trackId >= 0
+                                       ? QStringLiteral("c:%1:t:%2").arg(athleteFrame.cameraId).arg(instance.trackId)
+                                       : QStringLiteral("c:%1:i:%2").arg(athleteFrame.cameraId).arg(index);
+        const qint64 previousTimestamp = m_participantPoseSampleTimes.value(sampleKey, -kAthleteTimelineSampleIntervalMs);
+        if (timestampMs - previousTimestamp < kAthleteTimelineSampleIntervalMs) {
             continue;
         }
         m_participantPoseSampleTimes.insert(sampleKey, timestampMs);
 
-        const QPointF anchor = poseAnchorPointFor(instance);
         ParticipantPoseFrame frame;
         frame.participantId = instance.participantId;
         frame.athleteId = instance.athleteId;
         frame.frameTimeMs = timestampMs;
-        frame.cameraId = poseFrame.cameraId;
+        frame.cameraId = athleteFrame.cameraId;
         frame.trackId = instance.trackId;
         frame.identityStatus = instance.identityStatus.trimmed().isEmpty() ? QStringLiteral("unknown") : instance.identityStatus;
         frame.identityConfidence = instance.identityConfidence;
@@ -3926,26 +3675,17 @@ void MainWindow::recordParticipantPoseFrames(const PoseFrameResult &poseFrame)
         frame.bboxY = instance.box.y();
         frame.bboxWidth = instance.box.width();
         frame.bboxHeight = instance.box.height();
-        frame.anchorX = anchor.x();
-        frame.anchorY = anchor.y();
-        frame.poseConfidence = instance.confidence;
-
-        const int cameraIndex = poseFrame.cameraId - 1;
-        if (cameraIndex >= 0 && cameraIndex < m_cameraSlotSettings.size()) {
-            const CameraSlotSettings &slot = m_cameraSlotSettings.at(cameraIndex);
-            if (slot.trajectoryEnabled
-                && slot.fieldEndM > slot.fieldStartM
-                && poseFrame.frameSize.width() > 1.0
-                && poseFrame.frameSize.height() > 1.0) {
-                const qreal nx = std::clamp(anchor.x() / poseFrame.frameSize.width(), 0.0, 1.0);
-                const qreal ny = std::clamp(anchor.y() / poseFrame.frameSize.height(), 0.0, 1.0);
-                frame.fieldX = slot.fieldStartM + (1.0 - ny) * (slot.fieldEndM - slot.fieldStartM);
-                frame.fieldY = slot.lateralOffsetM + (nx - 0.5) * kDefaultFieldWidthM;
-                frame.hasFieldPoint = true;
-            }
-        }
-
-        frame.poseSummaryJson = QString::fromUtf8(QJsonDocument(compactPoseSummary(poseFrame, instance, anchor)).toJson(QJsonDocument::Compact));
+        frame.anchorX = instance.box.center().x();
+        frame.anchorY = instance.box.center().y();
+        frame.poseConfidence = instance.detectionConfidence;
+        frame.poseSummaryJson = QString::fromUtf8(QJsonDocument(QJsonObject{
+            {QStringLiteral("analysis"), QStringLiteral("athlete-detection-reid")},
+            {QStringLiteral("classId"), instance.classId},
+            {QStringLiteral("detectionConfidence"), instance.detectionConfidence},
+            {QStringLiteral("reidSimilarity"), instance.reidSimilarity},
+            {QStringLiteral("frameWidth"), athleteFrame.frameSize.width()},
+            {QStringLiteral("frameHeight"), athleteFrame.frameSize.height()}
+        }).toJson(QJsonDocument::Compact));
         m_currentPoseFrames.append(frame);
     }
     while (m_currentPoseFrames.size() > kMaxParticipantPoseFrames) {
@@ -4055,16 +3795,16 @@ void MainWindow::showOfflineVideoInMainView(bool autoPlay)
         ui->mainImageLabel->setPlaceholderText(QStringLiteral("离线视频\n文件不存在"));
         ui->saveTipLabel->setText(QStringLiteral("离线视频文件不存在：%1").arg(QDir::toNativeSeparators(m_offlineVideoPath)));
         ui->saveTipLabel->show();
-        if (m_handAnalysisManager) {
-            m_handAnalysisManager->setPaused(true);
-            m_handAnalysisManager->setActiveStreams(QVector<HandAnalysisManager::AnalysisStream>());
+        if (m_athleteAnalysisManager) {
+            m_athleteAnalysisManager->setPaused(true);
+            m_athleteAnalysisManager->setActiveStreams(QVector<AthleteAnalysisManager::AnalysisStream>());
         }
     } else if (!autoPlay) {
         ui->mainImageLabel->stopPlayback();
         ui->mainImageLabel->setPlaceholderText(m_offlineVideoName);
-        if (m_handAnalysisManager) {
-            m_handAnalysisManager->setPaused(true);
-            m_handAnalysisManager->setActiveStreams(QVector<HandAnalysisManager::AnalysisStream>());
+        if (m_athleteAnalysisManager) {
+            m_athleteAnalysisManager->setPaused(true);
+            m_athleteAnalysisManager->setActiveStreams(QVector<AthleteAnalysisManager::AnalysisStream>());
         }
     } else {
         ui->mainImageLabel->setPlaceholderText(m_offlineVideoName);
@@ -4094,16 +3834,16 @@ void MainWindow::showCameraInMainView(int cameraIndex, bool autoPlay)
     if (source.trimmed().isEmpty()) {
         ui->mainImageLabel->stopPlayback();
         ui->mainImageLabel->setPlaceholderText(QStringLiteral("主视频\n未配置"));
-        if (m_handAnalysisManager) {
-            m_handAnalysisManager->setPaused(true);
-            m_handAnalysisManager->setActiveStreams(QVector<HandAnalysisManager::AnalysisStream>());
+        if (m_athleteAnalysisManager) {
+            m_athleteAnalysisManager->setPaused(true);
+            m_athleteAnalysisManager->setActiveStreams(QVector<AthleteAnalysisManager::AnalysisStream>());
         }
     } else if (!autoPlay) {
         ui->mainImageLabel->stopPlayback();
         ui->mainImageLabel->setPlaceholderText(cameraWidget->channelName());
-        if (m_handAnalysisManager) {
-            m_handAnalysisManager->setPaused(true);
-            m_handAnalysisManager->setActiveStreams(QVector<HandAnalysisManager::AnalysisStream>());
+        if (m_athleteAnalysisManager) {
+            m_athleteAnalysisManager->setPaused(true);
+            m_athleteAnalysisManager->setActiveStreams(QVector<AthleteAnalysisManager::AnalysisStream>());
         }
     } else {
         ui->mainImageLabel->setPlaceholderText(cameraWidget->channelName());
@@ -4204,112 +3944,6 @@ void MainWindow::selectCamera(int cameraId)
     showCameraInMainView(cameraId - 1);
 }
 
-// 兼容旧的二态调用：true 表示扩展到上方 12 路视频区域，false 表示恢复正常区域。
-void MainWindow::setTrajectoryExpanded(bool expanded)
-{
-    setTrajectoryMode(expanded ? TrajectoryExpanded : TrajectoryNormal);
-}
-
-// 按“正常区域 -> 扩展区域 -> 最小化 -> 正常区域”的顺序循环切换三维轨迹显示状态。
-void MainWindow::cycleTrajectoryMode()
-{
-    const int currentMode = m_trajectoryMode < 0 ? TrajectoryNormal : m_trajectoryMode;
-    setTrajectoryMode((currentMode + 1) % 3);
-}
-
-// 设置三维轨迹的显示模式：正常状态严格恢复启动时布局参数，扩展/最小化只做临时调整。
-void MainWindow::setTrajectoryMode(int mode)
-{
-    mode = ((mode % 3) + 3) % 3;
-    if (m_trajectoryMode == mode) {
-        refreshTrajectoryModeButton();
-        return;
-    }
-
-    m_trajectoryMode = mode;
-    QWidget *trajectoryView = m_trajectoryWidget
-                                  ? static_cast<QWidget *>(m_trajectoryWidget)
-                                  : static_cast<QWidget *>(ui->trajectoryViewFrame);
-
-    const bool expanded = (mode == TrajectoryExpanded);
-    const bool minimized = (mode == TrajectoryMinimized);
-
-    ui->middleLayout->setSpacing(expanded ? 0 : m_middleLayoutNormalSpacing);
-    ui->middleLayout->setStretch(0, expanded ? 0 : m_middleLayoutNormalStretch0);
-    ui->middleLayout->setStretch(1, expanded ? 1 : m_middleLayoutNormalStretch1);
-    ui->cameraGridLayout->setSpacing(expanded ? 0 : m_cameraGridNormalSpacing);
-    for (auto *cameraWidget : m_cameraButtons) {
-        cameraWidget->setVisible(!expanded);
-        cameraWidget->updateGeometry();
-    }
-    trajectoryView->setVisible(!minimized);
-    ui->legendFrame->setVisible(expanded && !minimized);
-    ui->expandTrajectoryButton->setVisible(true);
-    ui->collapseTrajectoryButton->setVisible(false);
-
-    if (expanded) {
-        ui->trajectoryCard->setMinimumSize(m_trajectoryCardNormalMinSize);
-        ui->trajectoryCard->setMaximumSize(m_trajectoryCardNormalMaxSize);
-        ui->trajectoryCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-        trajectoryView->setMinimumSize(m_trajectoryViewNormalMinSize);
-        trajectoryView->setMaximumSize(m_trajectoryViewNormalMaxSize);
-        trajectoryView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    } else if (minimized) {
-        const int minimizedHeight = std::max(42, ui->trajectoryTitleLabel->sizeHint().height() + 30);
-        ui->trajectoryCard->setMinimumSize(QSize(m_trajectoryCardNormalMinSize.width(), minimizedHeight));
-        ui->trajectoryCard->setMaximumSize(QSize(QWIDGETSIZE_MAX, minimizedHeight));
-        ui->trajectoryCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        trajectoryView->setMinimumSize(QSize(0, 0));
-        trajectoryView->setMaximumSize(QSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX));
-        trajectoryView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    } else {
-        ui->trajectoryCard->setMinimumSize(m_trajectoryCardNormalMinSize);
-        ui->trajectoryCard->setMaximumSize(m_trajectoryCardNormalMaxSize);
-        ui->trajectoryCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-        trajectoryView->setMinimumSize(m_trajectoryViewNormalMinSize);
-        trajectoryView->setMaximumSize(m_trajectoryViewNormalMaxSize);
-        trajectoryView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    }
-
-    refreshTrajectoryModeButton();
-    ui->trajectoryCard->updateGeometry();
-    trajectoryView->updateGeometry();
-    ui->middleLayout->invalidate();
-    if (ui->capturePage->layout()) {
-        ui->capturePage->layout()->invalidate();
-        ui->capturePage->layout()->activate();
-    }
-}
-
-// 刷新三维轨迹右侧三角形符号和提示，符号表示下一次点击将进入的状态。
-void MainWindow::refreshTrajectoryModeButton()
-{
-    QString text;
-    QString tip;
-    switch (m_trajectoryMode) {
-    case TrajectoryExpanded:
-        text = QStringLiteral("▼");
-        tip = QStringLiteral("最小化三维轨迹，只保留标题栏");
-        break;
-    case TrajectoryMinimized:
-        text = QStringLiteral("▲");
-        tip = QStringLiteral("恢复三维轨迹到当前区域");
-        break;
-    case TrajectoryNormal:
-    default:
-        text = QStringLiteral("▲");
-        tip = QStringLiteral("展开三维轨迹，占用上方12路视频区域");
-        break;
-    }
-
-    ui->expandTrajectoryButton->setText(text);
-    ui->expandTrajectoryButton->setToolTip(tip);
-    ui->expandTrajectoryButton->setStatusTip(tip);
-    ui->collapseTrajectoryButton->setText(text);
-    ui->collapseTrajectoryButton->setToolTip(tip);
-    ui->collapseTrajectoryButton->setStatusTip(tip);
-}
-
 // 开始采集：主视图接入第一路视频流，12 路预览分别接入各自配置的真实视频流。
 void MainWindow::startCapture()
 {
@@ -4343,13 +3977,13 @@ void MainWindow::startCapture()
             return;
         }
     } else {
-        const bool hasTrajectoryCamera = std::any_of(m_cameraSlotSettings.cbegin(),
-                                                     m_cameraSlotSettings.cend(),
-                                                     [](const CameraSlotSettings &slot) {
-                                                         return slot.trajectoryEnabled && !slot.ip.trimmed().isEmpty();
-                                                     });
-        if (!hasTrajectoryCamera) {
-            ui->saveTipLabel->setText(QStringLiteral("请先在系统设置中至少配置一路参与轨迹的相机 IP。"));
+        const bool hasCamera = std::any_of(m_cameraSlotSettings.cbegin(),
+                                           m_cameraSlotSettings.cend(),
+                                           [](const CameraSlotSettings &slot) {
+                                               return !slot.ip.trimmed().isEmpty();
+                                           });
+        if (!hasCamera) {
+            ui->saveTipLabel->setText(QStringLiteral("请先在系统设置中至少配置一路相机 IP。"));
             ui->saveTipLabel->show();
             return;
         }
@@ -4362,8 +3996,8 @@ void MainWindow::startCapture()
     if (!m_timer.isActive()) {
         m_timer.start();
     }
-    if (m_handAnalysisManager) {
-        m_handAnalysisManager->setPaused(false);
+    if (m_athleteAnalysisManager) {
+        m_athleteAnalysisManager->setPaused(false);
     }
     if (useOfflineVideo) {
         qDebug() << "[MainWindow] offline video stream" << QDir::toNativeSeparators(m_offlineVideoPath);
@@ -4397,9 +4031,9 @@ void MainWindow::pauseCapture()
     qDebug() << "[MainWindow] pauseCapture clicked";
     m_isPaused = true;
     m_timer.stop();
-    if (m_handAnalysisManager) {
-        m_handAnalysisManager->setPaused(true);
-        m_handAnalysisManager->setActiveStreams(QVector<HandAnalysisManager::AnalysisStream>());
+    if (m_athleteAnalysisManager) {
+        m_athleteAnalysisManager->setPaused(true);
+        m_athleteAnalysisManager->setActiveStreams(QVector<AthleteAnalysisManager::AnalysisStream>());
     }
     clearRealtimePose();
     ui->mainImageLabel->pausePlayback();
@@ -4415,12 +4049,9 @@ void MainWindow::stopCapture()
     m_isRecording = false;
     m_isPaused = false;
     m_timer.stop();
-    m_previousKneeBend = 0.0;
-    m_actionArmed = false;
-    m_lastActionMsec = 0;
-    if (m_handAnalysisManager) {
-        m_handAnalysisManager->setPaused(true);
-        m_handAnalysisManager->setActiveStreams(QVector<HandAnalysisManager::AnalysisStream>());
+    if (m_athleteAnalysisManager) {
+        m_athleteAnalysisManager->setPaused(true);
+        m_athleteAnalysisManager->setActiveStreams(QVector<AthleteAnalysisManager::AnalysisStream>());
     }
     clearRealtimePose();
     ui->mainImageLabel->stopPlayback();
@@ -4836,8 +4467,6 @@ void MainWindow::saveRecord()
         return;
     }
 
-    QString planId;
-    QString taskId;
     QString errorMessage;
     const int targetReps = m_targetRepsSpinBox ? m_targetRepsSpinBox->value() : standard.targetReps;
     const int targetScore = m_targetScoreSpinBox ? m_targetScoreSpinBox->value() : standard.targetScore;
@@ -4854,24 +4483,6 @@ void MainWindow::saveRecord()
         }
     }
 
-    if (!m_trainingRepository->ensureDailyTask(athleteId,
-                                               coachId,
-                                               standard.id,
-                                               standard.version,
-                                               targetReps,
-                                               targetScore,
-                                               setCount,
-                                               restSeconds,
-                                               site,
-                                               trainingPhase,
-                                               goal,
-                                               &planId,
-                                               &taskId,
-                                               &errorMessage)) {
-        QMessageBox::warning(this, QStringLiteral("保存失败"), errorMessage);
-        return;
-    }
-
     TrainingSession session;
     session.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     session.athleteId = athleteId;
@@ -4879,19 +4490,15 @@ void MainWindow::saveRecord()
     session.competitionId = competitionId;
     session.competitionEventId = competitionEventId;
     session.eventAthleteId = eventAthleteId;
-    session.planId = planId;
-    session.taskId = taskId;
     session.actionStandardId = standard.id;
     session.standardVersion = standard.version;
     session.startedAt = m_recordingStartedAt.isValid() ? m_recordingStartedAt : QDateTime::currentDateTime().addSecs(-m_durationSec);
     session.savedAt = QDateTime::currentDateTime();
     session.durationSec = m_durationSec;
-    session.totalReps = m_actionCount;
-    session.validReps = m_validActionCount;
-    session.averageScore = m_actionCount > 0
-                               ? std::clamp((m_actionScoreTotal + m_actionCount / 2) / std::max(1, m_actionCount), 0, 100)
-                               : m_realtimeScore;
-    session.bestScore = m_bestActionScore > 0 ? m_bestActionScore : m_realtimeScore;
+    session.totalReps = 0;
+    session.validReps = 0;
+    session.averageScore = 0;
+    session.bestScore = 0;
     const bool offlineSession = !m_offlineVideoPath.trimmed().isEmpty() && m_selectedCamera == 0;
     session.camera = offlineSession ? 0 : m_selectedCamera;
     session.modelPrecision = ui->precisionComboBox
@@ -4906,11 +4513,11 @@ void MainWindow::saveRecord()
     if (session.fps <= 0) {
         session.fps = kDefaultAnalysisTargetFps;
     }
-    session.detectionScore = m_detectionScore;
-    session.symmetryScore = m_symmetryScore;
-    session.balanceScore = m_balanceScore;
-    session.stabilityScore = m_stabilityScore;
-    session.depthScore = m_depthScore;
+    session.detectionScore = 0;
+    session.symmetryScore = 0;
+    session.balanceScore = 0;
+    session.stabilityScore = 0;
+    session.depthScore = 0;
     session.site = site;
     session.trainingPhase = trainingPhase;
     session.goal = goal;
@@ -4963,31 +4570,14 @@ void MainWindow::saveRecord()
                                 : session.analysisTaskId;
     } else {
         session.sourceType = QStringLiteral("training");
-        session.sourceRef = !taskId.isEmpty() ? taskId : planId;
+        session.sourceRef.clear();
     }
-    session.feedback = m_feedbackText.trimmed().isEmpty() ? QStringLiteral("等待姿态") : m_feedbackText.trimmed();
+    session.feedback = QStringLiteral("运动员检测与身份识别");
     session.notes = trainingNotes;
     session.participants = currentSessionParticipants();
 
-    QVector<ActionRepetition> repetitions = m_currentRepetitions;
-    for (ActionRepetition &repetition : repetitions) {
-        repetition.sessionId = session.id;
-        repetition.actionStandardId = standard.id;
-        repetition.standardVersion = standard.version;
-        repetition.videoFileId = session.videoFiles.isEmpty() ? QString() : session.videoFiles.first().id;
-        repetition.videoIndex = session.videoFiles.isEmpty() ? 1 : session.videoFiles.first().videoIndex;
-        repetition.videoClipStartMs = std::max(0, repetition.startedMs - 1500);
-        repetition.videoClipEndMs = std::max(repetition.endedMs + 1500, repetition.videoClipStartMs);
-        if (repetition.identityStatus.trimmed().isEmpty()) {
-            repetition.identityStatus = QStringLiteral("unknown");
-        }
-    }
+    const QVector<ActionRepetition> repetitions;
     session.participantRepetitions.clear();
-    for (const ActionRepetition &repetition : std::as_const(repetitions)) {
-        ParticipantRepetition participantRepetition;
-        static_cast<ActionRepetition &>(participantRepetition) = repetition;
-        session.participantRepetitions.append(participantRepetition);
-    }
     session.participantPoseFrames = m_currentPoseFrames;
     for (ParticipantPoseFrame &frame : session.participantPoseFrames) {
         frame.sessionId = session.id;
@@ -5021,58 +4611,6 @@ void MainWindow::tick()
     refreshStats();
 }
 
-void MainWindow::updateActionCounter(const PoseFrameResult &poseFrame)
-{
-    if (!m_isRecording || m_isPaused || poseFrame.instances.isEmpty()) {
-        return;
-    }
-
-    const PoseInstance *person = nullptr;
-    for (const PoseInstance &instance : poseFrame.instances) {
-        if (!person || instance.confidence > person->confidence) {
-            person = &instance;
-        }
-    }
-    if (!person || person->keypoints.size() <= 16) {
-        return;
-    }
-
-    auto keypoint = [person](int index) -> const PoseKeypoint * {
-        if (index < 0 || index >= person->keypoints.size()) {
-            return nullptr;
-        }
-        const PoseKeypoint &kp = person->keypoints.at(index);
-        return kp.valid ? &kp : nullptr;
-    };
-
-    const PoseKeypoint *leftHip = keypoint(11);
-    const PoseKeypoint *rightHip = keypoint(12);
-    const PoseKeypoint *leftKnee = keypoint(13);
-    const PoseKeypoint *rightKnee = keypoint(14);
-    if (!leftHip || !rightHip || !leftKnee || !rightKnee) {
-        return;
-    }
-
-    const qreal hipY = (leftHip->imagePoint.y() + rightHip->imagePoint.y()) * 0.5;
-    const qreal kneeY = (leftKnee->imagePoint.y() + rightKnee->imagePoint.y()) * 0.5;
-    const qreal bodyScale = std::max<qreal>(1.0, person->box.height());
-    const qreal kneeBend = (kneeY - hipY) / bodyScale;
-
-    if (kneeBend > 0.28) {
-        m_actionArmed = true;
-    }
-    if (m_actionArmed && kneeBend < 0.18) {
-        const qint64 now = QDateTime::currentMSecsSinceEpoch();
-        if (now - m_lastActionMsec > 900) {
-            ++m_actionCount;
-            m_lastActionMsec = now;
-            refreshStats();
-        }
-        m_actionArmed = false;
-    }
-    m_previousKneeBend = kneeBend;
-}
-
 // 根据当前页面刷新左侧导航按钮的选中/普通状态。
 void MainWindow::refreshNavButtons()
 {
@@ -5094,7 +4632,7 @@ void MainWindow::refreshCameraButtons()
     }
 }
 
-// 刷新动作计数、训练时长、实时得分等统计卡片。
+// 刷新检测数量和训练时长等统计卡片。
 void MainWindow::refreshStats()
 {
     const QVector<int> metricScores = {
@@ -5110,20 +4648,10 @@ void MainWindow::refreshStats()
                                       ? QStringLiteral("%1/%2").arg(m_validActionCount).arg(targetReps)
                                       : QString::number(m_actionCount));
     ui->durationValueLabel->setText(formatTime(m_durationSec));
-    ui->scoreValueLabel->setText(QStringLiteral("%1/100 · %2").arg(m_realtimeScore).arg(m_feedbackText));
-    ui->scoreProgressBar->setValue(std::clamp(m_realtimeScore, 0, 100));
+    ui->scoreValueLabel->setText(QStringLiteral("运动员检测与身份识别"));
+    ui->scoreProgressBar->setValue(0);
     if (m_trainingTargetLabel) {
-        const int targetScore = m_targetScoreSpinBox ? m_targetScoreSpinBox->value() : 0;
-        const int averageActionScore = m_actionCount > 0
-                                           ? (m_actionScoreTotal + m_actionCount / 2) / std::max(1, m_actionCount)
-                                           : 0;
-        m_trainingTargetLabel->setText(QStringLiteral("目标完成度：有效 %1/%2 · 总动作 %3 · 均分 %4/%5 · 最好 %6")
-                                           .arg(m_validActionCount)
-                                           .arg(targetReps)
-                                           .arg(m_actionCount)
-                                           .arg(averageActionScore)
-                                           .arg(targetScore)
-                                           .arg(m_bestActionScore));
+        m_trainingTargetLabel->setText(QStringLiteral("训练记录仅保存检测框、身份状态、trackId 和置信度"));
     }
 
     const int metricCount = std::min({metricScores.size(), m_metricBars.size(), m_metricValueLabels.size()});
@@ -5344,7 +4872,7 @@ void MainWindow::refreshHistory()
         cardLayout->addWidget(sourceTypeLabel);
 
         if (repetitions.isEmpty()) {
-            auto *emptyReviewLabel = new QLabel(QStringLiteral("本次尚未保存动作实例。复盘会先展示 session 摘要，后续采集到动作计数后会自动列出动作明细、最好/最差动作和错误时间轴。"),
+            auto *emptyReviewLabel = new QLabel(QStringLiteral("本次未生成新的动作实例。当前版本只保存运动员检测与身份识别结果，旧记录仍可在此复盘。"),
                                                 card);
             emptyReviewLabel->setProperty("role", "muted");
             emptyReviewLabel->setWordWrap(true);
@@ -5652,9 +5180,9 @@ void MainWindow::openSessionVideo(const SessionHistoryItem &record,
             if (ui->focusTitleLabel) {
                 ui->focusTitleLabel->setText(QStringLiteral("当前来源：%1").arg(sourceTitle));
             }
-            if (m_handAnalysisManager) {
-                m_handAnalysisManager->setPaused(true);
-                m_handAnalysisManager->setActiveStreams(QVector<HandAnalysisManager::AnalysisStream>());
+            if (m_athleteAnalysisManager) {
+                m_athleteAnalysisManager->setPaused(true);
+                m_athleteAnalysisManager->setActiveStreams(QVector<AthleteAnalysisManager::AnalysisStream>());
             }
             switchPage(kCapturePage);
 
@@ -5671,9 +5199,9 @@ void MainWindow::openSessionVideo(const SessionHistoryItem &record,
         ui->mainImageLabel->playMainUrlWithFallback(source, record.videoFallbackSource);
     }
 
-    if (m_handAnalysisManager) {
-        m_handAnalysisManager->setPaused(true);
-        m_handAnalysisManager->setActiveStreams(QVector<HandAnalysisManager::AnalysisStream>());
+    if (m_athleteAnalysisManager) {
+        m_athleteAnalysisManager->setPaused(true);
+        m_athleteAnalysisManager->setActiveStreams(QVector<AthleteAnalysisManager::AnalysisStream>());
     }
     if (ui->focusTitleLabel) {
         ui->focusTitleLabel->setText(QStringLiteral("当前来源：%1").arg(sourceTitle));
@@ -6737,21 +6265,8 @@ void MainWindow::refreshModelStatus(const QString &statusText)
 
 void MainWindow::clearRealtimePose()
 {
-    ui->mainImageLabel->setPoseFrame({});
-    if (m_skeletonView) {
-        m_skeletonView->clearPoseFrame();
-    }
-    if (m_trajectoryWidget) {
-        m_trajectoryWidget->clearPoseFrame();
-    }
-    m_realtimeScore = 0;
-    m_detectionScore = 0;
-    m_symmetryScore = 0;
-    m_balanceScore = 0;
-    m_stabilityScore = 0;
-    m_depthScore = 0;
-    m_feedbackText = QStringLiteral("等待姿态");
-    refreshStats();
+    ui->mainImageLabel->setAthleteFrame({});
+    m_lastAthleteFrame = {};
 }
 
 // 重新应用指定控件的 QSS，用于动态属性变化后立即刷新外观。

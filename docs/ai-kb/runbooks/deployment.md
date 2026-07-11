@@ -24,7 +24,7 @@ nmake release
 
 - 复制 FFmpeg DLL 到 `DESTDIR`
 - 复制 TensorRT/CUDA DLL 到 `DESTDIR`
-- 复制 `models/` 到 `DESTDIR/models`
+- 复制 `models/athlete` 的模型清单和校验文件到 `DESTDIR/models/athlete`；若源码模型目录存在 ONNX 二进制，也一并复制
 - Release 下调用 `windeployqt.exe --release --no-translations`
 - 训练业务数据不再随桌面端本地创建，需要先部署 FastAPI 服务和 PostgreSQL。
 
@@ -42,7 +42,9 @@ nmake release
 - FFmpeg DLL：`avcodec-62.dll`, `avformat-62.dll`, `avutil-60.dll`, `swresample-6.dll`, `swscale-9.dll`
 - TensorRT DLL：`nvinfer_10.dll`, `nvinfer_plugin_10.dll`, `nvinfer_vc_plugin_10.dll`, `nvinfer_dispatch_10.dll`, `nvinfer_lean_10.dll`, `nvonnxparser_10.dll`, `nvinfer_builder_resource_10.dll`
 - CUDA DLL：`cudart64_110.dll`, `cublas64_11.dll`, `cublasLt64_11.dll`, `cufft64_10.dll`, `cufftw64_10.dll`, `curand64_10.dll`, `cusolver64_11.dll`, `cusolverMg64_11.dll`, `cusparse64_11.dll`, `nvrtc64_112_0.dll`, `nvrtc-builtins64_118.dll`
-- `models/`：至少包括 `models/body` 与 `models/hand`；`models/body/rtmw3d-x.onnx` 如果未随源码仓库提供，需要在发布前补齐或明确 3D 姿态不可用
+- `models/athlete/athlete_models.json`
+- `models/athlete/athlete_models.sha256`
+- `models/athlete/yolo26x.onnx` 与 `models/athlete/personvit_msmt17_vit_base.onnx`，需按清单校验后放入发布目录
 - `vc_redist.x64.exe` 或目标机已安装匹配的 Microsoft Visual C++ Redistributable
 
 以下内容不应作为正式发布包的必要内容：
@@ -68,7 +70,7 @@ TODO: 未找到 `.github/workflows/`、其他 CI 配置、安装器脚本或发�
 - 确认 `platforms/qwindows.dll` 等 Qt 插件已部署。
 - 确认 FFmpeg DLL 存在，例如 `avcodec-62.dll`, `avformat-62.dll`。
 - 确认 TensorRT/CUDA DLL 存在，例如 `nvinfer_10.dll`, `cudart64_110.dll`。
-- 确认 `models/body` 和 `models/hand` 已复制。
+- 确认 `models/athlete` 两个 ONNX 文件存在且通过 `python tools/check_athlete_models.py`。
 - 确认未把构建中间目录、临时日志或未验证可跨机复用的 TensorRT engine 当作必要交付物。
 - 确认目标机器 GPU/驱动支持 TensorRT/CUDA/D3D11VA。
 - 确认 VC Redistributable 需求。
@@ -77,5 +79,5 @@ TODO: 未找到 `.github/workflows/`、其他 CI 配置、安装器脚本或发�
 
 - TODO: 是否需要安装器。
 - TODO: 是否需要预构建 TensorRT engine。
-- TODO: 是否需要将 `rtmw3d-x.onnx` 放入发布包。
+- TODO: 是否需要预构建与目标 GPU 绑定的 TensorRT engine。
 - TODO: 目标机器最低硬件和驱动版本。

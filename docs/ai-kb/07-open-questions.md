@@ -55,7 +55,7 @@
 当前观察：
 
 - `TensorRtHandPoseBackend`、`handposeadapter.cpp` 和 `models/hand/` 存在。
-- 当前 `HandAnalysisManager` 实际初始化的是 `TensorRtBodyPoseBackend`。
+- 当前实时主流程使用 `AthleteAnalysisManager` 和 `TensorRtAthleteBackend`；旧姿态后端仅作为历史兼容代码保留。
 
 为什么不确定：
 
@@ -65,20 +65,20 @@
 
 - 如果手部识别是后续目标，应补充流程文档并说明与人体姿态结果如何合并。
 
-## RTMW3D 模型和 engine 的版本管理策略
+## 模型和 engine 的版本管理策略
 
 当前观察：
 
-- `models/body/rtmw3d-x.onnx` 很大且被 `.gitignore` 忽略。
-- `body_model.json` 仍引用该模型和 Hugging Face 下载地址。
+- `models/athlete` 的两个 ONNX 被 `.gitignore` 忽略，发布前需下载并通过 SHA256 校验。
+- `athlete_models.json` 记录模型来源、版本、输入输出 shape 和运行时要求。
 
 为什么不确定：
 
-- 无法确认发布包是否必须携带该模型，或允许运行时缺失。
+- 二进制模型被 Git 忽略，发布机需要额外下载并校验；缺少模型时视频仍应可播放。
 
 建议后续确认：
 
-- 明确模型分发方式、校验方式和缺失时的用户提示。
+- 已通过 `tools/download_athlete_models.ps1` 和 `tools/check_athlete_models.py` 固化下载/校验流程。
 
 ## 部署/发布流程是否有外部脚本
 

@@ -1,6 +1,7 @@
 #ifndef VIDEOOPENGLWIDGET_H
 #define VIDEOOPENGLWIDGET_H
 
+#include "athleteanalysisresult.h"
 #include "poseresult.h"
 
 #include <QSvgRenderer>
@@ -12,6 +13,7 @@
 
 class QEnterEvent;
 class QEvent;
+class QLabel;
 class QMouseEvent;
 class QPaintEvent;
 class QToolButton;
@@ -61,6 +63,7 @@ public:
     void playMainUrl();
     void playMainUrlWithFallback(const QString &mainUrl, const QString &fallbackUrl);
     std::shared_ptr<RtspStream> activeStream() const;
+    void setAthleteFrame(const AthleteFrameResult &frame);
     void setPoseFrame(const PoseFrameResult &frame);
     void setDoubleClickHandler(std::function<void(VideoOpenGLWidget *)> handler);
     void setConfigChangedHandler(std::function<void(VideoOpenGLWidget *)> handler);
@@ -80,6 +83,7 @@ private:
     void attachStream(const QString &source, const QString &fallbackSource = QString(), qint64 startPositionMs = 0);
     void notifyStreamChanged();
     void refreshVideoFrame();
+    void refreshAthleteLabels();
 
     bool m_playing = false;
     bool m_placeholderIconVisible = true;
@@ -105,6 +109,8 @@ private:
     QToolButton *m_pauseButton = nullptr;
     QToolButton *m_stopButton = nullptr;
     QToolButton *m_configButton = nullptr;
+    QVector<QLabel *> m_athleteLabels;
+    AthleteFrameResult m_athleteFrame;
     std::function<void(VideoOpenGLWidget *)> m_doubleClickHandler;
     std::function<void(VideoOpenGLWidget *)> m_configChangedHandler;
     std::function<void(VideoOpenGLWidget *)> m_streamChangedHandler;

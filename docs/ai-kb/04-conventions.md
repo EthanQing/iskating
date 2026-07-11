@@ -40,7 +40,7 @@
 
 ## 错误处理方式
 
-- 可恢复错误通常设置状态文本并返回空结果，例如 `TensorRtBodyPoseBackend::infer()`。
+- 可恢复错误通常设置状态文本并返回空结果，例如 `TensorRtAthleteBackend::infer()`。
 - 致命视频错误通过 `RtspStream::setFatalError()` 停止重试。
 - 用户输入错误使用 `QMessageBox::warning()`。
 - 低层错误通过 `QString *error` 向上返回。
