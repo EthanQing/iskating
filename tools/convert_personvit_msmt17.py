@@ -97,6 +97,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Export the TransReID MSMT17 ViT-Base embedding model.")
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--dynamic-batch", action="store_true")
     args = parser.parse_args()
 
     model = PersonVitEmbedding().eval()
@@ -112,6 +113,7 @@ def main() -> None:
         opset_version=17,
         do_constant_folding=True,
         dynamo=False,
+        dynamic_axes={"images": {0: "batch"}, "embedding": {0: "batch"}} if args.dynamic_batch else None,
     )
     print(f"Exported {args.output}")
 

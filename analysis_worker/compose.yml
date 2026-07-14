@@ -1,0 +1,27 @@
+services:
+  fullrate-worker:
+    build:
+      context: ..
+      dockerfile: analysis_worker/Dockerfile
+    runtime: nvidia
+    restart: unless-stopped
+    environment:
+      ISKATING_API_BASE_URL: ${ISKATING_API_BASE_URL:?required}
+      ISKATING_ANALYSIS_WORKER_TOKEN: ${ISKATING_ANALYSIS_WORKER_TOKEN:?required}
+      ISKATING_ANALYSIS_WORKER_ID: ${ISKATING_ANALYSIS_WORKER_ID:-deepstream-01}
+      ISKATING_ANALYSIS_NAS_ROOT: /mnt/iskating
+    volumes:
+      - type: bind
+        source: ${ISKATING_ANALYSIS_NAS_ROOT:?required}
+        target: /mnt/iskating
+      - type: bind
+        source: ../models/athlete/deepstream
+        target: /opt/iskating/models
+        read_only: true
+      - type: volume
+        source: deepstream-engines
+        target: /opt/iskating/engines
+    shm_size: 2gb
+
+volumes:
+  deepstream-engines:

@@ -1,0 +1,23 @@
+{
+  "detector": {
+    "onnx": "deepstream/yolo26x_dynamic.onnx",
+    "batch": [1, 12],
+    "input": [3, 640, 640],
+    "output": [300, 6],
+    "interval": 0,
+    "parser": "NvDsInferParseYolo26x"
+  },
+  "reid": {
+    "onnx": "deepstream/personvit_msmt17_vit_base_dynamic.onnx",
+    "batch": [1, 32],
+    "input": [3, 256, 128],
+    "output": [768],
+    "secondaryReinferInterval": 30
+  },
+  "runtime": {
+    "deepstream": "9.0",
+    "platform": "Ubuntu 24.04 x86_64",
+    "chunkDurationMs": 10000,
+    "dropFrames": false
+  }
+}

@@ -1653,6 +1653,43 @@ def heartbeat_offline_analysis_run(run_id: str,
     return {"cancelRequested": bool(result["cancel_requested"])}
 
 
+@app.get("/analysis-worker/runs/{run_id}/gallery")
+def offline_analysis_gallery(run_id: str,
+                             db: Session = Depends(db_session),
+                             _: str = Depends(require_analysis_worker)) -> dict[str, Any]:
+    run = db.execute(
+        text(
+            "SELECT r.model_version, r.preprocessing_version, b.metadata FROM offline_analysis_runs r "
+            "JOIN offline_analysis_batches b ON b.id=r.batch_id WHERE r.id=:id"
+        ), {"id": parse_uuid(run_id)}
+    ).mappings().first()
+    if not run:
+        raise HTTPException(status_code=404, detail="Analysis run not found")
+    athlete_ids = []
+    for value in (run["metadata"] or {}).get("athleteIds", []):
+        try:
+            athlete_ids.append(parse_uuid(value))
+        except (TypeError, ValueError):
+            continue
+    if not athlete_ids:
+        return {"entries": []}
+    rows = db.execute(
+        text(
+            "SELECT embedding.athlete_id, athlete.name, embedding.embedding "
+            "FROM athlete_identity_embeddings embedding "
+            "JOIN athletes athlete ON athlete.id=embedding.athlete_id "
+            "WHERE embedding.athlete_id=ANY(:athlete_ids) AND embedding.model_version=:model_version "
+            "AND embedding.preprocessing_version=:preprocessing_version ORDER BY embedding.athlete_id, embedding.created_at"
+        ),
+        {"athlete_ids": athlete_ids, "model_version": run["model_version"],
+         "preprocessing_version": run["preprocessing_version"]},
+    ).mappings()
+    return {"entries": [
+        {"athleteId": str(row["athlete_id"]), "label": row["name"], "embedding": row["embedding"]}
+        for row in rows
+    ]}
+
+
 @app.post("/analysis-worker/sources/{source_id}/chunks")
 def register_analysis_chunk(source_id: str,
                             payload: dict[str, Any] = Body(...),
@@ -1786,7 +1823,16 @@ def offline_analysis_frames(run_id: str,
         frames = read_frame_chunks(paths, fromMs, toMs)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    ranges = [(int(chunk["start_pts_ms"]), int(chunk["end_pts_ms"])) for chunk in chunks]
+    ranges = []
+    for index, chunk in enumerate(chunks):
+        end_ms = int(chunk["end_pts_ms"])
+        if index + 1 < len(chunks):
+            following = chunks[index + 1]
+            if int(following["start_frame_index"]) == int(chunk["end_frame_index"]) + 1:
+                end_ms = int(following["start_pts_ms"]) - 1
+        elif source["completed_through_ms"] is not None:
+            end_ms = max(end_ms, int(source["completed_through_ms"]))
+        ranges.append((int(chunk["start_pts_ms"]), end_ms))
     return {
         "runId": run_id, "cameraId": cameraId, "fromMs": fromMs, "toMs": toMs,
         "completedThroughMs": source["completed_through_ms"], "sourceStatus": source["status"],

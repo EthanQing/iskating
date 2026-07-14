@@ -80,6 +80,7 @@ models/body/rtmw3d-*.onnx
 models/athlete/*.pt
 models/athlete/*.pth
 models/athlete/*.onnx
+models/athlete/deepstream/*.onnx
 
 # ---- Node / frontend generated files ----
 node_modules/
