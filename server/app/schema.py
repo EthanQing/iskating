@@ -14,7 +14,11 @@ BUSINESS_TABLES = [
     "training_video_files",
     "training_session_participants",
     "training_sessions",
+    "offline_analysis_result_chunks",
+    "offline_analysis_run_sources",
+    "offline_analysis_runs",
     "offline_analysis_tasks",
+    "offline_analysis_batches",
     "training_tasks",
     "training_plans",
     "event_athletes",
@@ -207,9 +211,21 @@ CREATE TABLE training_tasks (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE offline_analysis_batches (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    status text NOT NULL DEFAULT 'imported',
+    source_started_at timestamptz,
+    active_run_id uuid,
+    metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT ck_offline_analysis_batches_status
+        CHECK (status IN ('imported', 'queued', 'running', 'partial', 'completed', 'failed', 'cancelled', 'archived'))
+);
+
 CREATE TABLE offline_analysis_tasks (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    batch_id uuid,
+    batch_id uuid REFERENCES offline_analysis_batches(id) ON DELETE CASCADE,
     camera_id integer NOT NULL DEFAULT 0,
     time_offset_ms integer NOT NULL DEFAULT 0,
     video_path text NOT NULL,
@@ -225,6 +241,81 @@ CREATE TABLE offline_analysis_tasks (
     CONSTRAINT ck_offline_analysis_tasks_status CHECK (status IN ('imported', 'analyzing', 'completed', 'failed', 'archived')),
     CONSTRAINT ck_offline_analysis_tasks_camera CHECK (camera_id >= 0)
 );
+
+CREATE TABLE offline_analysis_runs (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    batch_id uuid NOT NULL REFERENCES offline_analysis_batches(id) ON DELETE CASCADE,
+    status text NOT NULL DEFAULT 'queued',
+    model_version text NOT NULL,
+    preprocessing_version text NOT NULL,
+    gallery_snapshot_hash text,
+    configuration jsonb NOT NULL DEFAULT '{}'::jsonb,
+    total_frames bigint NOT NULL DEFAULT 0,
+    processed_frames bigint NOT NULL DEFAULT 0,
+    error_message text,
+    worker_id text,
+    lease_expires_at timestamptz,
+    cancel_requested boolean NOT NULL DEFAULT false,
+    artifact_root_uri text NOT NULL,
+    started_at timestamptz,
+    completed_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT ck_offline_analysis_runs_status
+        CHECK (status IN ('queued', 'running', 'partial', 'completed', 'failed', 'cancelled', 'archived')),
+    CONSTRAINT ck_offline_analysis_runs_progress
+        CHECK (total_frames >= 0 AND processed_frames >= 0 AND processed_frames <= total_frames OR total_frames = 0)
+);
+
+CREATE TABLE offline_analysis_run_sources (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id uuid NOT NULL REFERENCES offline_analysis_runs(id) ON DELETE CASCADE,
+    task_id uuid NOT NULL REFERENCES offline_analysis_tasks(id) ON DELETE CASCADE,
+    camera_id integer NOT NULL,
+    source_uri text NOT NULL,
+    source_started_at timestamptz,
+    manual_correction_ms integer NOT NULL DEFAULT 0,
+    status text NOT NULL DEFAULT 'queued',
+    total_frames bigint NOT NULL DEFAULT 0,
+    processed_frames bigint NOT NULL DEFAULT 0,
+    last_frame_index bigint NOT NULL DEFAULT -1,
+    last_pts_ms bigint,
+    completed_through_ms bigint,
+    error_message text,
+    retry_count integer NOT NULL DEFAULT 0,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT uq_offline_analysis_run_sources_task UNIQUE (run_id, task_id),
+    CONSTRAINT uq_offline_analysis_run_sources_camera UNIQUE (run_id, camera_id),
+    CONSTRAINT ck_offline_analysis_run_sources_camera CHECK (camera_id >= 0),
+    CONSTRAINT ck_offline_analysis_run_sources_status
+        CHECK (status IN ('queued', 'running', 'partial', 'completed', 'failed', 'cancelled')),
+    CONSTRAINT ck_offline_analysis_run_sources_progress
+        CHECK (total_frames >= 0 AND processed_frames >= 0 AND processed_frames <= total_frames OR total_frames = 0)
+);
+
+CREATE TABLE offline_analysis_result_chunks (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_source_id uuid NOT NULL REFERENCES offline_analysis_run_sources(id) ON DELETE CASCADE,
+    start_frame_index bigint NOT NULL,
+    end_frame_index bigint NOT NULL,
+    start_pts_ms bigint NOT NULL,
+    end_pts_ms bigint NOT NULL,
+    frame_count integer NOT NULL,
+    object_count integer NOT NULL DEFAULT 0,
+    artifact_uri text NOT NULL,
+    checksum_sha256 text NOT NULL,
+    schema_version integer NOT NULL DEFAULT 1,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT uq_offline_analysis_result_chunks_range UNIQUE (run_source_id, start_frame_index),
+    CONSTRAINT ck_offline_analysis_result_chunks_frames
+        CHECK (start_frame_index >= 0 AND end_frame_index >= start_frame_index AND frame_count > 0),
+    CONSTRAINT ck_offline_analysis_result_chunks_pts CHECK (end_pts_ms >= start_pts_ms)
+);
+
+ALTER TABLE offline_analysis_batches
+    ADD CONSTRAINT fk_offline_analysis_batches_active_run
+    FOREIGN KEY (active_run_id) REFERENCES offline_analysis_runs(id) ON DELETE SET NULL;
 
 CREATE TABLE training_sessions (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -260,6 +351,8 @@ CREATE TABLE training_sessions (
     video_fallback_source text,
     video_camera_name text,
     analysis_task_id uuid REFERENCES offline_analysis_tasks(id) ON DELETE SET NULL,
+    analysis_batch_id uuid REFERENCES offline_analysis_batches(id) ON DELETE SET NULL,
+    analysis_run_id uuid REFERENCES offline_analysis_runs(id) ON DELETE SET NULL,
     source_type text NOT NULL DEFAULT 'training',
     source_ref text,
     feedback text,
@@ -445,8 +538,16 @@ CREATE INDEX ix_training_sessions_event_athlete ON training_sessions(event_athle
 CREATE INDEX ix_training_sessions_source_type ON training_sessions(source_type);
 CREATE INDEX ix_training_sessions_source_ref ON training_sessions(source_ref);
 CREATE INDEX ix_training_sessions_analysis_task ON training_sessions(analysis_task_id);
+CREATE INDEX ix_training_sessions_analysis_batch ON training_sessions(analysis_batch_id);
+CREATE INDEX ix_training_sessions_analysis_run ON training_sessions(analysis_run_id);
+CREATE INDEX ix_offline_analysis_batches_active_run ON offline_analysis_batches(active_run_id);
 CREATE INDEX ix_offline_analysis_tasks_batch ON offline_analysis_tasks(batch_id);
 CREATE INDEX ix_offline_analysis_tasks_video_path ON offline_analysis_tasks(video_path);
+CREATE INDEX ix_offline_analysis_runs_batch ON offline_analysis_runs(batch_id, created_at DESC);
+CREATE INDEX ix_offline_analysis_runs_status ON offline_analysis_runs(status, created_at);
+CREATE INDEX ix_offline_analysis_run_sources_run ON offline_analysis_run_sources(run_id, camera_id);
+CREATE INDEX ix_offline_analysis_result_chunks_source_pts
+    ON offline_analysis_result_chunks(run_source_id, start_pts_ms, end_pts_ms);
 CREATE INDEX ix_training_tasks_plan ON training_tasks(plan_id);
 CREATE INDEX ix_training_plans_date ON training_plans(training_date);
 CREATE INDEX ix_training_session_participants_session ON training_session_participants(session_id);

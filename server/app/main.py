@@ -17,6 +17,8 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from .analysis_artifacts import coverage_gaps, read_frame_chunks, resolve_nas_uri, sha256_file
+
 
 def env(name: str, default: str | None = None) -> str:
     value = os.getenv(name, default)
@@ -28,6 +30,8 @@ def env(name: str, default: str | None = None) -> str:
 DATABASE_URL = env("ISKATING_DATABASE_URL")
 JWT_SECRET = env("ISKATING_JWT_SECRET", "change-me-before-production")
 IDENTITY_GALLERY_ROOT = Path(os.getenv("ISKATING_IDENTITY_GALLERY_ROOT", "data/identity-gallery")).expanduser()
+ANALYSIS_NAS_ROOT = Path(os.getenv("ISKATING_ANALYSIS_NAS_ROOT", "data/analysis-nas")).expanduser()
+ANALYSIS_WORKER_TOKEN = os.getenv("ISKATING_ANALYSIS_WORKER_TOKEN", "").strip()
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_MINUTES = 12 * 60
 
@@ -152,6 +156,15 @@ from fastapi import Request  # noqa: E402
 
 async def require_user(request: Request, db: Session = Depends(db_session)) -> dict[str, Any]:
     return await bearer_user(request, db)
+
+
+def require_analysis_worker(request: Request) -> str:
+    if not ANALYSIS_WORKER_TOKEN:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Analysis worker token is not configured")
+    supplied = request.headers.get("x-analysis-worker-token", "")
+    if supplied != ANALYSIS_WORKER_TOKEN:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid analysis worker token")
+    return supplied
 
 
 def require_admin(user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
@@ -445,6 +458,122 @@ def offline_analysis_task_row(row: dict[str, Any]) -> dict[str, Any]:
         "createdAt": row["created_at"].isoformat() if row.get("created_at") else "",
         "updatedAt": row["updated_at"].isoformat() if row.get("updated_at") else "",
     }
+
+
+def analysis_batch_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row["id"]),
+        "status": row["status"],
+        "sourceStartedAt": row["source_started_at"].isoformat() if row.get("source_started_at") else "",
+        "activeRunId": str(row.get("active_run_id") or ""),
+        "metadata": row.get("metadata") or {},
+        "createdAt": row["created_at"].isoformat() if row.get("created_at") else "",
+        "updatedAt": row["updated_at"].isoformat() if row.get("updated_at") else "",
+    }
+
+
+def analysis_source_row(row: dict[str, Any]) -> dict[str, Any]:
+    total = int(row.get("total_frames") or 0)
+    processed = int(row.get("processed_frames") or 0)
+    return {
+        "id": str(row["id"]),
+        "taskId": str(row["task_id"]),
+        "cameraId": row["camera_id"],
+        "sourceUri": row["source_uri"],
+        "sourceStartedAt": row["source_started_at"].isoformat() if row.get("source_started_at") else "",
+        "manualCorrectionMs": row["manual_correction_ms"],
+        "status": row["status"],
+        "totalFrames": total,
+        "processedFrames": processed,
+        "progress": processed / total if total > 0 else 0.0,
+        "lastFrameIndex": int(row["last_frame_index"]) if row.get("last_frame_index") is not None else -1,
+        "lastPtsMs": row.get("last_pts_ms"),
+        "completedThroughMs": row.get("completed_through_ms"),
+        "errorMessage": row.get("error_message") or "",
+        "retryCount": row.get("retry_count") or 0,
+    }
+
+
+def analysis_run_response(db: Session, run_id: str) -> dict[str, Any]:
+    run = db.execute(
+        text("SELECT * FROM offline_analysis_runs WHERE id = :id"),
+        {"id": parse_uuid(run_id)},
+    ).mappings().first()
+    if not run:
+        raise HTTPException(status_code=404, detail="Analysis run not found")
+    sources = db.execute(
+        text("SELECT * FROM offline_analysis_run_sources WHERE run_id = :id ORDER BY camera_id"),
+        {"id": run["id"]},
+    ).mappings()
+    total = int(run["total_frames"] or 0)
+    processed = int(run["processed_frames"] or 0)
+    throughput = 0.0
+    estimated_remaining_seconds = None
+    if run["started_at"] and processed > 0:
+        elapsed = max(0.001, (now() - run["started_at"]).total_seconds())
+        throughput = processed / elapsed
+        if total > processed and throughput > 0:
+            estimated_remaining_seconds = int((total - processed) / throughput)
+    return {
+        "id": str(run["id"]),
+        "batchId": str(run["batch_id"]),
+        "status": run["status"],
+        "modelVersion": run["model_version"],
+        "preprocessingVersion": run["preprocessing_version"],
+        "gallerySnapshotHash": run["gallery_snapshot_hash"] or "",
+        "configuration": run["configuration"] or {},
+        "totalFrames": total,
+        "processedFrames": processed,
+        "progress": processed / total if total > 0 else 0.0,
+        "throughputFps": throughput,
+        "estimatedRemainingSeconds": estimated_remaining_seconds,
+        "errorMessage": run["error_message"] or "",
+        "workerId": run["worker_id"] or "",
+        "leaseExpiresAt": run["lease_expires_at"].isoformat() if run["lease_expires_at"] else "",
+        "cancelRequested": bool(run["cancel_requested"]),
+        "artifactRootUri": run["artifact_root_uri"],
+        "startedAt": run["started_at"].isoformat() if run["started_at"] else "",
+        "completedAt": run["completed_at"].isoformat() if run["completed_at"] else "",
+        "createdAt": run["created_at"].isoformat(),
+        "updatedAt": run["updated_at"].isoformat(),
+        "sources": [analysis_source_row(dict(item)) for item in sources],
+    }
+
+
+def refresh_analysis_run(db: Session, run_id: str) -> None:
+    values = db.execute(
+        text(
+            "SELECT COALESCE(SUM(total_frames), 0) AS total_frames, "
+            "COALESCE(SUM(processed_frames), 0) AS processed_frames, "
+            "COUNT(*) FILTER (WHERE status = 'completed') AS completed_sources, "
+            "COUNT(*) FILTER (WHERE status = 'failed') AS failed_sources, COUNT(*) AS source_count "
+            "FROM offline_analysis_run_sources WHERE run_id = :id"
+        ),
+        {"id": parse_uuid(run_id)},
+    ).mappings().one()
+    status_value = "running"
+    completed_at = None
+    if values["source_count"] > 0 and values["completed_sources"] == values["source_count"]:
+        status_value = "completed"
+        completed_at = now()
+    elif values["failed_sources"] > 0:
+        status_value = "failed" if values["completed_sources"] == 0 else "partial"
+    db.execute(
+        text(
+            "UPDATE offline_analysis_runs SET total_frames=:total_frames, processed_frames=:processed_frames, "
+            "status=CASE WHEN status IN ('cancelled', 'archived') THEN status ELSE :status END, "
+            "completed_at=COALESCE(:completed_at, completed_at), updated_at=now() WHERE id=:id"
+        ),
+        {"id": parse_uuid(run_id), "total_frames": values["total_frames"],
+         "processed_frames": values["processed_frames"], "status": status_value, "completed_at": completed_at},
+    )
+    run = db.execute(
+        text("SELECT batch_id, status FROM offline_analysis_runs WHERE id=:id"), {"id": parse_uuid(run_id)}
+    ).mappings().one()
+    db.execute(
+        text("UPDATE offline_analysis_batches SET status=:status, updated_at=now() WHERE id=:id"),
+        {"id": run["batch_id"], "status": run["status"]},
+    )
 
 
 def scores_from_payload(payload: dict[str, Any], prefix: str = "") -> dict[str, int]:
@@ -1206,6 +1335,15 @@ def save_offline_analysis_task(payload: dict[str, Any] = Body(...),
     status_value = payload.get("status") or "imported"
     if status_value not in {"imported", "analyzing", "completed", "failed", "archived"}:
         status_value = "imported"
+    batch_id = parse_uuid(payload.get("batchId"))
+    if batch_id:
+        db.execute(
+            text(
+                "INSERT INTO offline_analysis_batches (id, status, metadata) "
+                "VALUES (:id, 'imported', CAST(:metadata AS jsonb)) ON CONFLICT (id) DO NOTHING"
+            ),
+            {"id": batch_id, "metadata": json.dumps({"legacySingleVideo": True}, ensure_ascii=False)},
+        )
     db.execute(
         text(
             "INSERT INTO offline_analysis_tasks "
@@ -1221,7 +1359,7 @@ def save_offline_analysis_task(payload: dict[str, Any] = Body(...),
         ),
         {
             "id": task_id,
-            "batch_id": parse_uuid(payload.get("batchId")),
+            "batch_id": batch_id,
             "camera_id": int(payload.get("cameraId") or 0),
             "time_offset_ms": int(payload.get("timeOffsetMs") or 0),
             "video_path": video_path,
@@ -1257,6 +1395,403 @@ def offline_analysis_tasks(batchId: str = "",
         args,
     ).mappings()
     return [offline_analysis_task_row(dict(row)) for row in rows]
+
+
+@app.post("/offline-analysis/batches")
+def create_offline_analysis_batch(payload: dict[str, Any] = Body(...),
+                                  db: Session = Depends(db_session),
+                                  _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    sources = payload.get("sources") or []
+    if not isinstance(sources, list) or len(sources) != 12:
+        raise HTTPException(status_code=400, detail="A full-rate batch requires exactly 12 sources")
+    camera_ids = [int(source.get("cameraId") or 0) for source in sources]
+    if sorted(camera_ids) != list(range(1, 13)):
+        raise HTTPException(status_code=400, detail="Sources must contain cameraId 1 through 12 exactly once")
+
+    batch_id = parse_uuid(payload.get("id")) or new_uuid()
+    source_started_at = parse_dt(payload.get("sourceStartedAt")) if payload.get("sourceStartedAt") else None
+    db.execute(
+        text(
+            "INSERT INTO offline_analysis_batches (id, status, source_started_at, metadata) "
+            "VALUES (:id, 'imported', :source_started_at, CAST(:metadata AS jsonb))"
+        ),
+        {"id": batch_id, "source_started_at": source_started_at,
+         "metadata": json.dumps(metadata_from_payload(payload.get("metadata")), ensure_ascii=False)},
+    )
+    for source in sources:
+        source_uri = str(source.get("sourceUri") or "").strip()
+        try:
+            resolve_nas_uri(ANALYSIS_NAS_ROOT, source_uri)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        task_id = parse_uuid(source.get("id")) or new_uuid()
+        probe_metadata = metadata_from_payload(source.get("probeMetadata"))
+        if source.get("totalFrames") is not None:
+            probe_metadata["totalFrames"] = max(0, int(source["totalFrames"]))
+        if source.get("sourceStartedAt"):
+            probe_metadata["sourceStartedAt"] = parse_dt(source["sourceStartedAt"]).isoformat()
+        db.execute(
+            text(
+                "INSERT INTO offline_analysis_tasks "
+                "(id, batch_id, camera_id, time_offset_ms, video_path, file_name, file_size_bytes, "
+                "file_modified_at, duration_ms, status, probe_metadata, summary_metadata) "
+                "VALUES (:id, :batch_id, :camera_id, :time_offset_ms, :video_path, :file_name, :file_size_bytes, "
+                ":file_modified_at, :duration_ms, 'imported', CAST(:probe_metadata AS jsonb), CAST(:summary_metadata AS jsonb))"
+            ),
+            {
+                "id": task_id, "batch_id": batch_id, "camera_id": int(source["cameraId"]),
+                "time_offset_ms": int(source.get("manualCorrectionMs") or 0), "video_path": source_uri,
+                "file_name": source.get("fileName") or None,
+                "file_size_bytes": optional_int(source.get("fileSizeBytes")),
+                "file_modified_at": parse_dt(source["fileModifiedAt"]) if source.get("fileModifiedAt") else None,
+                "duration_ms": max(0, int(source.get("durationMs") or 0)),
+                "probe_metadata": json.dumps(probe_metadata, ensure_ascii=False),
+                "summary_metadata": json.dumps({"mode": "synchronized_12_camera"}, ensure_ascii=False),
+            },
+        )
+    row = db.execute(text("SELECT * FROM offline_analysis_batches WHERE id=:id"), {"id": batch_id}).mappings().one()
+    response = analysis_batch_row(dict(row))
+    response["sources"] = [offline_analysis_task_row(dict(item)) for item in db.execute(
+        text("SELECT * FROM offline_analysis_tasks WHERE batch_id=:id ORDER BY camera_id"), {"id": batch_id}
+    ).mappings()]
+    return response
+
+
+@app.get("/offline-analysis/batches/{batch_id}")
+def offline_analysis_batch(batch_id: str,
+                           db: Session = Depends(db_session),
+                           _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    row = db.execute(
+        text("SELECT * FROM offline_analysis_batches WHERE id=:id"), {"id": parse_uuid(batch_id)}
+    ).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Analysis batch not found")
+    response = analysis_batch_row(dict(row))
+    response["sources"] = [offline_analysis_task_row(dict(item)) for item in db.execute(
+        text("SELECT * FROM offline_analysis_tasks WHERE batch_id=:id ORDER BY camera_id"), {"id": row["id"]}
+    ).mappings()]
+    response["runs"] = [analysis_run_response(db, str(item["id"])) for item in db.execute(
+        text("SELECT id FROM offline_analysis_runs WHERE batch_id=:id ORDER BY created_at DESC"), {"id": row["id"]}
+    ).mappings()]
+    return response
+
+
+@app.post("/offline-analysis/batches/{batch_id}/runs")
+def create_offline_analysis_run(batch_id: str,
+                                payload: dict[str, Any] = Body(...),
+                                db: Session = Depends(db_session),
+                                _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    parsed_batch_id = parse_uuid(batch_id)
+    batch = db.execute(
+        text("SELECT * FROM offline_analysis_batches WHERE id=:id"), {"id": parsed_batch_id}
+    ).mappings().first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Analysis batch not found")
+    tasks = list(db.execute(
+        text("SELECT * FROM offline_analysis_tasks WHERE batch_id=:id ORDER BY camera_id"), {"id": parsed_batch_id}
+    ).mappings())
+    if len(tasks) != 12 or [item["camera_id"] for item in tasks] != list(range(1, 13)):
+        raise HTTPException(status_code=409, detail="Analysis batch must contain cameras 1 through 12")
+    model_version = str(payload.get("modelVersion") or "").strip()
+    preprocessing_version = str(payload.get("preprocessingVersion") or "").strip()
+    if not model_version or not preprocessing_version:
+        raise HTTPException(status_code=400, detail="modelVersion and preprocessingVersion are required")
+    run_id = new_uuid()
+    artifact_root_uri = f"nas://analysis/{parsed_batch_id}/{run_id}"
+    configuration = metadata_from_payload(payload.get("configuration"))
+    configuration.update({"yoloInterval": 0, "dropFrames": False, "chunkDurationMs": 10000})
+    db.execute(
+        text(
+            "INSERT INTO offline_analysis_runs "
+            "(id, batch_id, status, model_version, preprocessing_version, gallery_snapshot_hash, configuration, artifact_root_uri) "
+            "VALUES (:id, :batch_id, 'queued', :model_version, :preprocessing_version, :gallery_hash, "
+            "CAST(:configuration AS jsonb), :artifact_root_uri)"
+        ),
+        {"id": run_id, "batch_id": parsed_batch_id, "model_version": model_version,
+         "preprocessing_version": preprocessing_version,
+         "gallery_hash": str(payload.get("gallerySnapshotHash") or "").strip() or None,
+         "configuration": json.dumps(configuration, ensure_ascii=False), "artifact_root_uri": artifact_root_uri},
+    )
+    for task in tasks:
+        probe = task["probe_metadata"] or {}
+        source_started_at = parse_dt(probe.get("sourceStartedAt")) if probe.get("sourceStartedAt") else batch["source_started_at"]
+        db.execute(
+            text(
+                "INSERT INTO offline_analysis_run_sources "
+                "(id, run_id, task_id, camera_id, source_uri, source_started_at, manual_correction_ms, total_frames) "
+                "VALUES (:id, :run_id, :task_id, :camera_id, :source_uri, :source_started_at, :correction, :total_frames)"
+            ),
+            {"id": new_uuid(), "run_id": run_id, "task_id": task["id"], "camera_id": task["camera_id"],
+             "source_uri": task["video_path"], "source_started_at": source_started_at,
+             "correction": task["time_offset_ms"], "total_frames": max(0, int(probe.get("totalFrames") or 0))},
+        )
+    refresh_analysis_run(db, run_id)
+    db.execute(
+        text("UPDATE offline_analysis_runs SET status='queued', updated_at=now() WHERE id=:id"), {"id": run_id}
+    )
+    db.execute(
+        text("UPDATE offline_analysis_batches SET status='queued', updated_at=now() WHERE id=:id"), {"id": parsed_batch_id}
+    )
+    return analysis_run_response(db, run_id)
+
+
+@app.get("/offline-analysis/runs/{run_id}")
+def offline_analysis_run(run_id: str,
+                         db: Session = Depends(db_session),
+                         _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    return analysis_run_response(db, run_id)
+
+
+@app.post("/offline-analysis/runs/{run_id}/cancel")
+def cancel_offline_analysis_run(run_id: str,
+                                db: Session = Depends(db_session),
+                                _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    result = db.execute(
+        text(
+            "UPDATE offline_analysis_runs SET cancel_requested=true, "
+            "status=CASE WHEN status='queued' THEN 'cancelled' ELSE status END, updated_at=now() "
+            "WHERE id=:id AND status NOT IN ('completed', 'cancelled', 'archived') RETURNING id"
+        ),
+        {"id": parse_uuid(run_id)},
+    ).first()
+    if not result:
+        raise HTTPException(status_code=409, detail="Analysis run cannot be cancelled")
+    return analysis_run_response(db, run_id)
+
+
+@app.post("/offline-analysis/runs/{run_id}/retry")
+def retry_offline_analysis_run(run_id: str,
+                               db: Session = Depends(db_session),
+                               _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    parsed_run_id = parse_uuid(run_id)
+    run = db.execute(
+        text("SELECT status FROM offline_analysis_runs WHERE id=:id"), {"id": parsed_run_id}
+    ).mappings().first()
+    if not run or run["status"] not in {"failed", "partial", "cancelled"}:
+        raise HTTPException(status_code=409, detail="Only failed, partial, or cancelled runs can be retried")
+    db.execute(
+        text(
+            "UPDATE offline_analysis_run_sources SET status=CASE WHEN status='completed' THEN status ELSE 'queued' END, "
+            "error_message=NULL, retry_count=retry_count+1, updated_at=now() WHERE run_id=:id"
+        ), {"id": parsed_run_id}
+    )
+    db.execute(
+        text(
+            "UPDATE offline_analysis_runs SET status='queued', cancel_requested=false, error_message=NULL, "
+            "worker_id=NULL, lease_expires_at=NULL, completed_at=NULL, updated_at=now() WHERE id=:id"
+        ), {"id": parsed_run_id}
+    )
+    return analysis_run_response(db, run_id)
+
+
+@app.post("/offline-analysis/runs/{run_id}/activate")
+def activate_offline_analysis_run(run_id: str,
+                                  db: Session = Depends(db_session),
+                                  _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    parsed_run_id = parse_uuid(run_id)
+    run = db.execute(
+        text("SELECT batch_id, status FROM offline_analysis_runs WHERE id=:id"), {"id": parsed_run_id}
+    ).mappings().first()
+    if not run or run["status"] != "completed":
+        raise HTTPException(status_code=409, detail="Only completed analysis runs can be activated")
+    db.execute(
+        text("UPDATE offline_analysis_batches SET active_run_id=:run_id, status='completed', updated_at=now() WHERE id=:batch_id"),
+        {"run_id": parsed_run_id, "batch_id": run["batch_id"]},
+    )
+    db.execute(
+        text("UPDATE training_sessions SET analysis_run_id=:run_id WHERE analysis_batch_id=:batch_id"),
+        {"run_id": parsed_run_id, "batch_id": run["batch_id"]},
+    )
+    return analysis_run_response(db, run_id)
+
+
+@app.post("/analysis-worker/runs/claim")
+def claim_offline_analysis_run(payload: dict[str, Any] = Body(...),
+                               db: Session = Depends(db_session),
+                               _: str = Depends(require_analysis_worker)) -> dict[str, Any]:
+    worker_id = str(payload.get("workerId") or "").strip()
+    if not worker_id:
+        raise HTTPException(status_code=400, detail="workerId is required")
+    run = db.execute(
+        text(
+            "SELECT id FROM offline_analysis_runs WHERE cancel_requested=false "
+            "AND (status='queued' OR (status IN ('running', 'partial') AND lease_expires_at < now())) "
+            "ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1"
+        )
+    ).mappings().first()
+    if not run:
+        return {"run": None}
+    lease_seconds = max(30, min(600, int(payload.get("leaseSeconds") or 120)))
+    db.execute(
+        text(
+            "UPDATE offline_analysis_runs SET status='running', worker_id=:worker_id, "
+            "lease_expires_at=now() + make_interval(secs => :lease_seconds), started_at=COALESCE(started_at, now()), "
+            "updated_at=now() WHERE id=:id"
+        ), {"id": run["id"], "worker_id": worker_id, "lease_seconds": lease_seconds}
+    )
+    db.execute(
+        text("UPDATE offline_analysis_run_sources SET status='running', updated_at=now() WHERE run_id=:id AND status='queued'"),
+        {"id": run["id"]},
+    )
+    return {"run": analysis_run_response(db, str(run["id"]))}
+
+
+@app.post("/analysis-worker/runs/{run_id}/heartbeat")
+def heartbeat_offline_analysis_run(run_id: str,
+                                   payload: dict[str, Any] = Body(...),
+                                   db: Session = Depends(db_session),
+                                   _: str = Depends(require_analysis_worker)) -> dict[str, Any]:
+    worker_id = str(payload.get("workerId") or "").strip()
+    result = db.execute(
+        text(
+            "UPDATE offline_analysis_runs SET lease_expires_at=now() + make_interval(secs => 120), updated_at=now() "
+            "WHERE id=:id AND worker_id=:worker_id AND status='running' RETURNING cancel_requested"
+        ), {"id": parse_uuid(run_id), "worker_id": worker_id}
+    ).mappings().first()
+    if not result:
+        raise HTTPException(status_code=409, detail="Analysis run lease is not owned by this worker")
+    return {"cancelRequested": bool(result["cancel_requested"])}
+
+
+@app.post("/analysis-worker/sources/{source_id}/chunks")
+def register_analysis_chunk(source_id: str,
+                            payload: dict[str, Any] = Body(...),
+                            db: Session = Depends(db_session),
+                            _: str = Depends(require_analysis_worker)) -> dict[str, Any]:
+    parsed_source_id = parse_uuid(source_id)
+    source = db.execute(
+        text(
+            "SELECT s.*, r.artifact_root_uri FROM offline_analysis_run_sources s "
+            "JOIN offline_analysis_runs r ON r.id=s.run_id WHERE s.id=:id"
+        ), {"id": parsed_source_id}
+    ).mappings().first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Analysis run source not found")
+    start_frame = int(payload.get("startFrameIndex", -1))
+    end_frame = int(payload.get("endFrameIndex", -1))
+    frame_count = int(payload.get("frameCount") or 0)
+    if start_frame < 0 or end_frame < start_frame or frame_count != end_frame - start_frame + 1:
+        raise HTTPException(status_code=400, detail="Chunk frame range is not contiguous")
+    artifact_uri = str(payload.get("artifactUri") or "").strip()
+    if not artifact_uri.startswith(source["artifact_root_uri"].rstrip("/") + "/"):
+        raise HTTPException(status_code=400, detail="Chunk artifact is outside the run root")
+    try:
+        artifact_path = resolve_nas_uri(ANALYSIS_NAS_ROOT, artifact_uri)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not artifact_path.is_file():
+        raise HTTPException(status_code=409, detail="Chunk artifact is not available on NAS")
+    checksum = str(payload.get("checksumSha256") or "").strip().lower()
+    if len(checksum) != 64 or sha256_file(artifact_path) != checksum:
+        raise HTTPException(status_code=409, detail="Chunk checksum mismatch")
+    overlap = db.execute(
+        text(
+            "SELECT start_frame_index FROM offline_analysis_result_chunks "
+            "WHERE run_source_id=:source_id AND start_frame_index<>:start_frame "
+            "AND end_frame_index>=:start_frame AND start_frame_index<=:end_frame LIMIT 1"
+        ), {"source_id": parsed_source_id, "start_frame": start_frame, "end_frame": end_frame}
+    ).first()
+    if overlap:
+        raise HTTPException(status_code=409, detail="Chunk overlaps an existing committed range")
+    db.execute(
+        text(
+            "INSERT INTO offline_analysis_result_chunks "
+            "(id, run_source_id, start_frame_index, end_frame_index, start_pts_ms, end_pts_ms, frame_count, "
+            "object_count, artifact_uri, checksum_sha256, schema_version) "
+            "VALUES (:id, :source_id, :start_frame, :end_frame, :start_pts, :end_pts, :frame_count, "
+            ":object_count, :artifact_uri, :checksum, 1) "
+            "ON CONFLICT (run_source_id, start_frame_index) DO UPDATE SET "
+            "end_frame_index=excluded.end_frame_index, start_pts_ms=excluded.start_pts_ms, end_pts_ms=excluded.end_pts_ms, "
+            "frame_count=excluded.frame_count, object_count=excluded.object_count, artifact_uri=excluded.artifact_uri, "
+            "checksum_sha256=excluded.checksum_sha256"
+        ),
+        {"id": new_uuid(), "source_id": parsed_source_id, "start_frame": start_frame, "end_frame": end_frame,
+         "start_pts": int(payload.get("startPtsMs") or 0), "end_pts": int(payload.get("endPtsMs") or 0),
+         "frame_count": frame_count, "object_count": max(0, int(payload.get("objectCount") or 0)),
+         "artifact_uri": artifact_uri, "checksum": checksum},
+    )
+    committed = db.execute(
+        text(
+            "SELECT COALESCE(SUM(frame_count), 0) AS processed_frames, MAX(end_frame_index) AS last_frame_index, "
+            "MAX(end_pts_ms) AS completed_through_ms FROM offline_analysis_result_chunks WHERE run_source_id=:id"
+        ), {"id": parsed_source_id}
+    ).mappings().one()
+    db.execute(
+        text(
+            "UPDATE offline_analysis_run_sources SET processed_frames=:processed, last_frame_index=:last_frame, "
+            "last_pts_ms=:last_pts, completed_through_ms=:last_pts, status='partial', updated_at=now() WHERE id=:id"
+        ), {"id": parsed_source_id, "processed": committed["processed_frames"],
+         "last_frame": committed["last_frame_index"], "last_pts": committed["completed_through_ms"]}
+    )
+    refresh_analysis_run(db, str(source["run_id"]))
+    return {"sourceId": str(parsed_source_id), "processedFrames": int(committed["processed_frames"]),
+            "completedThroughMs": committed["completed_through_ms"]}
+
+
+@app.post("/analysis-worker/sources/{source_id}/finish")
+def finish_analysis_source(source_id: str,
+                           payload: dict[str, Any] = Body(...),
+                           db: Session = Depends(db_session),
+                           _: str = Depends(require_analysis_worker)) -> dict[str, Any]:
+    parsed_source_id = parse_uuid(source_id)
+    source = db.execute(
+        text("SELECT run_id, processed_frames, total_frames FROM offline_analysis_run_sources WHERE id=:id"),
+        {"id": parsed_source_id},
+    ).mappings().first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Analysis run source not found")
+    failed = bool(payload.get("errorMessage"))
+    total_frames = max(0, int(payload.get("totalFrames") or source["total_frames"] or source["processed_frames"]))
+    if not failed and int(source["processed_frames"]) != total_frames:
+        raise HTTPException(status_code=409, detail="Processed frame count does not match decoded total")
+    db.execute(
+        text(
+            "UPDATE offline_analysis_run_sources SET status=:status, total_frames=:total_frames, "
+            "error_message=:error, updated_at=now() WHERE id=:id"
+        ), {"id": parsed_source_id, "status": "failed" if failed else "completed", "total_frames": total_frames,
+         "error": str(payload.get("errorMessage") or "").strip() or None}
+    )
+    refresh_analysis_run(db, str(source["run_id"]))
+    return analysis_run_response(db, str(source["run_id"]))
+
+
+@app.get("/offline-analysis/runs/{run_id}/frames")
+def offline_analysis_frames(run_id: str,
+                            cameraId: int,
+                            fromMs: int = 0,
+                            toMs: int = 10000,
+                            db: Session = Depends(db_session),
+                            _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    if cameraId < 1 or cameraId > 12 or fromMs < 0 or toMs < fromMs or toMs - fromMs > 60000:
+        raise HTTPException(status_code=400, detail="Invalid camera or time range")
+    source = db.execute(
+        text("SELECT * FROM offline_analysis_run_sources WHERE run_id=:run_id AND camera_id=:camera_id"),
+        {"run_id": parse_uuid(run_id), "camera_id": cameraId},
+    ).mappings().first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Analysis source not found")
+    chunks = list(db.execute(
+        text(
+            "SELECT * FROM offline_analysis_result_chunks WHERE run_source_id=:source_id "
+            "AND end_pts_ms>=:from_ms AND start_pts_ms<=:to_ms ORDER BY start_pts_ms"
+        ), {"source_id": source["id"], "from_ms": fromMs, "to_ms": toMs}
+    ).mappings())
+    paths = []
+    try:
+        for chunk in chunks:
+            path = resolve_nas_uri(ANALYSIS_NAS_ROOT, chunk["artifact_uri"])
+            if sha256_file(path) != chunk["checksum_sha256"]:
+                raise ValueError(f"analysis chunk checksum mismatch: {path.name}")
+            paths.append(path)
+        frames = read_frame_chunks(paths, fromMs, toMs)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    ranges = [(int(chunk["start_pts_ms"]), int(chunk["end_pts_ms"])) for chunk in chunks]
+    return {
+        "runId": run_id, "cameraId": cameraId, "fromMs": fromMs, "toMs": toMs,
+        "completedThroughMs": source["completed_through_ms"], "sourceStatus": source["status"],
+        "frames": frames, "gaps": coverage_gaps(ranges, fromMs, toMs),
+    }
 
 
 def insert_repetition(db: Session,
