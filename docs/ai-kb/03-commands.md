@@ -68,7 +68,9 @@ Debug 构建产物：
 
 ## 测试
 
-TODO: 未在项目中找到单元测试、集成测试或 E2E 测试命令。
+```powershell
+uv run --python 3.12 --with-requirements server/requirements.txt python -m unittest discover -s server/tests -p "test_*.py"
+```
 
 ## lint
 
@@ -101,6 +103,12 @@ python tools/import_sqlite_to_postgres.py --sqlite "$env:APPDATA/iSkating/iSkati
 python tools/backfill_video_indexes.py
 ```
 
+完整帧率分析 schema 幂等回填：
+
+```powershell
+python tools/backfill_full_rate_analysis.py
+```
+
 ## seed 数据
 
 FastAPI 服务启动时会 seed 默认管理员、默认运动员、默认教练、8 个动作类别和 8 条动作标准。
@@ -112,6 +120,19 @@ YOLO26x 和 TransReID MSMT17 PersonViT 可通过脚本下载、转换：
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/download_athlete_models.ps1
 python tools/check_athlete_models.py
+```
+
+DeepStream 动态 batch 模型导出：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/export_deepstream_models.ps1
+```
+
+Ubuntu DeepStream worker：
+
+```bash
+docker compose -f analysis_worker/compose.yml config
+docker compose -f analysis_worker/compose.yml up -d --build
 ```
 
 相关文件：

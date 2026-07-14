@@ -170,6 +170,8 @@ ReID 向量：`sample_id`, `athlete_id`, `embedding`, `embedding_dimension`, `mo
 - `source_type`: `training`, `competition`, `offline_import`，默认 `training`。
 - `source_ref`: 可空文本引用。选择场次时指向 `competition_event_id`，仅选择比赛时指向 `competition_id`，导入视频时优先保存 `analysis_task_id`，普通训练优先保存 `task_id`，无任务时保存 `plan_id`。
 - `analysis_task_id`: 可空，关联 `offline_analysis_tasks.id`，用于把单视频离线导入任务和最终训练 session 闭环关联。
+- `analysis_batch_id`: 可空，关联 12 路完整帧率批次；新记录优先使用该字段。
+- `analysis_run_id`: 可空，关联当前激活的分析运行版本；新版本激活时原子更新。
 - `action_repetitions.source` 仍只表示动作来源 `ai/coach`，不承担 session 分析归属语义。
 
 复盘相关字段：
@@ -216,6 +218,16 @@ ReID 向量：`sample_id`, `athlete_id`, `embedding`, `embedding_dimension`, `mo
 - `created_at`, `updated_at`: 服务端时间戳。
 
 `training_sessions.analysis_task_id` 指向该表。离线导入训练保存时，session 的 `source_type` 为 `offline_import`，`source_ref` 优先使用该任务 id，历史卡和报告展示离线任务摘要。
+
+#### 完整帧率分析表
+
+- `offline_analysis_batches`: 12 路源的批次状态、当前激活运行和审计时间；兼容旧任务的 `batch_id/camera_id/time_offset_ms` 数据。
+- `offline_analysis_batch_sources`: 每个机位的可移植 `nas://` URI、媒体信息、源开始偏移和人工校正。批次内 cameraId 唯一，完整批次必须为 1-12。
+- `offline_analysis_runs`: 不可覆盖的分析版本，保存模型/预处理/同步版本、gallery 快照哈希、配置、状态、总帧数、进度、失败原因、worker 租约与开始/完成时间。
+- `offline_analysis_run_sources`: 每路运行状态、帧计数、最后提交 frameIndex/PTS、重试次数、错误和已完成时间范围。单路失败不会删除其他源的已提交结果。
+- `offline_analysis_result_chunks`: gzip JSONL 分块索引，保存源、帧范围、批次时间范围、artifact URI、大小、SHA256 和 schema 版本；`run_source + start/end` 唯一，支持幂等覆盖。
+
+状态枚举为 `queued/running/partial/completed/failed/cancelled/archived`。只有 12 路全部完成完整性校验的运行才能完成并激活。逐帧内容只位于 NAS，不进入数据库；范围查询读取并校验已提交分块并返回缺口。
 
 #### `training_session_participants`
 
@@ -344,6 +356,12 @@ python tools/import_sqlite_to_postgres.py --sqlite "$env:APPDATA/iSkating/iSkati
 
 ```powershell
 python tools/backfill_video_indexes.py
+```
+
+已有库增加完整帧率分析协议：
+
+```powershell
+python tools/backfill_full_rate_analysis.py
 ```
 
 相关文件：

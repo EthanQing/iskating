@@ -7,19 +7,27 @@
 
 ## 单元测试
 
-TODO: 未在项目中找到单元测试框架或命令。
+FastAPI 分块协议和 worker 编排使用 Python `unittest`：
+
+```powershell
+uv run --python 3.12 --with-requirements server/requirements.txt python -m unittest discover -s server/tests -p "test_*.py"
+```
 
 ## 集成测试
 
-TODO: 未在项目中找到集成测试目录或命令。
+当前自动测试覆盖 NAS URI 约束、gzip JSONL/SHA256、范围读取、原子提交和 worker 参数编排。数据库状态机需要在临时 PostgreSQL 上验证；DeepStream 原生 parser/管线需要在 Ubuntu + NVIDIA 环境构建和运行。
 
 ## E2E 测试
 
-TODO: 未在项目中找到 E2E 测试目录或命令。
+完整帧率 E2E 使用带已知帧号的 12 路视频，要求解码帧数等于结果帧数、`frameIndex` 从 0 连续、PTS 不倒退且无未声明缺口。随后进行 12 路 1080p60 一小时压力测试，并分别中断 worker、FastAPI 和 NAS，验证恢复后无重复/缺帧。
 
 ## 如何只跑某个测试
 
-TODO: 当前没有可确认的测试命令。
+例如只运行分块测试：
+
+```powershell
+uv run --python 3.12 --with-requirements server/requirements.txt python -m unittest server.tests.test_analysis_artifacts
+```
 
 ## 构建验证
 
@@ -52,12 +60,22 @@ cmd /c "call ""C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxili
 - 导出 Markdown、CSV 明细和 PDF 复盘报告，确认包含训练摘要、动作明细、AI 原始分、人工修正、教练备注和视频引用。
 - RTSP 源仍可预览、开始/暂停/停止采集、保存记录；RTSP 历史复盘应禁用精确 seek/慢放/逐帧并显示片段时间提示。
 - RTSP 断流验证：正常播放后临时断开摄像头网络或关闭 RTSP 服务，确认 UI 显示断流重连；30 秒后显示长时间断流；恢复网络后自动回到播放状态，日志包含 `stream interrupted`、`reconnect scheduled` 和 `stream recovered`，且 URL 密码脱敏。
+- 导入 12 路完整分析 manifest，确认媒体信息、人工时间校正、Windows NAS 根映射、每路进度/错误、取消、重试和版本号正确。
+- 完成区间边分析边回放，随机 seek 到未完成和人为缺口区间，确认明确提示且不沿用上一帧检测框。
+- 创建新模型运行，完成前仍显示旧激活版本；激活后缓存清空并读取新版本；清理视频后结果文件删除但审计状态保留。
 
 相关文件：
 
 - `mainwindow.cpp`
 - `videoopenglwidget.cpp`
 - `handanalysismanager.cpp`
+
+## 完整帧率上线门槛
+
+- 固定输入测试覆盖 YOLO parser、坐标缩放、PersonViT 预处理、gallery ambiguous 匹配和动态 batch 1/12/32。
+- 12 路时间轴使用 NVR/摄像头时间戳；正常时间源下机位误差不超过一帧，人工校正形成新运行版本。
+- 记录 GPU、CPU、显存、NAS 读写、YOLO 吞吐、ReID 调用率和每小时录像分析耗时，据此选择生产 GPU。
+- 单路失败不得破坏其他源的已提交结果；异常恢复后分块索引无重复、frameIndex 无缺失。
 
 ## 常见测试失败原因
 

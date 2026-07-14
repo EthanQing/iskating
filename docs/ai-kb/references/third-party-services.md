@@ -35,7 +35,7 @@ TODO: 未发现支付服务。
 
 ## 存储服务
 
-未发现云存储服务。模型文件在本机，ReID 样本图片由 `ISKATING_IDENTITY_GALLERY_ROOT` 指向服务端文件目录，训练历史在 PostgreSQL。
+未使用云存储服务。模型文件在本机，ReID 样本图片由 `ISKATING_IDENTITY_GALLERY_ROOT` 指向服务端文件目录，训练历史在 PostgreSQL。12 路原始录像和完整分析分块位于 Windows/Ubuntu 共同访问的 NAS；跨主机协议只使用 `nas://` URI。
 
 相关文件：
 
@@ -55,6 +55,7 @@ TODO: 未发现日志收集或监控服务。代码使用 `qDebug()` 和 `qWarni
 - Direct3D 11 / DXGI / D3DCompiler：`mainwindow.pro`, `d3dvideosurface.cpp`
 - TensorRT 10.1：`mainwindow.pro`, `tensorrtrunner.cpp`
 - CUDA 11.8：`mainwindow.pro`, `tensorrtrunner.cpp`
+- NVIDIA DeepStream 9 容器：`analysis_worker/Dockerfile`；部署在 Ubuntu 24.04 分析主机，使用 NVIDIA Container Toolkit 和 NAS bind mount。
 - QXlsx vendored 源码：`third_party/QXlsx`, `mainwindow.pro`；MIT license，用于动作明细 XLSX 导出。
 - Ultralytics YOLO26x：来源为 `https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x.pt`，AGPL-3.0 或 Enterprise license，导出为 ONNX 后运行。
 - TransReID：来源为 `https://github.com/damo-cv/TransReID`，使用官方 MSMT17 ViT-Base baseline checkpoint；遵守仓库许可证和 MSMT17 数据集条款。

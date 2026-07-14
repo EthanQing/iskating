@@ -52,7 +52,11 @@ F-10 的 `action_repetitions.video_file_id/video_index` 只是把动作片段时
 
 离线导入会先向训练服务写入 `offline_analysis_tasks`。如果服务不可用或任务保存失败，导入会被阻止，避免出现 UI 已切换到离线分析但数据库没有可反查任务的状态。
 
-F-15 的多视频能力当前只是数据协议预留：`offline_analysis_tasks.batch_id/camera_id/time_offset_ms` 可承载批次、机位和时间偏移，但 UI 仍只导入单个视频，不做多文件同步、自动对齐、复制或后台批处理。
+旧 F-15 单视频路径仍保留；新完整帧率路径使用独立批次/运行/运行源/分块索引。跨主机禁止保存 Windows 盘符，必须使用受根目录约束的 `nas://` URI；Windows 回放还需单独配置 `offlineAnalysis/nasRoot` 映射。首期只按时间戳和人工毫秒偏移同步，不做自动视觉对齐。
+
+完整帧率与实时预览不可共用 latest-frame worker。离线管线的队列、mux 和推理不得配置 leaky/drop 或 YOLO interval；性能不足必须背压。只有原子重命名且 SHA256 校验后的完整 gzip JSONL 分块才能登记检查点，临时文件和未登记文件都不属于已完成结果。
+
+不要覆盖激活运行的分块。模型、预处理、gallery 或同步校正变化必须创建新运行，12 路完整性校验成功后再原子激活。`participant_pose_frames` 只是约 200 ms 兼容摘要，不能用于判断逐帧完整性。
 
 相关文件：
 
@@ -148,7 +152,7 @@ F-15 的多视频能力当前只是数据协议预留：`offline_analysis_tasks.
 
 ## 测试坑点
 
-TODO: 当前没有测试目录和测试命令。修改核心逻辑后至少应做手动启动、采集、保存记录、复盘校准、导出报告和模型加载验证。
+Python 单元测试位于 `server/tests`，但 Windows 环境不能替代 DeepStream 原生构建、真实 NVIDIA 解码和 12 路压力测试。Docker engine 未启动或无法访问 NGC 时，`docker compose config` 通过也不代表镜像可构建。逐帧正确性必须用已知帧号视频和分块内容验证，不能只看数据库进度百分比。
 
 ## ReID 与模型分发坑点
 

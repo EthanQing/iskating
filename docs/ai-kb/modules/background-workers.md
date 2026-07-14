@@ -24,6 +24,8 @@
 - `AthleteAnalysisManager::setActiveStreams()` 支持多路 `RtspStream`，worker 按轮询顺序在有新帧且达到目标 FPS 间隔的流之间 round-robin 分析，并把 `cameraId` 写回 `AthleteFrameResult`。
 - AI 分析结果通过 `QMetaObject::invokeMethod(..., Qt::QueuedConnection)` 发送回 `MainWindow`。
 - `AthleteAnalysisWorker::stop()` 等待最长 180 秒，因为 TensorRT 关闭可能很慢。
+- `analysis_worker/worker.py` 通过服务令牌领取带租约的离线运行，启动原生 DeepStream 子进程并发送 heartbeat；租约过期后其他 worker 可重新领取。
+- 离线 worker 与 Qt 实时 worker 完全隔离。它按完整分块做检查点，允许处理慢于视频，不使用 latest-frame 覆盖；单路失败保留其他机位已提交分块，运行状态进入 `partial` 或 `failed`。
 
 ## 对外接口
 

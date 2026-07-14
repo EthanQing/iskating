@@ -30,6 +30,15 @@
 - 缺少 PersonViT 时保留 YOLO26x 检测和视频播放，身份状态为 unknown。
 - 缺少 YOLO26x 时停止 AI 推理，不影响视频播放。
 
+## 完整帧率离线执行器
+
+- `analysis_worker/` 是独立 Ubuntu/DeepStream 9 服务，不复用 Windows latest-frame 实时 worker。
+- 原生 C++ 管线使用硬件解码、`nvstreammux`、YOLO26x PGIE、NvDCF、PersonViT 张量输出和自定义结果收集器；所有队列禁用 leaky/drop，YOLO `interval=0`。
+- `analysis_worker/custom_parser` 解析 YOLO26x `batch x 300 x 6` NMS-free 输出，PGIE 关闭额外聚类。
+- `tools/export_deepstream_models.py` 导出 YOLO batch 1-12 和 PersonViT batch 1-32 的动态 ONNX，并生成模型校验元数据。
+- PersonViT 只在新 track、固定周期或身份低置信度/冲突时执行，gallery 匹配和 ambiguous margin 保持业务规则；结果沿 track 传播，不保存长期原始 embedding。
+- 每个解码帧都生成 `frameIndex`、PTS、批次时间、cameraId 和对象列表。PTS 缺失或倒退会使该源失败，不会静默补帧。
+
 ## 模型与运行时
 
 - TensorRT 10.x、CUDA 11.8、FP16 engine、兼容的 NVIDIA 驱动和 GPU。

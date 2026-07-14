@@ -34,3 +34,12 @@
 ## 历史兼容
 
 旧姿态字段、旧动作评分和旧姿态复盘入口保留读取兼容，但新训练不会生成这些结果。
+
+## 完整帧率离线流程
+
+1. Windows 客户端创建含 12 个 `nas://` 源的批次，再以模型、预处理、同步和 gallery 快照创建运行版本。
+2. DeepStream worker 领取租约，逐源解码并以 `batchTime = sourcePTS + sourceStartOffset + manualCorrection` 建立统一时间轴。
+3. 每个解码帧运行 YOLO；NvDCF 维护机位内 track，PersonViT 按新轨迹、周期和低置信度条件复核身份。
+4. 每 10 秒关闭一个 gzip JSONL 分块，计算 SHA256、原子重命名，再通过 worker API 幂等登记。
+5. 范围查询只返回已提交分块内的帧，同时声明缺口；Qt 回放按 PTS 预取并在缺口处清空覆盖层。
+6. 12 路全部通过帧数、连续 frameIndex 和 PTS 校验后运行才可完成；激活时原子更新批次和 session 当前版本，并派生约 200 ms 兼容摘要。

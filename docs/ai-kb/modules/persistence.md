@@ -63,7 +63,7 @@ PostgreSQL 主要表：
 - `competitions`, `competition_events`, `event_athletes`
 - `action_categories`, `action_standards`
 - `training_plans`, `training_tasks`
-- `training_sessions`, `training_session_participants`, `training_video_files`, `offline_analysis_tasks`, `action_repetitions`, `participant_repetitions`, `participant_pose_frames`
+- `training_sessions`, `training_session_participants`, `training_video_files`, `offline_analysis_tasks`, `offline_analysis_batches`, `offline_analysis_runs`, `offline_analysis_run_sources`, `offline_analysis_result_chunks`, `action_repetitions`, `participant_repetitions`, `participant_pose_frames`
 - `athlete_action_baselines`
 
 `athletes` 保存运动员档案并用 `active` 做归档；`athlete_identity_samples` 保存 ReID 样本文件路径、文件名、模型版本和预处理版本；`athlete_identity_embeddings` 保存样本对应的 embedding、维度、模型版本和预处理版本。人员删除不会硬删历史外键，只从训练选择与人员管理列表中隐藏。`coaches`、比赛、训练 session 和视频资产继续保留历史兼容字段。`participant_pose_frames` 仍可保存旧姿态时间线，也承载新训练的检测框、trackId、身份状态和置信度；新训练不填充虚假的关键点。`action_repetitions`、`participant_repetitions` 和评分字段只供旧记录或人工复盘兼容使用。
@@ -116,7 +116,9 @@ PostgreSQL 主要表：
 
 `videoFiles(status, withLocalPathOnly, modifiedBefore)` 查询 `training_video_files` 并联查 session、运动员和动作引用数量，供系统设置生成本机视频清理候选列表。桌面端只会把“已登记、路径在配置根目录下、文件实际存在”的视频列为可删除候选；删除本机文件后调用 `markVideoFileCleaned(videoFileId, reason)` 在视频资产 metadata 写入 `cleanupDeletedAt/cleanupReason/cleanupMissing`，不删除训练记录、动作实例或视频资产行，也不扩展 `status` 枚举。
 
-`saveOfflineAnalysisTask(task)` 在离线视频导入通过探测后写入 `offline_analysis_tasks`。当前 UI 只创建单视频任务：`batch_id` 为本次导入批次、`camera_id=0`、`time_offset_ms=0`、状态为 `imported`，metadata 保存探测摘要和“多视频预留”标记。后续多视频导入可以复用同一 `batch_id` 并按机位与时间偏移扩展，不需要新增重复媒体表。
+`saveOfflineAnalysisTask(task)` 保留旧单视频导入兼容。完整帧率路径使用 `createOfflineAnalysisBatch()`、`createOfflineAnalysisRun()`、运行控制、范围查询和激活接口。批次固定含 12 路 `nas://` 源；运行源独立保存帧数、PTS、重试与完成状态；结果分块索引保存 URI、时间/帧范围、SHA256 和 schema 版本。
+
+完整逐帧结果不写 PostgreSQL。worker 将 10 秒 gzip JSONL 分块原子写入 `ISKATING_ANALYSIS_NAS_ROOT`，数据库仅保存索引。带完整分析批次的 `saveTrainingSession()` 不再上传全量 `participant_pose_frames`；完成运行激活后，服务端按约 200 ms 从分块派生兼容摘要。视频资产全部标记清理后，服务端删除对应结果文件、保留最小审计信息并把运行/批次归档。
 
 `trendForRecentDays(days)` 用 `training_sessions.saved_at` 做最近 N 天窗口统计，返回训练次数、session 均分、最佳分和动作完成数；动作完成数优先来自 participant 结果数量，旧记录没有新表动作明细时退回 `action_repetitions` 或 session 汇总字段。弱项分项均值优先来自动作实例的人工有效分项分，没有动作实例分项时退回 session 分项分。
 

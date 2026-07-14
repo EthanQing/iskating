@@ -35,7 +35,7 @@
 - 解码必须输出 `AV_PIX_FMT_D3D11`，否则视为 fatal error。
 - `D3DVideoSurface` 负责把最新 `D3DFrame` 显示到 Qt 控件。
 - `AthleteAnalysisManager` 用 `D3DFrameExtractor` 从当前分析流转 RGB；采集中会由 `MainWindow::syncAnalysisStreams()` 按“主机位优先、最大分析路数、每路目标 FPS、自动降级”策略把活动相机流同步给 AI。
-- RTSP 训练时，主视图仍优先播放主码流并保留预览 fallback；多路 AI 默认订阅预览流，当前选中机位可按设置复用主视图活动流。默认分析预算为 12 路、每路 5 FPS，超载时优先降低非主机位有效分析频率；当前离线视频 UI 仍只分析主视图单路本地文件，多视频导入仅在离线任务表中预留 `batch_id/camera_id/time_offset_ms` 协议。
+- RTSP 训练时，主视图仍优先播放主码流并保留预览 fallback；多路实时 AI 默认订阅预览流，当前选中机位可按设置复用主视图活动流。默认实时预算为 12 路、每路 5 FPS，超载时优先降低非主机位有效分析频率。完整帧率离线模式另由 DeepStream worker 读取 NAS 中的 12 路录像，不影响实时链路。
 - 本地文件回放使用独立 `RtspStream`，不经过 `StreamRegistry` 共享；RTSP/网络源继续走共享低延迟流。
 - `D3DFrame::mediaTimeMs` 保存媒体时间戳，供 UI 查询当前位置、片段定位和逐帧回放使用。
 - 系统设置可配置 `cameraDefaults/nvrPlaybackTemplate`，支持 `{user}`、`{password}`、`{ip}`、`{port}`、`{channel}`、`{start}`、`{end}` 占位符。历史回看和复盘校准会优先按训练开始时间、训练时长和动作片段窗口生成 NVR RTSP 回放 URL；模板不可用时回退到保存的实时主码流/预览码流或离线文件。
@@ -128,7 +128,14 @@
 - ⚠️ 高风险区域：当前没有通用软件解码 fallback。
 - 离线视频仍要求解码器支持 D3D11VA；导入前会校验并提前提示不兼容编码，但历史回看仍依赖实际播放链路。
 - 离线训练记录只保存本地文件引用并登记 `external` 视频资产，不复制视频文件；后续回看依赖原文件仍在本机可访问。
-- 离线分析任务是导入记录和训练 session 的闭环索引，不代表已经实现多文件同步、自动对齐或后台离线批处理；当前单视频任务使用 `camera_id=0` 和 `time_offset_ms=0`。
+- 旧单视频离线任务继续使用 `camera_id=0` 和 `time_offset_ms=0`。新完整帧率批次要求 12 路源，使用源时间戳、开始偏移和人工校正建立批次时间轴；首期不做自动视觉对齐。
+
+## 完整帧率回放
+
+- “完整分析”窗口导入批次 manifest、创建运行并显示每路进度、吞吐、ETA、错误、重试和版本状态。
+- 跨主机只保存 `nas://` URI。Windows 通过 `offlineAnalysis/nasRoot` 把 URI 映射到本地盘符或 UNC 根目录，禁止路径越界。
+- 历史回放不启动本地实时推理，而是按当前媒体 PTS 查询激活运行的前后结果窗口；完成区间可渐进查看，服务端声明的缺口会立即清空检测框。
+- 运行激活后客户端清空窗口缓存并切换版本；旧 session、旧单视频任务和旧 `participant_pose_frames` 仍按原路径读取。
 - RTSP 训练记录会登记 `planned` 视频资产，表示规范化录像路径和片段索引已生成但本次未实际录制文件。
 - 历史复盘的精确 seek、慢放和逐帧仅对本地文件可用，包括离线导入原文件和后续真实录制落盘文件。NVR/RTSP 网络回放按模板生成对应时间窗口的 RTSP 源，是否可 seek 取决于 NVR 能力；普通 RTSP planned 记录没有本地文件时只显示片段起点作为人工回看参考。
 - ⚠️ 高风险区域：D3D11 设备是全局共享的，修改线程/生命周期要谨慎。

@@ -4,6 +4,15 @@
 相关记录：[[tasks/done|已完成事项]]、[[decisions/initial-project-analysis|首次项目分析决策]]
 相关文档：[[01-project-overview|项目概览]]、[[02-architecture|架构说明]]、[[05-pitfalls|坑点]]
 
+## 2026-07-14
+
+- 新增 12 路完整帧率离线分析协议：批次、不可覆盖运行版本、逐源状态/租约和 gzip JSONL 分块索引；保留旧 `offline_analysis_tasks` 与 session 兼容引用。
+- 新增 Ubuntu 24.04 + DeepStream 9 原生 worker、YOLO26x `300x6` 自定义 parser、NvDCF、按轨迹触发 PersonViT、动态 batch 模型导出和 NVIDIA 容器部署配置。
+- 完整结果按机位每 10 秒原子写入 NAS 并以 SHA256/数据库索引提交，支持分块检查点、幂等重试、范围查询、缺口声明、取消、重试和 12 路完整性状态。
+- Windows Qt 新增“完整分析”窗口，可导入 12 路 manifest、配置同步校正和 NAS 映射、查看每路进度/ETA/错误并激活完成版本。
+- 历史回放按 PTS 预取激活运行结果，完成区间可渐进回放，缺失区间清空旧覆盖层；完整运行激活后由服务端派生约 200 ms `participant_pose_frames` 兼容摘要。
+- 视频清理联动删除完整结果分块并归档运行/批次审计；新增协议/分块/worker 自动测试、部署与测试 Runbook。
+
 ## 2026-05-28
 
 - 新增面向 Obsidian + Codex 的 AI 知识库。

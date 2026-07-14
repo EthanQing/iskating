@@ -75,6 +75,32 @@ TODO: 未找到 `.github/workflows/`、其他 CI 配置、安装器脚本或发�
 - 确认目标机器 GPU/驱动支持 TensorRT/CUDA/D3D11VA。
 - 确认 VC Redistributable 需求。
 
+## DeepStream 9 分析服务
+
+1. 在 Ubuntu 24.04 安装 Docker、NVIDIA 驱动和 NVIDIA Container Toolkit，确认容器可访问 GPU。
+2. 在 Windows 导出动态 batch 模型并把 `models/athlete/deepstream` 放到部署工作副本：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/export_deepstream_models.ps1
+```
+
+3. 在 FastAPI 主机设置 `ISKATING_ANALYSIS_NAS_ROOT` 和随机长令牌 `ISKATING_ANALYSIS_WORKER_TOKEN`，然后执行 `tools/backfill_full_rate_analysis.py` 或重建空库。
+4. 在 Ubuntu 设置 API 地址、同一令牌、worker ID 和 NAS 主机路径：
+
+```bash
+export ISKATING_API_BASE_URL=http://api-host:8000
+export ISKATING_ANALYSIS_WORKER_TOKEN='replace-me'
+export ISKATING_ANALYSIS_WORKER_ID=deepstream-01
+export ISKATING_ANALYSIS_NAS_ROOT=/srv/iskating
+docker compose -f analysis_worker/compose.yml config
+docker compose -f analysis_worker/compose.yml up -d --build
+```
+
+5. 确认 NAS 源目录对 worker 只读、结果目录可写；当前 compose 把统一根目录挂为可写，因为结果与源共用根。生产环境应通过 NAS ACL 限制 worker 只修改结果前缀。
+6. Windows 客户端“完整分析”中配置同一 `nas://` 根对应的盘符/UNC 路径，导入 12 路 manifest 后验证创建、进度、重试、渐进回放和激活。
+
+首次上线前必须完成 12 路 1080p60、至少 60 分钟压力测试和中断恢复测试。实时倍速不是首期门槛，但帧数一致、frameIndex 连续、PTS 不倒退、无未声明缺口、无 OOM 和分块 SHA256 正确是强制门槛。
+
 ## 无法确认的信息
 
 - TODO: 是否需要安装器。
