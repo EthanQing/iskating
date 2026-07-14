@@ -76,6 +76,32 @@ public:
                               QString *errorMessage = nullptr);
     bool saveOfflineAnalysisTask(OfflineAnalysisTask *task,
                                  QString *errorMessage = nullptr);
+    bool createOfflineAnalysisBatch(OfflineAnalysisBatch *batch,
+                                    const QVector<QString> &athleteIds,
+                                    QString *errorMessage = nullptr);
+    OfflineAnalysisBatch offlineAnalysisBatch(const QString &batchId,
+                                               QString *errorMessage = nullptr) const;
+    bool createOfflineAnalysisRun(const QString &batchId,
+                                  const QString &modelVersion,
+                                  const QString &preprocessingVersion,
+                                  OfflineAnalysisRun *run,
+                                  QString *errorMessage = nullptr);
+    OfflineAnalysisRun offlineAnalysisRun(const QString &runId,
+                                          QString *errorMessage = nullptr) const;
+    bool cancelOfflineAnalysisRun(const QString &runId,
+                                  OfflineAnalysisRun *run,
+                                  QString *errorMessage = nullptr);
+    bool retryOfflineAnalysisRun(const QString &runId,
+                                 OfflineAnalysisRun *run,
+                                 QString *errorMessage = nullptr);
+    bool activateOfflineAnalysisRun(const QString &runId,
+                                    OfflineAnalysisRun *run,
+                                    QString *errorMessage = nullptr);
+    OfflineAnalysisFrameWindow offlineAnalysisFrames(const QString &runId,
+                                                      int cameraId,
+                                                      qint64 fromMs,
+                                                      qint64 toMs,
+                                                      QString *errorMessage = nullptr) const;
 
     bool createAthlete(const QString &name, QString *athleteId, QString *errorMessage = nullptr);
     bool createCoach(const QString &name, QString *coachId, QString *errorMessage = nullptr);

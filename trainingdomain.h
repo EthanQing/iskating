@@ -3,6 +3,7 @@
 
 #include <QDate>
 #include <QDateTime>
+#include <QPair>
 #include <QString>
 #include <QVector>
 
@@ -278,6 +279,116 @@ struct OfflineAnalysisTask
     QDateTime updatedAt;
 };
 
+struct OfflineAnalysisBatchSource
+{
+    QString id;
+    int cameraId = 0;
+    QString sourceUri;
+    QString fileName;
+    qint64 fileSizeBytes = -1;
+    QDateTime fileModifiedAt;
+    int width = 1920;
+    int height = 1080;
+    double fps = 60.0;
+    int durationMs = 0;
+    qint64 totalFrames = 0;
+    QDateTime sourceStartedAt;
+    int manualCorrectionMs = 0;
+    QString status = QStringLiteral("imported");
+};
+
+struct OfflineAnalysisRunSource
+{
+    QString id;
+    QString taskId;
+    int cameraId = 0;
+    QString sourceUri;
+    QDateTime sourceStartedAt;
+    int manualCorrectionMs = 0;
+    QString status;
+    qint64 totalFrames = 0;
+    qint64 processedFrames = 0;
+    double progress = 0.0;
+    qint64 lastFrameIndex = -1;
+    qint64 lastPtsMs = -1;
+    qint64 completedThroughMs = -1;
+    QString errorMessage;
+    int retryCount = 0;
+};
+
+struct OfflineAnalysisRun
+{
+    QString id;
+    QString batchId;
+    QString status;
+    QString modelVersion;
+    QString preprocessingVersion;
+    QString gallerySnapshotHash;
+    QString configurationJson;
+    qint64 totalFrames = 0;
+    qint64 processedFrames = 0;
+    double progress = 0.0;
+    double throughputFps = 0.0;
+    int estimatedRemainingSeconds = -1;
+    QString errorMessage;
+    QString artifactRootUri;
+    bool cancelRequested = false;
+    QDateTime startedAt;
+    QDateTime completedAt;
+    QVector<OfflineAnalysisRunSource> sources;
+};
+
+struct OfflineAnalysisBatch
+{
+    QString id;
+    QString status;
+    QDateTime sourceStartedAt;
+    QString activeRunId;
+    QString metadataJson;
+    QVector<OfflineAnalysisBatchSource> sources;
+    QVector<OfflineAnalysisRun> runs;
+};
+
+struct OfflineAnalysisObject
+{
+    int classId = 0;
+    qint64 trackId = -1;
+    double detectionConfidence = 0.0;
+    double bboxX = 0.0;
+    double bboxY = 0.0;
+    double bboxWidth = 0.0;
+    double bboxHeight = 0.0;
+    QString athleteId;
+    QString label;
+    QString identityStatus = QStringLiteral("unknown");
+    double identityConfidence = 0.0;
+    QString identitySource;
+    bool reidExecuted = false;
+};
+
+struct OfflineAnalysisFrame
+{
+    qint64 frameIndex = -1;
+    qint64 sourcePtsMs = -1;
+    qint64 batchTimeMs = -1;
+    int cameraId = 0;
+    int width = 0;
+    int height = 0;
+    QVector<OfflineAnalysisObject> objects;
+};
+
+struct OfflineAnalysisFrameWindow
+{
+    QString runId;
+    int cameraId = 0;
+    qint64 fromMs = 0;
+    qint64 toMs = 0;
+    qint64 completedThroughMs = -1;
+    QString sourceStatus;
+    QVector<OfflineAnalysisFrame> frames;
+    QVector<QPair<qint64, qint64>> gaps;
+};
+
 struct ActionRepetition
 {
     QString id;
@@ -437,6 +548,8 @@ struct TrainingSession
     QString videoFallbackSource;
     QString videoCameraName;
     QString analysisTaskId;
+    QString analysisBatchId;
+    QString analysisRunId;
     QString sourceType = QStringLiteral("training");
     QString sourceRef;
     QString sourceLabel;
@@ -457,6 +570,8 @@ struct SessionHistoryItem
     QString competitionId;
     QString planId;
     QString taskId;
+    QString analysisBatchId;
+    QString analysisRunId;
     QString actionStandardId;
     QString athleteName;
     QString coachName;

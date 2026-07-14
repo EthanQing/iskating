@@ -435,6 +435,8 @@ QJsonObject sessionToJson(const TrainingSession &session)
         {QStringLiteral("videoFallbackSource"), session.videoFallbackSource},
         {QStringLiteral("videoCameraName"), session.videoCameraName},
         {QStringLiteral("analysisTaskId"), session.analysisTaskId},
+        {QStringLiteral("analysisBatchId"), session.analysisBatchId},
+        {QStringLiteral("analysisRunId"), session.analysisRunId},
         {QStringLiteral("sourceType"), session.sourceType},
         {QStringLiteral("sourceRef"), session.sourceRef},
         {QStringLiteral("feedback"), session.feedback},
@@ -593,6 +595,169 @@ OfflineAnalysisTask offlineAnalysisTaskFromJson(const QJsonObject &object)
     task.createdAt = dateTimeFromJson(object.value(QStringLiteral("createdAt")));
     task.updatedAt = dateTimeFromJson(object.value(QStringLiteral("updatedAt")));
     return task;
+}
+
+QJsonObject offlineAnalysisBatchSourceToJson(const OfflineAnalysisBatchSource &source)
+{
+    return {
+        {QStringLiteral("id"), source.id},
+        {QStringLiteral("cameraId"), source.cameraId},
+        {QStringLiteral("sourceUri"), source.sourceUri},
+        {QStringLiteral("fileName"), source.fileName},
+        {QStringLiteral("fileSizeBytes"), QString::number(source.fileSizeBytes)},
+        {QStringLiteral("fileModifiedAt"), source.fileModifiedAt.isValid() ? dateTimeToIso(source.fileModifiedAt) : QString()},
+        {QStringLiteral("durationMs"), source.durationMs},
+        {QStringLiteral("totalFrames"), QString::number(source.totalFrames)},
+        {QStringLiteral("sourceStartedAt"), source.sourceStartedAt.isValid() ? dateTimeToIso(source.sourceStartedAt) : QString()},
+        {QStringLiteral("manualCorrectionMs"), source.manualCorrectionMs},
+        {QStringLiteral("probeMetadata"), QJsonObject{
+            {QStringLiteral("width"), source.width},
+            {QStringLiteral("height"), source.height},
+            {QStringLiteral("fps"), source.fps}
+        }}
+    };
+}
+
+OfflineAnalysisBatchSource offlineAnalysisBatchSourceFromJson(const QJsonObject &object)
+{
+    OfflineAnalysisBatchSource source;
+    source.id = jsonString(object, QStringLiteral("id"));
+    source.cameraId = jsonInt(object, QStringLiteral("cameraId"));
+    source.sourceUri = jsonString(object, QStringLiteral("sourceUri"));
+    if (source.sourceUri.isEmpty()) {
+        source.sourceUri = jsonString(object, QStringLiteral("videoPath"));
+    }
+    source.fileName = jsonString(object, QStringLiteral("fileName"));
+    source.fileSizeBytes = jsonInt64(object, QStringLiteral("fileSizeBytes"), -1);
+    source.fileModifiedAt = dateTimeFromJson(object.value(QStringLiteral("fileModifiedAt")));
+    source.durationMs = jsonInt(object, QStringLiteral("durationMs"));
+    source.totalFrames = jsonInt64(object, QStringLiteral("totalFrames"));
+    source.sourceStartedAt = dateTimeFromJson(object.value(QStringLiteral("sourceStartedAt")));
+    source.manualCorrectionMs = jsonInt(object, QStringLiteral("manualCorrectionMs"),
+                                        jsonInt(object, QStringLiteral("timeOffsetMs")));
+    source.status = jsonString(object, QStringLiteral("status"));
+    const QJsonObject probe = object.value(QStringLiteral("probeMetadata")).toObject();
+    source.width = jsonInt(probe, QStringLiteral("width"), 1920);
+    source.height = jsonInt(probe, QStringLiteral("height"), 1080);
+    source.fps = jsonDouble(probe, QStringLiteral("fps"), 60.0);
+    if (source.totalFrames <= 0) {
+        source.totalFrames = jsonInt64(probe, QStringLiteral("totalFrames"));
+    }
+    if (!source.sourceStartedAt.isValid()) {
+        source.sourceStartedAt = dateTimeFromJson(probe.value(QStringLiteral("sourceStartedAt")));
+    }
+    return source;
+}
+
+OfflineAnalysisRunSource offlineAnalysisRunSourceFromJson(const QJsonObject &object)
+{
+    OfflineAnalysisRunSource source;
+    source.id = jsonString(object, QStringLiteral("id"));
+    source.taskId = jsonString(object, QStringLiteral("taskId"));
+    source.cameraId = jsonInt(object, QStringLiteral("cameraId"));
+    source.sourceUri = jsonString(object, QStringLiteral("sourceUri"));
+    source.sourceStartedAt = dateTimeFromJson(object.value(QStringLiteral("sourceStartedAt")));
+    source.manualCorrectionMs = jsonInt(object, QStringLiteral("manualCorrectionMs"));
+    source.status = jsonString(object, QStringLiteral("status"));
+    source.totalFrames = jsonInt64(object, QStringLiteral("totalFrames"));
+    source.processedFrames = jsonInt64(object, QStringLiteral("processedFrames"));
+    source.progress = jsonDouble(object, QStringLiteral("progress"));
+    source.lastFrameIndex = jsonInt64(object, QStringLiteral("lastFrameIndex"), -1);
+    source.lastPtsMs = jsonInt64(object, QStringLiteral("lastPtsMs"), -1);
+    source.completedThroughMs = jsonInt64(object, QStringLiteral("completedThroughMs"), -1);
+    source.errorMessage = jsonString(object, QStringLiteral("errorMessage"));
+    source.retryCount = jsonInt(object, QStringLiteral("retryCount"));
+    return source;
+}
+
+OfflineAnalysisRun offlineAnalysisRunFromJson(const QJsonObject &object)
+{
+    OfflineAnalysisRun run;
+    run.id = jsonString(object, QStringLiteral("id"));
+    run.batchId = jsonString(object, QStringLiteral("batchId"));
+    run.status = jsonString(object, QStringLiteral("status"));
+    run.modelVersion = jsonString(object, QStringLiteral("modelVersion"));
+    run.preprocessingVersion = jsonString(object, QStringLiteral("preprocessingVersion"));
+    run.gallerySnapshotHash = jsonString(object, QStringLiteral("gallerySnapshotHash"));
+    run.configurationJson = QString::fromUtf8(QJsonDocument(object.value(QStringLiteral("configuration")).toObject())
+                                                  .toJson(QJsonDocument::Compact));
+    run.totalFrames = jsonInt64(object, QStringLiteral("totalFrames"));
+    run.processedFrames = jsonInt64(object, QStringLiteral("processedFrames"));
+    run.progress = jsonDouble(object, QStringLiteral("progress"));
+    run.throughputFps = jsonDouble(object, QStringLiteral("throughputFps"));
+    run.estimatedRemainingSeconds = jsonInt(object, QStringLiteral("estimatedRemainingSeconds"), -1);
+    run.errorMessage = jsonString(object, QStringLiteral("errorMessage"));
+    run.artifactRootUri = jsonString(object, QStringLiteral("artifactRootUri"));
+    run.cancelRequested = object.value(QStringLiteral("cancelRequested")).toBool(false);
+    run.startedAt = dateTimeFromJson(object.value(QStringLiteral("startedAt")));
+    run.completedAt = dateTimeFromJson(object.value(QStringLiteral("completedAt")));
+    for (const QJsonValue &value : object.value(QStringLiteral("sources")).toArray()) {
+        run.sources.append(offlineAnalysisRunSourceFromJson(value.toObject()));
+    }
+    return run;
+}
+
+OfflineAnalysisBatch offlineAnalysisBatchFromJson(const QJsonObject &object)
+{
+    OfflineAnalysisBatch batch;
+    batch.id = jsonString(object, QStringLiteral("id"));
+    batch.status = jsonString(object, QStringLiteral("status"));
+    batch.sourceStartedAt = dateTimeFromJson(object.value(QStringLiteral("sourceStartedAt")));
+    batch.activeRunId = jsonString(object, QStringLiteral("activeRunId"));
+    batch.metadataJson = QString::fromUtf8(QJsonDocument(object.value(QStringLiteral("metadata")).toObject())
+                                               .toJson(QJsonDocument::Compact));
+    for (const QJsonValue &value : object.value(QStringLiteral("sources")).toArray()) {
+        batch.sources.append(offlineAnalysisBatchSourceFromJson(value.toObject()));
+    }
+    for (const QJsonValue &value : object.value(QStringLiteral("runs")).toArray()) {
+        batch.runs.append(offlineAnalysisRunFromJson(value.toObject()));
+    }
+    return batch;
+}
+
+OfflineAnalysisFrameWindow offlineAnalysisFrameWindowFromJson(const QJsonObject &object)
+{
+    OfflineAnalysisFrameWindow window;
+    window.runId = jsonString(object, QStringLiteral("runId"));
+    window.cameraId = jsonInt(object, QStringLiteral("cameraId"));
+    window.fromMs = jsonInt64(object, QStringLiteral("fromMs"));
+    window.toMs = jsonInt64(object, QStringLiteral("toMs"));
+    window.completedThroughMs = jsonInt64(object, QStringLiteral("completedThroughMs"), -1);
+    window.sourceStatus = jsonString(object, QStringLiteral("sourceStatus"));
+    for (const QJsonValue &frameValue : object.value(QStringLiteral("frames")).toArray()) {
+        const QJsonObject frameObject = frameValue.toObject();
+        OfflineAnalysisFrame frame;
+        frame.frameIndex = jsonInt64(frameObject, QStringLiteral("frameIndex"), -1);
+        frame.sourcePtsMs = jsonInt64(frameObject, QStringLiteral("sourcePtsMs"), -1);
+        frame.batchTimeMs = jsonInt64(frameObject, QStringLiteral("batchTimeMs"), -1);
+        frame.cameraId = jsonInt(frameObject, QStringLiteral("cameraId"));
+        frame.width = jsonInt(frameObject, QStringLiteral("width"));
+        frame.height = jsonInt(frameObject, QStringLiteral("height"));
+        for (const QJsonValue &objectValue : frameObject.value(QStringLiteral("objects")).toArray()) {
+            const QJsonObject value = objectValue.toObject();
+            OfflineAnalysisObject instance;
+            instance.classId = jsonInt(value, QStringLiteral("classId"));
+            instance.trackId = jsonInt64(value, QStringLiteral("trackId"), -1);
+            instance.detectionConfidence = jsonDouble(value, QStringLiteral("detectionConfidence"));
+            instance.bboxX = jsonDouble(value, QStringLiteral("bboxX"));
+            instance.bboxY = jsonDouble(value, QStringLiteral("bboxY"));
+            instance.bboxWidth = jsonDouble(value, QStringLiteral("bboxWidth"));
+            instance.bboxHeight = jsonDouble(value, QStringLiteral("bboxHeight"));
+            instance.athleteId = jsonString(value, QStringLiteral("athleteId"));
+            instance.label = jsonString(value, QStringLiteral("label"));
+            instance.identityStatus = jsonString(value, QStringLiteral("identityStatus"));
+            instance.identityConfidence = jsonDouble(value, QStringLiteral("identityConfidence"));
+            instance.identitySource = jsonString(value, QStringLiteral("identitySource"));
+            instance.reidExecuted = value.value(QStringLiteral("reidExecuted")).toBool(false);
+            frame.objects.append(instance);
+        }
+        window.frames.append(frame);
+    }
+    for (const QJsonValue &gapValue : object.value(QStringLiteral("gaps")).toArray()) {
+        const QJsonObject gap = gapValue.toObject();
+        window.gaps.append({jsonInt64(gap, QStringLiteral("fromMs")), jsonInt64(gap, QStringLiteral("toMs"))});
+    }
+    return window;
 }
 
 ActionRepetition repetitionFromJson(const QJsonObject &object)
@@ -870,6 +1035,8 @@ SessionHistoryItem historyFromJson(const QJsonObject &object)
     item.videoFallbackSource = jsonString(object, QStringLiteral("videoFallbackSource"));
     item.videoCameraName = jsonString(object, QStringLiteral("videoCameraName"));
     item.analysisTaskId = jsonString(object, QStringLiteral("analysisTaskId"));
+    item.analysisBatchId = jsonString(object, QStringLiteral("analysisBatchId"));
+    item.analysisRunId = jsonString(object, QStringLiteral("analysisRunId"));
     item.analysisTaskStatus = jsonString(object, QStringLiteral("analysisTaskStatus"));
     item.analysisTaskBatchId = jsonString(object, QStringLiteral("analysisTaskBatchId"));
     item.analysisTaskCameraId = jsonInt(object, QStringLiteral("analysisTaskCameraId"));
@@ -1678,6 +1845,154 @@ bool TrainingRepository::saveOfflineAnalysisTask(OfflineAnalysisTask *task, QStr
     return ok;
 }
 
+bool TrainingRepository::createOfflineAnalysisBatch(OfflineAnalysisBatch *batch,
+                                                    const QVector<QString> &athleteIds,
+                                                    QString *errorMessage)
+{
+    if (!batch || batch->sources.size() != 12) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("完整帧率分析批次必须包含 12 路视频。");
+        }
+        return false;
+    }
+    QJsonArray sources;
+    for (OfflineAnalysisBatchSource &source : batch->sources) {
+        source.id = ensureId(source.id);
+        sources.append(offlineAnalysisBatchSourceToJson(source));
+    }
+    QJsonArray athletes;
+    for (const QString &athleteId : athleteIds) {
+        if (!athleteId.trimmed().isEmpty()) {
+            athletes.append(athleteId.trimmed());
+        }
+    }
+    QJsonObject metadata{{QStringLiteral("mode"), QStringLiteral("synchronized_12_camera")},
+                         {QStringLiteral("athleteIds"), athletes}};
+    const QJsonDocument customMetadata = QJsonDocument::fromJson(batch->metadataJson.toUtf8());
+    if (customMetadata.isObject()) {
+        for (auto it = customMetadata.object().constBegin(); it != customMetadata.object().constEnd(); ++it) {
+            metadata.insert(it.key(), it.value());
+        }
+    }
+    bool ok = false;
+    const QJsonObject response = requestObject(
+        QStringLiteral("POST"),
+        QStringLiteral("/offline-analysis/batches"),
+        {{QStringLiteral("id"), batch->id},
+         {QStringLiteral("sourceStartedAt"), batch->sourceStartedAt.isValid() ? dateTimeToIso(batch->sourceStartedAt) : QString()},
+         {QStringLiteral("metadata"), metadata},
+         {QStringLiteral("sources"), sources}},
+        {}, &ok, errorMessage);
+    if (ok) {
+        *batch = offlineAnalysisBatchFromJson(response);
+    }
+    return ok;
+}
+
+OfflineAnalysisBatch TrainingRepository::offlineAnalysisBatch(const QString &batchId, QString *errorMessage) const
+{
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("GET"),
+                                               QStringLiteral("/offline-analysis/batches/%1").arg(batchId),
+                                               {}, {}, &ok, errorMessage);
+    return ok ? offlineAnalysisBatchFromJson(response) : OfflineAnalysisBatch();
+}
+
+bool TrainingRepository::createOfflineAnalysisRun(const QString &batchId,
+                                                  const QString &modelVersion,
+                                                  const QString &preprocessingVersion,
+                                                  OfflineAnalysisRun *run,
+                                                  QString *errorMessage)
+{
+    if (!run) {
+        return false;
+    }
+    bool ok = false;
+    const QJsonObject response = requestObject(
+        QStringLiteral("POST"),
+        QStringLiteral("/offline-analysis/batches/%1/runs").arg(batchId),
+        {{QStringLiteral("modelVersion"), modelVersion},
+         {QStringLiteral("preprocessingVersion"), preprocessingVersion},
+         {QStringLiteral("configuration"), QJsonObject{
+             {QStringLiteral("analysisMode"), QStringLiteral("strict_full_frame")},
+             {QStringLiteral("reidPolicy"), QStringLiteral("track_assisted")}
+         }}},
+        {}, &ok, errorMessage);
+    if (ok) {
+        *run = offlineAnalysisRunFromJson(response);
+    }
+    return ok;
+}
+
+OfflineAnalysisRun TrainingRepository::offlineAnalysisRun(const QString &runId, QString *errorMessage) const
+{
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("GET"),
+                                               QStringLiteral("/offline-analysis/runs/%1").arg(runId),
+                                               {}, {}, &ok, errorMessage);
+    return ok ? offlineAnalysisRunFromJson(response) : OfflineAnalysisRun();
+}
+
+bool TrainingRepository::cancelOfflineAnalysisRun(const QString &runId,
+                                                  OfflineAnalysisRun *run,
+                                                  QString *errorMessage)
+{
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("POST"),
+                                               QStringLiteral("/offline-analysis/runs/%1/cancel").arg(runId),
+                                               {}, {}, &ok, errorMessage);
+    if (ok && run) {
+        *run = offlineAnalysisRunFromJson(response);
+    }
+    return ok;
+}
+
+bool TrainingRepository::retryOfflineAnalysisRun(const QString &runId,
+                                                 OfflineAnalysisRun *run,
+                                                 QString *errorMessage)
+{
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("POST"),
+                                               QStringLiteral("/offline-analysis/runs/%1/retry").arg(runId),
+                                               {}, {}, &ok, errorMessage);
+    if (ok && run) {
+        *run = offlineAnalysisRunFromJson(response);
+    }
+    return ok;
+}
+
+bool TrainingRepository::activateOfflineAnalysisRun(const QString &runId,
+                                                    OfflineAnalysisRun *run,
+                                                    QString *errorMessage)
+{
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("POST"),
+                                               QStringLiteral("/offline-analysis/runs/%1/activate").arg(runId),
+                                               {}, {}, &ok, errorMessage);
+    if (ok && run) {
+        *run = offlineAnalysisRunFromJson(response);
+    }
+    return ok;
+}
+
+OfflineAnalysisFrameWindow TrainingRepository::offlineAnalysisFrames(const QString &runId,
+                                                                     int cameraId,
+                                                                     qint64 fromMs,
+                                                                     qint64 toMs,
+                                                                     QString *errorMessage) const
+{
+    bool ok = false;
+    const QJsonObject response = requestObject(
+        QStringLiteral("GET"),
+        QStringLiteral("/offline-analysis/runs/%1/frames").arg(runId),
+        {},
+        {{QStringLiteral("cameraId"), cameraId},
+         {QStringLiteral("fromMs"), QString::number(fromMs)},
+         {QStringLiteral("toMs"), QString::number(toMs)}},
+        &ok, errorMessage);
+    return ok ? offlineAnalysisFrameWindowFromJson(response) : OfflineAnalysisFrameWindow();
+}
+
 bool TrainingRepository::createAthlete(const QString &name, QString *athleteId, QString *errorMessage)
 {
     AthleteProfile athlete;
@@ -2026,7 +2341,10 @@ bool TrainingRepository::saveTrainingSession(TrainingSession *session,
         participantReps.append(participantRepetitionToJson(repetition));
     }
     QJsonArray participantPoseFrames;
-    for (ParticipantPoseFrame frame : session->participantPoseFrames) {
+    const QVector<ParticipantPoseFrame> framesToSave = session->analysisBatchId.trimmed().isEmpty()
+                                                           ? session->participantPoseFrames
+                                                           : QVector<ParticipantPoseFrame>();
+    for (ParticipantPoseFrame frame : framesToSave) {
         frame.id = ensureId(frame.id);
         frame.sessionId = session->id;
         if (frame.videoIndex <= 0) {

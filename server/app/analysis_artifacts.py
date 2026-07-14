@@ -52,6 +52,17 @@ def read_frame_chunks(paths: Iterable[Path], from_ms: int, to_ms: int) -> list[d
     return frames
 
 
+def iter_frame_chunks(paths: Iterable[Path]):
+    for path in paths:
+        with gzip.open(path, "rt", encoding="utf-8") as stream:
+            header = json.loads(stream.readline())
+            if header.get("type") != "header" or int(header.get("schemaVersion", 0)) != 1:
+                raise ValueError(f"unsupported analysis chunk: {path.name}")
+            for line in stream:
+                if line.strip():
+                    yield json.loads(line)
+
+
 def coverage_gaps(ranges: Iterable[tuple[int, int]], from_ms: int, to_ms: int) -> list[dict[str, int]]:
     cursor = from_ms
     gaps: list[dict[str, int]] = []

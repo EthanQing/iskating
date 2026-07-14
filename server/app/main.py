@@ -17,7 +17,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from .analysis_artifacts import coverage_gaps, read_frame_chunks, resolve_nas_uri, sha256_file
+from .analysis_artifacts import coverage_gaps, iter_frame_chunks, read_frame_chunks, resolve_nas_uri, sha256_file
 
 
 def env(name: str, default: str | None = None) -> str:
@@ -1602,6 +1602,11 @@ def activate_offline_analysis_run(run_id: str,
         text("UPDATE training_sessions SET analysis_run_id=:run_id WHERE analysis_batch_id=:batch_id"),
         {"run_id": parsed_run_id, "batch_id": run["batch_id"]},
     )
+    session_ids = [str(row["id"]) for row in db.execute(
+        text("SELECT id FROM training_sessions WHERE analysis_batch_id=:batch_id"), {"batch_id": run["batch_id"]}
+    ).mappings()]
+    for session_id in session_ids:
+        derive_analysis_pose_frames(db, session_id, str(parsed_run_id))
     return analysis_run_response(db, run_id)
 
 
@@ -2051,6 +2056,102 @@ def insert_participant_pose_frame(db: Session,
     return frame_id
 
 
+def derive_analysis_pose_frames(db: Session, session_id: str, run_id: str) -> int:
+    run = db.execute(
+        text("SELECT status FROM offline_analysis_runs WHERE id=:id"), {"id": parse_uuid(run_id)}
+    ).mappings().first()
+    if not run or run["status"] != "completed":
+        return 0
+    participants = {
+        str(row["athlete_id"]): str(row["id"])
+        for row in db.execute(
+            text("SELECT id, athlete_id FROM training_session_participants WHERE session_id=:id"),
+            {"id": parse_uuid(session_id)},
+        ).mappings()
+    }
+    videos = {
+        int(row["camera"]): (str(row["id"]), int(row["video_index"]))
+        for row in db.execute(
+            text("SELECT id, camera, video_index FROM training_video_files WHERE session_id=:id"),
+            {"id": parse_uuid(session_id)},
+        ).mappings()
+    }
+    chunks = list(db.execute(
+        text(
+            "SELECT source.camera_id, chunk.artifact_uri, chunk.checksum_sha256 "
+            "FROM offline_analysis_result_chunks chunk "
+            "JOIN offline_analysis_run_sources source ON source.id=chunk.run_source_id "
+            "WHERE source.run_id=:run_id ORDER BY source.camera_id, chunk.start_frame_index"
+        ), {"run_id": parse_uuid(run_id)}
+    ).mappings())
+    db.execute(text("DELETE FROM participant_pose_frames WHERE session_id=:id"), {"id": parse_uuid(session_id)})
+    insert_sql = text(
+        "INSERT INTO participant_pose_frames "
+        "(id, session_id, participant_id, athlete_id, video_file_id, video_index, frame_time_ms, camera_id, "
+        "track_id, identity_status, identity_confidence, identity_source, bbox_x, bbox_y, bbox_width, bbox_height, "
+        "anchor_x, anchor_y, pose_confidence, pose_summary) "
+        "VALUES (:id, :session_id, :participant_id, :athlete_id, :video_file_id, :video_index, :frame_time_ms, "
+        ":camera_id, :track_id, :identity_status, :identity_confidence, :identity_source, :bbox_x, :bbox_y, "
+        ":bbox_width, :bbox_height, :anchor_x, :anchor_y, :pose_confidence, CAST(:pose_summary AS jsonb))"
+    )
+    last_samples: dict[tuple[int, int], int] = {}
+    rows: list[dict[str, Any]] = []
+    inserted = 0
+
+    def flush() -> None:
+        nonlocal inserted
+        if rows:
+            db.execute(insert_sql, rows)
+            inserted += len(rows)
+            rows.clear()
+
+    for chunk in chunks:
+        path = resolve_nas_uri(ANALYSIS_NAS_ROOT, chunk["artifact_uri"])
+        if sha256_file(path) != chunk["checksum_sha256"]:
+            raise RuntimeError(f"analysis chunk checksum mismatch: {path.name}")
+        for frame in iter_frame_chunks([path]):
+            frame_time_ms = int(frame.get("batchTimeMs", -1))
+            camera_id = int(frame.get("cameraId") or chunk["camera_id"])
+            if frame_time_ms < 0:
+                continue
+            for instance in frame.get("objects") or []:
+                track_id_value = int(instance.get("trackId", -1))
+                sample_key = (camera_id, track_id_value)
+                if frame_time_ms - last_samples.get(sample_key, -200) < 200:
+                    continue
+                last_samples[sample_key] = frame_time_ms
+                athlete_id = parse_uuid(instance.get("athleteId"))
+                video_file_id, video_index = videos.get(camera_id, (None, camera_id))
+                bbox_x = float(instance.get("bboxX") or 0.0)
+                bbox_y = float(instance.get("bboxY") or 0.0)
+                bbox_width = float(instance.get("bboxWidth") or 0.0)
+                bbox_height = float(instance.get("bboxHeight") or 0.0)
+                rows.append({
+                    "id": new_uuid(), "session_id": parse_uuid(session_id),
+                    "participant_id": parse_uuid(participants.get(str(athlete_id))) if athlete_id else None,
+                    "athlete_id": athlete_id, "video_file_id": parse_uuid(video_file_id), "video_index": video_index,
+                    "frame_time_ms": frame_time_ms, "camera_id": camera_id,
+                    "track_id": max(-2147483648, min(2147483647, track_id_value)) if track_id_value >= 0 else None,
+                    "identity_status": instance.get("identityStatus") or "unknown",
+                    "identity_confidence": float(instance.get("identityConfidence") or 0.0),
+                    "identity_source": instance.get("identitySource") or None,
+                    "bbox_x": bbox_x, "bbox_y": bbox_y, "bbox_width": bbox_width, "bbox_height": bbox_height,
+                    "anchor_x": bbox_x + bbox_width / 2.0, "anchor_y": bbox_y + bbox_height,
+                    "pose_confidence": float(instance.get("detectionConfidence") or 0.0),
+                    "pose_summary": json.dumps({
+                        "analysis": "athlete-detection-reid-full-rate-derived",
+                        "frameIndex": int(frame.get("frameIndex", -1)),
+                        "reidExecuted": bool(instance.get("reidExecuted", False)),
+                        "frameWidth": int(frame.get("width") or 0),
+                        "frameHeight": int(frame.get("height") or 0),
+                    }, ensure_ascii=False),
+                })
+                if len(rows) >= 1000:
+                    flush()
+    flush()
+    return inserted
+
+
 def participant_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(row["id"]),
@@ -2179,7 +2280,7 @@ def cleanup_video_file(video_file_id: str,
                        db: Session = Depends(db_session),
                        _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
     row = db.execute(
-        text("SELECT metadata FROM training_video_files WHERE id = :id"),
+        text("SELECT session_id, metadata FROM training_video_files WHERE id = :id"),
         {"id": parse_uuid(video_file_id)},
     ).mappings().first()
     if not row:
@@ -2200,7 +2301,48 @@ def cleanup_video_file(video_file_id: str,
         ),
         {"id": parse_uuid(video_file_id), "metadata": json.dumps(metadata, ensure_ascii=False)},
     )
-    return {"ok": True}
+    remaining = int(db.execute(
+        text(
+            "SELECT COUNT(*) FROM training_video_files WHERE session_id=:session_id "
+            "AND COALESCE((metadata->>'cleanupMissing')::boolean, false)=false"
+        ), {"session_id": row["session_id"]}
+    ).scalar() or 0)
+    artifacts_deleted = 0
+    session = db.execute(
+        text("SELECT analysis_batch_id FROM training_sessions WHERE id=:id"), {"id": row["session_id"]}
+    ).mappings().first()
+    if remaining == 0 and session and session["analysis_batch_id"]:
+        chunks = list(db.execute(
+            text(
+                "SELECT chunk.artifact_uri FROM offline_analysis_result_chunks chunk "
+                "JOIN offline_analysis_run_sources source ON source.id=chunk.run_source_id "
+                "JOIN offline_analysis_runs run ON run.id=source.run_id WHERE run.batch_id=:batch_id"
+            ), {"batch_id": session["analysis_batch_id"]}
+        ).mappings())
+        for chunk in chunks:
+            try:
+                path = resolve_nas_uri(ANALYSIS_NAS_ROOT, chunk["artifact_uri"])
+                if path.is_file():
+                    path.unlink()
+                    artifacts_deleted += 1
+            except OSError:
+                continue
+        db.execute(
+            text(
+                "DELETE FROM offline_analysis_result_chunks WHERE run_source_id IN "
+                "(SELECT source.id FROM offline_analysis_run_sources source "
+                "JOIN offline_analysis_runs run ON run.id=source.run_id WHERE run.batch_id=:batch_id)"
+            ), {"batch_id": session["analysis_batch_id"]}
+        )
+        db.execute(
+            text("UPDATE offline_analysis_runs SET status='archived', updated_at=now() WHERE batch_id=:batch_id"),
+            {"batch_id": session["analysis_batch_id"]},
+        )
+        db.execute(
+            text("UPDATE offline_analysis_batches SET status='archived', active_run_id=NULL, updated_at=now() WHERE id=:id"),
+            {"id": session["analysis_batch_id"]},
+        )
+    return {"ok": True, "analysisArtifactsDeleted": artifacts_deleted}
 
 
 def save_training_video_files(db: Session, session_id: str, files: list[dict[str, Any]]) -> dict[int, str]:
@@ -2322,24 +2464,39 @@ def save_training_session(payload: dict[str, Any] = Body(...),
         competition_id = event_row[0]
     source_type, source_ref = session_source(session, competition_id, competition_event_id)
     analysis_task_id = parse_uuid(session.get("analysisTaskId"))
+    analysis_batch_id = parse_uuid(session.get("analysisBatchId"))
+    analysis_run_id = parse_uuid(session.get("analysisRunId"))
+    if analysis_task_id and not analysis_batch_id:
+        task_link = db.execute(
+            text("SELECT batch_id FROM offline_analysis_tasks WHERE id=:id"), {"id": analysis_task_id}
+        ).mappings().first()
+        analysis_batch_id = task_link["batch_id"] if task_link else None
+    if analysis_batch_id and not analysis_run_id:
+        batch_link = db.execute(
+            text("SELECT active_run_id FROM offline_analysis_batches WHERE id=:id"), {"id": analysis_batch_id}
+        ).mappings().first()
+        analysis_run_id = batch_link["active_run_id"] if batch_link else None
     db.execute(
         text(
             "INSERT INTO training_sessions "
             "(id, athlete_id, coach_id, competition_id, competition_event_id, event_athlete_id, plan_id, task_id, action_standard_id, standard_version, legacy_qsettings_id, "
             "started_at, saved_at, duration_sec, total_reps, valid_reps, average_score, best_score, camera, "
             "model_precision, fps, scores, site, training_phase, goal, target_reps, target_score, set_count, rest_seconds, "
-            "video_source, video_fallback_source, video_camera_name, analysis_task_id, source_type, source_ref, feedback, notes, coach_comment) "
+            "video_source, video_fallback_source, video_camera_name, analysis_task_id, analysis_batch_id, analysis_run_id, "
+            "source_type, source_ref, feedback, notes, coach_comment) "
             "VALUES (:id, :athlete_id, :coach_id, :competition_id, :competition_event_id, :event_athlete_id, :plan_id, :task_id, :action_standard_id, :standard_version, "
             ":legacy_qsettings_id, :started_at, :saved_at, :duration_sec, :total_reps, :valid_reps, :average_score, "
             ":best_score, :camera, :model_precision, :fps, CAST(:scores AS jsonb), :site, :training_phase, :goal, "
             ":target_reps, :target_score, :set_count, :rest_seconds, :video_source, :video_fallback_source, "
-            ":video_camera_name, :analysis_task_id, :source_type, :source_ref, :feedback, :notes, :coach_comment) "
+            ":video_camera_name, :analysis_task_id, :analysis_batch_id, :analysis_run_id, :source_type, :source_ref, "
+            ":feedback, :notes, :coach_comment) "
             "ON CONFLICT (id) DO UPDATE SET coach_id=excluded.coach_id, competition_id=excluded.competition_id, "
             "competition_event_id=excluded.competition_event_id, event_athlete_id=excluded.event_athlete_id, "
             "plan_id=excluded.plan_id, task_id=excluded.task_id, "
             "saved_at=excluded.saved_at, duration_sec=excluded.duration_sec, total_reps=excluded.total_reps, "
             "valid_reps=excluded.valid_reps, average_score=excluded.average_score, best_score=excluded.best_score, "
-            "scores=excluded.scores, analysis_task_id=excluded.analysis_task_id, source_type=excluded.source_type, source_ref=excluded.source_ref, "
+            "scores=excluded.scores, analysis_task_id=excluded.analysis_task_id, analysis_batch_id=excluded.analysis_batch_id, "
+            "analysis_run_id=excluded.analysis_run_id, source_type=excluded.source_type, source_ref=excluded.source_ref, "
             "feedback=excluded.feedback, notes=excluded.notes, coach_comment=excluded.coach_comment"
         ),
         {
@@ -2376,6 +2533,8 @@ def save_training_session(payload: dict[str, Any] = Body(...),
             "video_fallback_source": session.get("videoFallbackSource") or None,
             "video_camera_name": session.get("videoCameraName") or None,
             "analysis_task_id": analysis_task_id,
+            "analysis_batch_id": analysis_batch_id,
+            "analysis_run_id": analysis_run_id,
             "source_type": source_type,
             "source_ref": source_ref,
             "feedback": session.get("feedback") or None,
@@ -2403,6 +2562,8 @@ def save_training_session(payload: dict[str, Any] = Body(...),
         insert_participant_repetition(db, session_id, action_standard_id, repetition, participant_by_athlete, video_file_by_index, linked_action_id)
     for frame in participant_pose_frames:
         insert_participant_pose_frame(db, session_id, frame, participant_by_athlete, video_file_by_index)
+    if not participant_pose_frames and analysis_run_id:
+        derive_analysis_pose_frames(db, session_id, str(analysis_run_id))
     if session.get("taskId"):
         status_value = "completed" if int(session.get("validReps", 0)) >= int(session.get("targetReps", 0)) else "active"
         db.execute(text("UPDATE training_tasks SET status = :status, updated_at = now() WHERE id = :id"), {"id": parse_uuid(session.get("taskId")), "status": status_value})
@@ -2474,6 +2635,8 @@ def history_row(row: dict[str, Any]) -> dict[str, Any]:
         "videoFallbackSource": row["video_fallback_source"] or "",
         "videoCameraName": row["video_camera_name"] or "",
         "analysisTaskId": str(row.get("analysis_task_id") or ""),
+        "analysisBatchId": str(row.get("analysis_batch_id") or ""),
+        "analysisRunId": str(row.get("analysis_run_id") or ""),
         "analysisTaskStatus": row.get("analysis_task_status") or "",
         "analysisTaskBatchId": str(row.get("analysis_task_batch_id") or ""),
         "analysisTaskCameraId": row.get("analysis_task_camera_id") if row.get("analysis_task_camera_id") is not None else 0,

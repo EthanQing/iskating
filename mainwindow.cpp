@@ -2,6 +2,7 @@
 #include "athleteanalysismanager.h"
 #include "iconutils.h"
 #include "nvrplayback.h"
+#include "offlineanalysisdialog.h"
 #include "offlinevideoprobe.h"
 #include "personmanagementdialog.h"
 #include "trainingreviewdialog.h"
@@ -81,6 +82,7 @@
 #include <array>
 #include <cmath>
 #include <functional>
+#include <limits>
 #include <utility>
 
 #include "xlsxdocument.h"
@@ -347,6 +349,31 @@ QString safeUrlForLog(const QString &source)
 bool hasMediaUrlScheme(const QString &source)
 {
     return source.trimmed().contains(QStringLiteral("://"));
+}
+
+QString windowsPathForNasUri(const QString &source)
+{
+    const QString prefix = QStringLiteral("nas://");
+    const QString trimmed = source.trimmed();
+    if (!trimmed.startsWith(prefix, Qt::CaseInsensitive)) {
+        return QString();
+    }
+
+    QString relativePath = QDir::cleanPath(trimmed.mid(prefix.size()));
+    if (relativePath.isEmpty()
+        || relativePath == QStringLiteral("..")
+        || relativePath.startsWith(QStringLiteral("../"))
+        || QDir::isAbsolutePath(relativePath)) {
+        return QString();
+    }
+
+    const QString nasRoot = QSettings().value(QStringLiteral("offlineAnalysis/nasRoot")).toString().trimmed();
+    if (nasRoot.isEmpty()) {
+        return QString();
+    }
+
+    relativePath.replace(QLatin1Char('/'), QDir::separator());
+    return QDir(nasRoot).absoluteFilePath(relativePath);
 }
 
 QString displayMediaSource(const QString &source)
@@ -1056,6 +1083,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_athleteAnalysisManager->setStatusCallback([this](const QString &statusText) {
         refreshModelStatus(statusText);
     });
+    m_analysisOverlayTimer.setInterval(33);
+    connect(&m_analysisOverlayTimer, &QTimer::timeout, this, [this]() { refreshOfflineAnalysisOverlay(); });
     ui->poseCard->hide();
     ui->trajectoryCard->hide();
     ui->metricsCard->hide();
@@ -1097,6 +1126,17 @@ MainWindow::MainWindow(QWidget *parent)
         ui->headlineLayout->addWidget(m_importVideoButton, 0, Qt::AlignRight | Qt::AlignVCenter);
     }
     connect(m_importVideoButton, &QPushButton::clicked, this, [this]() { importOfflineVideo(); });
+
+    m_fullRateAnalysisButton = new QPushButton(ui->leftCard);
+    m_fullRateAnalysisButton->setObjectName(QStringLiteral("fullRateAnalysisButton"));
+    m_fullRateAnalysisButton->setProperty("role", "secondaryButton");
+    m_fullRateAnalysisButton->setText(QStringLiteral("完整分析"));
+    m_fullRateAnalysisButton->setToolTip(QStringLiteral("创建和管理 12 路完整帧率离线分析任务"));
+    m_fullRateAnalysisButton->setAccessibleName(QStringLiteral("12 路完整帧率离线分析"));
+    configureStableButton(m_fullRateAnalysisButton, kHistoryActionButtonWidth, 32, QSize(18, 18));
+    const int importButtonIndex = ui->headlineLayout->indexOf(m_importVideoButton);
+    ui->headlineLayout->insertWidget(std::max(0, importButtonIndex), m_fullRateAnalysisButton, 0, Qt::AlignRight | Qt::AlignVCenter);
+    connect(m_fullRateAnalysisButton, &QPushButton::clicked, this, [this]() { openOfflineAnalysisManager(); });
 
     ui->mainImageLabel->setPlaceholderText(QStringLiteral("主视频\n未播放"));
     ui->mainImageLabel->setOverlayControlsVisible(false);
@@ -3779,8 +3819,29 @@ void MainWindow::importOfflineVideo()
     ui->saveTipLabel->show();
 }
 
+void MainWindow::openOfflineAnalysisManager()
+{
+    if (!m_trainingRepository || !m_trainingRepository->isOpen()) {
+        QMessageBox::warning(this, QStringLiteral("服务不可用"), QStringLiteral("训练服务未连接，无法管理完整帧率分析任务。"));
+        return;
+    }
+    QVector<QString> athleteIds;
+    for (const TrainingSessionParticipant &participant : currentSessionParticipants()) {
+        if (!participant.athleteId.trimmed().isEmpty() && !athleteIds.contains(participant.athleteId)) {
+            athleteIds.append(participant.athleteId);
+        }
+    }
+    OfflineAnalysisDialog dialog(m_trainingRepository.get(), athleteIds, this);
+    dialog.exec();
+    if (!dialog.batchId().isEmpty()) {
+        m_offlineAnalysisBatchId = dialog.batchId();
+        m_offlineAnalysisRunId = dialog.activeRunId();
+    }
+}
+
 void MainWindow::showOfflineVideoInMainView(bool autoPlay)
 {
+    clearOfflineAnalysisOverlay();
     if (m_offlineVideoPath.trimmed().isEmpty()) {
         return;
     }
@@ -3819,6 +3880,7 @@ void MainWindow::showOfflineVideoInMainView(bool autoPlay)
 // 将指定摄像头主码流显示到主视图；小窗预览仍保持子码流。
 void MainWindow::showCameraInMainView(int cameraIndex, bool autoPlay)
 {
+    clearOfflineAnalysisOverlay();
     if (cameraIndex < 0 || cameraIndex >= m_cameraButtons.size()) {
         return;
     }
@@ -4538,6 +4600,8 @@ void MainWindow::saveRecord()
         session.videoFallbackSource = cameraWidget->previewUrl().trimmed();
         session.videoCameraName = cameraWidget->channelName();
     }
+    session.analysisBatchId = m_offlineAnalysisBatchId;
+    session.analysisRunId = m_offlineAnalysisRunId;
     QString athleteName;
     for (const AthleteProfile &athlete : std::as_const(m_athletes)) {
         if (athlete.id == athleteId) {
@@ -4557,12 +4621,48 @@ void MainWindow::saveRecord()
     videoPlan.externalFile = offlineSession;
     videoPlan.durationSec = session.durationSec;
     session.videoFiles = {buildTrainingVideoFilePlan(videoPlan)};
+    if (!session.analysisBatchId.isEmpty() && m_trainingRepository) {
+        QString batchError;
+        const OfflineAnalysisBatch analysisBatch = m_trainingRepository->offlineAnalysisBatch(session.analysisBatchId, &batchError);
+        if (analysisBatch.sources.size() == 12) {
+            session.videoFiles.clear();
+            for (const OfflineAnalysisBatchSource &source : analysisBatch.sources) {
+                TrainingVideoFile file;
+                file.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+                file.sessionId = session.id;
+                file.videoIndex = source.cameraId;
+                file.camera = source.cameraId;
+                file.cameraName = QStringLiteral("CAM %1").arg(source.cameraId, 2, 10, QLatin1Char('0'));
+                file.sourceUrl = source.sourceUri;
+                file.fileName = source.fileName;
+                file.status = QStringLiteral("external");
+                file.durationMs = source.durationMs;
+                file.sessionEndMs = source.durationMs;
+                file.fileSizeBytes = source.fileSizeBytes;
+                file.fileModifiedAt = source.fileModifiedAt;
+                file.metadataJson = QString::fromUtf8(QJsonDocument(QJsonObject{
+                    {QStringLiteral("analysisBatchId"), session.analysisBatchId},
+                    {QStringLiteral("cameraId"), source.cameraId},
+                    {QStringLiteral("sourceUri"), source.sourceUri}
+                }).toJson(QJsonDocument::Compact));
+                session.videoFiles.append(file);
+            }
+            session.videoSource = analysisBatch.sources.first().sourceUri;
+            session.videoCameraName = QStringLiteral("12 路同步录像");
+            session.camera = 1;
+            session.sourceType = QStringLiteral("offline_import");
+            session.sourceRef = session.analysisBatchId;
+        }
+    }
     if (!competitionEventId.isEmpty()) {
         session.sourceType = QStringLiteral("competition");
         session.sourceRef = competitionEventId;
     } else if (!competitionId.isEmpty()) {
         session.sourceType = QStringLiteral("competition");
         session.sourceRef = competitionId;
+    } else if (!session.analysisBatchId.isEmpty()) {
+        session.sourceType = QStringLiteral("offline_import");
+        session.sourceRef = session.analysisBatchId;
     } else if (offlineSession && !session.videoSource.trimmed().isEmpty()) {
         session.sourceType = QStringLiteral("offline_import");
         session.sourceRef = session.analysisTaskId.trimmed().isEmpty()
@@ -5131,31 +5231,68 @@ void MainWindow::openSessionVideo(const SessionHistoryItem &record,
                                   const QString &videoFileId,
                                   int videoIndex)
 {
+    clearOfflineAnalysisOverlay();
     const NvrPlaybackResult nvr = buildNvrPlaybackUrl(m_sharedCameraSettings,
                                                       m_cameraSlotSettings,
                                                       record,
                                                       offsetMs > 0 ? offsetMs : -1,
                                                       endOffsetMs);
     const TrainingVideoFile *indexedVideo = videoFileForRepetition(record, videoFileId, videoIndex);
+    if (!indexedVideo && !record.analysisBatchId.isEmpty() && !record.videoFiles.isEmpty()) {
+        indexedVideo = &record.videoFiles.first();
+    }
     QString indexedLocalFile;
     QString indexedMissingFile;
-    if (indexedVideo && !indexedVideo->filePath.trimmed().isEmpty()) {
-        const QFileInfo candidate(indexedVideo->filePath.trimmed());
-        if (candidate.exists() && candidate.isFile()) {
+    QString indexedRemoteSource;
+    QString unresolvedNasUri;
+    if (indexedVideo) {
+        QString candidateSource = indexedVideo->filePath.trimmed();
+        if (candidateSource.isEmpty()) {
+            candidateSource = indexedVideo->sourceUrl.trimmed();
+        }
+        const QString mappedNasPath = windowsPathForNasUri(candidateSource);
+        if (!mappedNasPath.isEmpty()) {
+            candidateSource = mappedNasPath;
+        } else if (candidateSource.startsWith(QStringLiteral("nas://"), Qt::CaseInsensitive)) {
+            unresolvedNasUri = candidateSource;
+            candidateSource.clear();
+        } else if (hasMediaUrlScheme(candidateSource)
+                   && !candidateSource.startsWith(QStringLiteral("nas://"), Qt::CaseInsensitive)) {
+            indexedRemoteSource = candidateSource;
+            candidateSource.clear();
+        }
+
+        const QFileInfo candidate(candidateSource);
+        if (!candidateSource.isEmpty() && candidate.exists() && candidate.isFile()) {
             indexedLocalFile = candidate.absoluteFilePath();
-        } else {
+        } else if (!candidateSource.isEmpty()) {
             indexedMissingFile = candidate.absoluteFilePath();
         }
     }
     const bool useIndexedLocal = !indexedLocalFile.isEmpty();
-    const bool useNvr = indexedLocalFile.isEmpty() && !nvr.url.trimmed().isEmpty();
+    const bool useIndexedRemote = !useIndexedLocal && !indexedRemoteSource.isEmpty();
+    const bool useNvr = !useIndexedLocal
+                        && !useIndexedRemote
+                        && unresolvedNasUri.isEmpty()
+                        && !nvr.url.trimmed().isEmpty();
     const QString source = useIndexedLocal
                                ? indexedLocalFile
-                               : (useNvr
-                                      ? nvr.url.trimmed()
-                                      : (!record.videoSource.trimmed().isEmpty()
-                                             ? record.videoSource.trimmed()
-                                             : record.videoFallbackSource.trimmed()));
+                               : (useIndexedRemote
+                                      ? indexedRemoteSource
+                                      : (useNvr
+                                             ? nvr.url.trimmed()
+                                             : (!indexedMissingFile.isEmpty()
+                                                    ? indexedMissingFile
+                                                    : (!record.videoSource.trimmed().isEmpty()
+                                                           ? record.videoSource.trimmed()
+                                                           : record.videoFallbackSource.trimmed()))));
+    if (!unresolvedNasUri.isEmpty()) {
+        QMessageBox::warning(this,
+                             QStringLiteral("未配置 NAS 映射"),
+                             QStringLiteral("无法在 Windows 上打开 %1。请在“完整分析”中设置该 nas:// 根目录对应的 Windows 盘符或 UNC 路径。")
+                                 .arg(unresolvedNasUri));
+        return;
+    }
     if (source.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("暂无视频引用"), QStringLiteral("这条训练记录没有保存可回看的视频引用。"));
         return;
@@ -5203,6 +5340,8 @@ void MainWindow::openSessionVideo(const SessionHistoryItem &record,
         m_athleteAnalysisManager->setPaused(true);
         m_athleteAnalysisManager->setActiveStreams(QVector<AthleteAnalysisManager::AnalysisStream>());
     }
+    const int analysisCameraId = indexedVideo && indexedVideo->camera > 0 ? indexedVideo->camera : record.camera;
+    startOfflineAnalysisOverlay(record, analysisCameraId);
     if (ui->focusTitleLabel) {
         ui->focusTitleLabel->setText(QStringLiteral("当前来源：%1").arg(sourceTitle));
     }
@@ -6261,6 +6400,98 @@ void MainWindow::refreshModelStatus(const QString &statusText)
     ui->modelStatusLabel->setText(topbarModuleHtml(QStringLiteral("AI"),
                                                    QStringLiteral("模型状态 Status"),
                                                    statusText));
+}
+
+void MainWindow::startOfflineAnalysisOverlay(const SessionHistoryItem &record, int cameraId)
+{
+    clearOfflineAnalysisOverlay();
+    if (record.analysisRunId.trimmed().isEmpty() || !m_trainingRepository || !m_trainingRepository->isOpen()) {
+        return;
+    }
+    m_analysisOverlayRunId = record.analysisRunId.trimmed();
+    m_analysisOverlayCameraId = std::clamp(cameraId > 0 ? cameraId : 1, 1, 12);
+    m_analysisOverlayTimer.start();
+    refreshOfflineAnalysisOverlay();
+}
+
+void MainWindow::refreshOfflineAnalysisOverlay()
+{
+    if (m_analysisOverlayRunId.isEmpty() || !ui->mainImageLabel || !ui->mainImageLabel->isPlaying()) {
+        return;
+    }
+    const qint64 positionMs = ui->mainImageLabel->positionMs();
+    if (positionMs < 0) {
+        return;
+    }
+    const bool needsWindow = m_analysisOverlayWindow.runId != m_analysisOverlayRunId
+                             || positionMs < m_analysisOverlayWindow.fromMs + 1000
+                             || positionMs > m_analysisOverlayWindow.toMs - 1000;
+    if (needsWindow) {
+        const qint64 fromMs = std::max<qint64>(0, positionMs - 5000);
+        const qint64 toMs = fromMs + 10000;
+        QString error;
+        m_analysisOverlayWindow = m_trainingRepository->offlineAnalysisFrames(m_analysisOverlayRunId,
+                                                                               m_analysisOverlayCameraId,
+                                                                               fromMs,
+                                                                               toMs,
+                                                                               &error);
+        if (m_analysisOverlayWindow.runId.isEmpty()) {
+            m_analysisOverlayWindow.runId = m_analysisOverlayRunId;
+            m_analysisOverlayWindow.fromMs = fromMs;
+            m_analysisOverlayWindow.toMs = toMs;
+            ui->mainImageLabel->setAthleteFrame({});
+            ui->saveTipLabel->setText(QStringLiteral("完整帧率分析结果暂不可用：%1").arg(error));
+            ui->saveTipLabel->show();
+            return;
+        }
+    }
+    for (const auto &gap : std::as_const(m_analysisOverlayWindow.gaps)) {
+        if (positionMs >= gap.first && positionMs <= gap.second) {
+            ui->mainImageLabel->setAthleteFrame({});
+            ui->saveTipLabel->setText(QStringLiteral("当前回放区间尚未完成完整帧率分析。"));
+            ui->saveTipLabel->show();
+            return;
+        }
+    }
+    const OfflineAnalysisFrame *closest = nullptr;
+    qint64 closestDistance = std::numeric_limits<qint64>::max();
+    for (const OfflineAnalysisFrame &frame : std::as_const(m_analysisOverlayWindow.frames)) {
+        const qint64 distance = std::abs(frame.batchTimeMs - positionMs);
+        if (distance < closestDistance) {
+            closest = &frame;
+            closestDistance = distance;
+        }
+    }
+    if (!closest || closestDistance > 50) {
+        ui->mainImageLabel->setAthleteFrame({});
+        return;
+    }
+    AthleteFrameResult result;
+    result.cameraId = closest->cameraId;
+    result.timestampMs = closest->batchTimeMs;
+    result.frameSize = QSize(closest->width, closest->height);
+    for (const OfflineAnalysisObject &object : closest->objects) {
+        AthleteInstance instance;
+        instance.classId = object.classId;
+        instance.trackId = static_cast<int>(std::min<qint64>(object.trackId, std::numeric_limits<int>::max()));
+        instance.box = QRectF(object.bboxX, object.bboxY, object.bboxWidth, object.bboxHeight);
+        instance.detectionConfidence = static_cast<float>(object.detectionConfidence);
+        instance.athleteId = object.athleteId;
+        instance.label = object.label;
+        instance.identityStatus = object.identityStatus;
+        instance.identityConfidence = static_cast<float>(object.identityConfidence);
+        instance.identitySource = object.identitySource;
+        result.instances.append(instance);
+    }
+    ui->mainImageLabel->setAthleteFrame(result);
+}
+
+void MainWindow::clearOfflineAnalysisOverlay()
+{
+    m_analysisOverlayTimer.stop();
+    m_analysisOverlayRunId.clear();
+    m_analysisOverlayCameraId = 0;
+    m_analysisOverlayWindow = {};
 }
 
 void MainWindow::clearRealtimePose()

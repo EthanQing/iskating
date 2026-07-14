@@ -125,6 +125,7 @@ SOURCES += \
     main.cpp \
     mainwindow.cpp \
     nvrplayback.cpp \
+    offlineanalysisdialog.cpp \
     offlinevideoprobe.cpp \
     personmanagementdialog.cpp \
     poseresult.cpp \
@@ -151,6 +152,7 @@ HEADERS += \
     iconutils.h \
     mainwindow.h \
     nvrplayback.h \
+    offlineanalysisdialog.h \
     offlinevideoprobe.h \
     personmanagementdialog.h \
     poseresult.h \

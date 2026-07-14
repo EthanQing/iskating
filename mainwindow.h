@@ -84,6 +84,7 @@ private:
     void resetCurrentTrainingSession();
     void recordAthleteFrames(const AthleteFrameResult &athleteFrame);
     void importOfflineVideo();
+    void openOfflineAnalysisManager();
     void showOfflineVideoInMainView(bool autoPlay = true);
     void showCameraInMainView(int cameraIndex, bool autoPlay = true);
     void applyCameraSettingsToWidgets(bool restorePlayback);
@@ -129,6 +130,9 @@ private:
     void refreshFullScreenButton();
     void refreshModelStatus(const QString &statusText);
     void clearRealtimePose();
+    void startOfflineAnalysisOverlay(const SessionHistoryItem &record, int cameraId);
+    void refreshOfflineAnalysisOverlay();
+    void clearOfflineAnalysisOverlay();
     void repolish(QWidget *widget) const;
 
     QString pad(int num) const;
@@ -146,6 +150,7 @@ private:
     QVector<QLabel *> m_metricValueLabels;
     QPushButton *m_fullScreenButton = nullptr;
     QPushButton *m_importVideoButton = nullptr;
+    QPushButton *m_fullRateAnalysisButton = nullptr;
     std::unique_ptr<AthleteAnalysisManager> m_athleteAnalysisManager;
     std::unique_ptr<TrainingRepository> m_trainingRepository;
     QWidget *m_trainingContextPanel = nullptr;
@@ -185,6 +190,7 @@ private:
     QPushButton *m_historyNextPageButton = nullptr;
 
     QTimer m_timer;
+    QTimer m_analysisOverlayTimer;
     QVector<SessionHistoryItem> m_records;
     QVector<AthleteProfile> m_athletes;
     QVector<CoachProfile> m_coaches;
@@ -233,6 +239,11 @@ private:
     QString m_offlineVideoName;
     OfflineVideoProbeResult m_offlineVideoProbe;
     OfflineAnalysisTask m_offlineAnalysisTask;
+    QString m_offlineAnalysisBatchId;
+    QString m_offlineAnalysisRunId;
+    QString m_analysisOverlayRunId;
+    int m_analysisOverlayCameraId = 0;
+    OfflineAnalysisFrameWindow m_analysisOverlayWindow;
     SharedCameraSettings m_sharedCameraSettings;
     QVector<CameraSlotSettings> m_cameraSlotSettings;
     CapturePreferenceSettings m_capturePreferenceSettings;
