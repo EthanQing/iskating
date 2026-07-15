@@ -7,6 +7,7 @@
 #include "personmanagementdialog.h"
 #include "trainingreviewdialog.h"
 #include "trainingrepository.h"
+#include "trajectorywidget.h"
 #include "ui_mainwindow.h"
 #include "videostorageplan.h"
 #include "videoopenglwidget.h"
@@ -175,6 +176,67 @@ CameraSlotSettings defaultCameraSlotSettings(int cameraIndex)
     settings.role = QStringLiteral("轨迹分段");
     settings.trajectoryEnabled = true;
     return settings;
+}
+
+bool mapImagePointToField(const CameraSlotSettings &slot, const QPointF &imagePoint, QPointF *fieldPoint)
+{
+    if (!fieldPoint) {
+        return false;
+    }
+    const QJsonArray points = QJsonDocument::fromJson(slot.calibrationJson.toUtf8()).array();
+    if (points.size() != 4) {
+        return false;
+    }
+    double matrix[8][9]{};
+    for (int i = 0; i < 4; ++i) {
+        const QJsonObject point = points.at(i).toObject();
+        const double px = point.value(QStringLiteral("px")).toDouble(std::numeric_limits<double>::quiet_NaN());
+        const double py = point.value(QStringLiteral("py")).toDouble(std::numeric_limits<double>::quiet_NaN());
+        const double x = point.value(QStringLiteral("x")).toDouble(std::numeric_limits<double>::quiet_NaN());
+        const double y = point.value(QStringLiteral("y")).toDouble(std::numeric_limits<double>::quiet_NaN());
+        if (!std::isfinite(px) || !std::isfinite(py) || !std::isfinite(x) || !std::isfinite(y)) {
+            return false;
+        }
+        matrix[i * 2][0] = px; matrix[i * 2][1] = py; matrix[i * 2][2] = 1.0;
+        matrix[i * 2][6] = -px * x; matrix[i * 2][7] = -py * x; matrix[i * 2][8] = x;
+        matrix[i * 2 + 1][3] = px; matrix[i * 2 + 1][4] = py; matrix[i * 2 + 1][5] = 1.0;
+        matrix[i * 2 + 1][6] = -px * y; matrix[i * 2 + 1][7] = -py * y; matrix[i * 2 + 1][8] = y;
+    }
+    for (int column = 0; column < 8; ++column) {
+        int pivot = column;
+        for (int row = column + 1; row < 8; ++row) {
+            if (std::abs(matrix[row][column]) > std::abs(matrix[pivot][column])) {
+                pivot = row;
+            }
+        }
+        if (std::abs(matrix[pivot][column]) < 1e-9) {
+            return false;
+        }
+        for (int value = column; value <= 8; ++value) {
+            std::swap(matrix[column][value], matrix[pivot][value]);
+        }
+        const double divisor = matrix[column][column];
+        for (int value = column; value <= 8; ++value) {
+            matrix[column][value] /= divisor;
+        }
+        for (int row = 0; row < 8; ++row) {
+            if (row == column) {
+                continue;
+            }
+            const double factor = matrix[row][column];
+            for (int value = column; value <= 8; ++value) {
+                matrix[row][value] -= factor * matrix[column][value];
+            }
+        }
+    }
+    const double h[8] = {matrix[0][8], matrix[1][8], matrix[2][8], matrix[3][8], matrix[4][8], matrix[5][8], matrix[6][8], matrix[7][8]};
+    const double denominator = h[6] * imagePoint.x() + h[7] * imagePoint.y() + 1.0;
+    if (std::abs(denominator) < 1e-9) {
+        return false;
+    }
+    *fieldPoint = QPointF((h[0] * imagePoint.x() + h[1] * imagePoint.y() + h[2]) / denominator,
+                          (h[3] * imagePoint.x() + h[4] * imagePoint.y() + h[5]) / denominator);
+    return std::isfinite(fieldPoint->x()) && std::isfinite(fieldPoint->y());
 }
 
 QString cameraSegmentLabel(const CameraSlotSettings &slot)
@@ -1022,6 +1084,12 @@ MainWindow::MainWindow(QWidget *parent)
     , ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
+    m_trajectoryWidget = new TrajectoryWidget(ui->trajectoryCard);
+    if (ui->trajectoryCardLayout) {
+        ui->trajectoryCardLayout->replaceWidget(ui->trajectoryViewFrame, m_trajectoryWidget);
+        ui->trajectoryViewFrame->hide();
+        ui->trajectoryViewFrame->deleteLater();
+    }
     m_cameraButtons = {ui->cameraButton01, ui->cameraButton02, ui->cameraButton03, ui->cameraButton04,
                        ui->cameraButton05, ui->cameraButton06, ui->cameraButton07, ui->cameraButton08,
                        ui->cameraButton09, ui->cameraButton10, ui->cameraButton11, ui->cameraButton12};
@@ -1086,7 +1154,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_analysisOverlayTimer.setInterval(33);
     connect(&m_analysisOverlayTimer, &QTimer::timeout, this, [this]() { refreshOfflineAnalysisOverlay(); });
     ui->poseCard->hide();
-    ui->trajectoryCard->hide();
+    ui->trajectoryCard->show();
     ui->metricsCard->hide();
 
     // 在“隐藏侧栏”按钮旁边动态增加全屏按钮，避免修改 .ui 后生成头文件不同步。
@@ -1819,6 +1887,7 @@ void MainWindow::loadCameraSettings()
                                                             m_cameraSlotSettings[i].yawDeg).toDouble();
             m_cameraSlotSettings[i].pitchDeg = settings.value(QStringLiteral("pitchDeg"),
                                                               m_cameraSlotSettings[i].pitchDeg).toDouble();
+            m_cameraSlotSettings[i].calibrationJson = settings.value(QStringLiteral("calibration")).toString();
             m_cameraSlotSettings[i].qualityNote = settings.value(QStringLiteral("qualityNote")).toString().trimmed();
             m_cameraSlotSettings[i].compatibilityNote = settings.value(QStringLiteral("compatibilityNote")).toString().trimmed();
             settings.endGroup();
@@ -1998,6 +2067,7 @@ void MainWindow::persistSystemSettings() const
         settings.setValue(QStringLiteral("mountHeightM"), m_cameraSlotSettings.at(i).mountHeightM);
         settings.setValue(QStringLiteral("yawDeg"), m_cameraSlotSettings.at(i).yawDeg);
         settings.setValue(QStringLiteral("pitchDeg"), m_cameraSlotSettings.at(i).pitchDeg);
+        settings.setValue(QStringLiteral("calibration"), m_cameraSlotSettings.at(i).calibrationJson);
         settings.setValue(QStringLiteral("qualityNote"), m_cameraSlotSettings.at(i).qualityNote.trimmed());
         settings.setValue(QStringLiteral("compatibilityNote"), m_cameraSlotSettings.at(i).compatibilityNote.trimmed());
         settings.endGroup();
@@ -3673,7 +3743,10 @@ void MainWindow::resetCurrentTrainingSession()
     m_bestActionScore = 0;
     m_actionScoreTotal = 0;
     m_currentPoseFrames.clear();
+    m_currentTrackPoints.clear();
     m_participantPoseSampleTimes.clear();
+    m_trackPointSampleTimes.clear();
+    refreshTrajectoryView();
     m_manualIdentityBindings.clear();
     if (m_athleteAnalysisManager) {
         m_athleteAnalysisManager->setManualBindings({});
@@ -3727,10 +3800,53 @@ void MainWindow::recordAthleteFrames(const AthleteFrameResult &athleteFrame)
             {QStringLiteral("frameHeight"), athleteFrame.frameSize.height()}
         }).toJson(QJsonDocument::Compact));
         m_currentPoseFrames.append(frame);
+
+        if (instance.athleteId.trimmed().isEmpty()
+            || athleteFrame.cameraId <= 0
+            || athleteFrame.cameraId > m_cameraSlotSettings.size()) {
+            continue;
+        }
+        const QString pointKey = QStringLiteral("p:%1:c:%2").arg(instance.athleteId).arg(athleteFrame.cameraId);
+        const qint64 previousPointTime = m_trackPointSampleTimes.value(pointKey, -kAthleteTimelineSampleIntervalMs);
+        if (timestampMs - previousPointTime < kAthleteTimelineSampleIntervalMs) {
+            continue;
+        }
+        QPointF fieldPoint;
+        const QPointF iceContact(instance.box.center().x(), instance.box.bottom());
+        if (!mapImagePointToField(m_cameraSlotSettings.at(athleteFrame.cameraId - 1), iceContact, &fieldPoint)) {
+            continue;
+        }
+        m_trackPointSampleTimes.insert(pointKey, timestampMs);
+        TrackPoint point;
+        point.participantId = instance.athleteId;
+        point.timestampMs = timestampMs;
+        point.x = fieldPoint.x();
+        point.y = fieldPoint.y();
+        point.z = 0.0;
+        point.speedSource = QStringLiteral("position_delta");
+        point.cameraId = athleteFrame.cameraId;
+        point.confidence = instance.detectionConfidence;
+        m_currentTrackPoints.append(point);
     }
     while (m_currentPoseFrames.size() > kMaxParticipantPoseFrames) {
         m_currentPoseFrames.removeFirst();
     }
+    refreshTrajectoryView();
+}
+
+void MainWindow::refreshTrajectoryView()
+{
+    if (!m_trajectoryWidget) {
+        return;
+    }
+    const QString primaryParticipantId = selectedAthleteId();
+    QVector<TrackPoint> points;
+    for (const TrackPoint &point : std::as_const(m_currentTrackPoints)) {
+        if (primaryParticipantId.isEmpty() || point.participantId == primaryParticipantId) {
+            points.append(point);
+        }
+    }
+    m_trajectoryWidget->setTrackPoints(points);
 }
 
 void MainWindow::importOfflineVideo()
@@ -4679,6 +4795,7 @@ void MainWindow::saveRecord()
     const QVector<ActionRepetition> repetitions;
     session.participantRepetitions.clear();
     session.participantPoseFrames = m_currentPoseFrames;
+    session.trackPoints = m_currentTrackPoints;
     for (ParticipantPoseFrame &frame : session.participantPoseFrames) {
         frame.sessionId = session.id;
         frame.videoFileId = session.videoFiles.isEmpty() ? QString() : session.videoFiles.first().id;
@@ -4863,7 +4980,7 @@ void MainWindow::refreshHistory()
         configureStableButton(poseReviewButton, kHistoryActionButtonWidth, 32, QSize(0, 0));
         poseReviewButton->setEnabled(m_trainingRepository && m_trainingRepository->isOpen());
         connect(poseReviewButton, &QPushButton::clicked, this, [this, record]() {
-            openParticipantPoseReview(record);
+            openTrackPointReview(record);
         });
 
         auto *commentButton = new QPushButton(QStringLiteral("教练批注"), card);
@@ -5399,6 +5516,105 @@ void MainWindow::openTrainingReview(const SessionHistoryItem &record)
     loadTrainingRecords();
     refreshHistory();
     refreshSuggestions();
+}
+
+void MainWindow::openTrackPointReview(const SessionHistoryItem &record)
+{
+    if (!m_trainingRepository || !m_trainingRepository->isOpen()) {
+        QMessageBox::warning(this, QStringLiteral("数据库未就绪"), QStringLiteral("训练数据库未就绪，无法打开轨迹复盘。"));
+        return;
+    }
+    const QVector<TrackPoint> allPoints = m_trainingRepository->trackPointsForSession(record.id);
+    if (allPoints.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("暂无轨迹"), QStringLiteral("这条训练记录没有已标定的场地轨迹点。旧记录仍可使用动作和姿态复盘。"));
+        return;
+    }
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("二维滑行轨迹复盘"));
+    dialog.resize(900, 640);
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *top = new QHBoxLayout();
+    auto *participantCombo = new QComboBox(&dialog);
+    participantCombo->addItem(QStringLiteral("全部参与者"), QString());
+    for (const TrainingSessionParticipant &participant : record.participants) {
+        participantCombo->addItem(participant.athleteName.trimmed().isEmpty() ? participant.athleteId : participant.athleteName,
+                                  participant.id);
+    }
+    auto *exportCsv = new QPushButton(QStringLiteral("导出 CSV"), &dialog);
+    auto *exportXlsx = new QPushButton(QStringLiteral("导出 XLSX"), &dialog);
+    top->addWidget(new QLabel(QStringLiteral("参与者"), &dialog));
+    top->addWidget(participantCombo);
+    top->addStretch();
+    top->addWidget(exportCsv);
+    top->addWidget(exportXlsx);
+    layout->addLayout(top);
+    auto *trajectory = new TrajectoryWidget(&dialog);
+    layout->addWidget(trajectory, 1);
+    auto *table = new QTableWidget(&dialog);
+    table->setColumnCount(8);
+    table->setHorizontalHeaderLabels({QStringLiteral("时间(ms)"), QStringLiteral("X(m)"), QStringLiteral("Y(m)"), QStringLiteral("Z(m)"), QStringLiteral("速度(m/s)"), QStringLiteral("来源"), QStringLiteral("机位"), QStringLiteral("置信度")});
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->horizontalHeader()->setStretchLastSection(true);
+    layout->addWidget(table, 1);
+    QVector<TrackPoint> current;
+    auto speedAt = [](const QVector<TrackPoint> &points, int index) -> double {
+        if (index <= 0) return -1.0;
+        const TrackPoint &previous = points.at(index - 1);
+        const TrackPoint &point = points.at(index);
+        const qint64 elapsed = point.timestampMs - previous.timestampMs;
+        if (elapsed <= 0 || elapsed > 2000) return -1.0;
+        return std::hypot(point.x - previous.x, point.y - previous.y) / (static_cast<double>(elapsed) / 1000.0);
+    };
+    auto reload = [&]() {
+        current.clear();
+        const QString participantId = participantCombo->currentData().toString();
+        for (const TrackPoint &point : allPoints) {
+            if (participantId.isEmpty() || point.participantId == participantId) current.append(point);
+        }
+        trajectory->setTrackPoints(current);
+        table->setRowCount(current.size());
+        for (int row = 0; row < current.size(); ++row) {
+            const TrackPoint &point = current.at(row);
+            const double speed = speedAt(current, row);
+            const QStringList values{QString::number(point.timestampMs), QString::number(point.x, 'f', 3), QString::number(point.y, 'f', 3), QString::number(point.z, 'f', 3), speed < 0 ? QStringLiteral("-") : QString::number(speed, 'f', 3), point.speedSource, QString::number(point.cameraId), point.confidence < 0 ? QStringLiteral("-") : QString::number(point.confidence, 'f', 3)};
+            for (int column = 0; column < values.size(); ++column) table->setItem(row, column, new QTableWidgetItem(values.at(column)));
+        }
+        table->resizeColumnsToContents();
+    };
+    auto exportPoints = [&](const QString &suffix) {
+        if (current.isEmpty()) return;
+        QString path = QFileDialog::getSaveFileName(&dialog, QStringLiteral("导出滑行轨迹"), QDir::homePath() + QStringLiteral("/track_points.") + suffix, suffix == QStringLiteral("xlsx") ? QStringLiteral("Excel 工作簿 (*.xlsx)") : QStringLiteral("CSV 文件 (*.csv)"));
+        if (path.isEmpty()) return;
+        if (!path.endsWith(QStringLiteral(".") + suffix, Qt::CaseInsensitive)) path += QStringLiteral(".") + suffix;
+        const QStringList headers{QStringLiteral("t_ms"), QStringLiteral("x_m"), QStringLiteral("y_m"), QStringLiteral("z_m"), QStringLiteral("speed_mps"), QStringLiteral("speed_source"), QStringLiteral("camera_id"), QStringLiteral("confidence")};
+        if (suffix == QStringLiteral("xlsx")) {
+            QXlsx::Document workbook;
+            for (int column = 0; column < headers.size(); ++column) workbook.write(1, column + 1, headers.at(column));
+            for (int row = 0; row < current.size(); ++row) {
+                const TrackPoint &point = current.at(row);
+                workbook.write(row + 2, 1, QString::number(point.timestampMs)); workbook.write(row + 2, 2, point.x); workbook.write(row + 2, 3, point.y); workbook.write(row + 2, 4, point.z);
+                const double speed = speedAt(current, row); if (speed >= 0) workbook.write(row + 2, 5, speed);
+                workbook.write(row + 2, 6, point.speedSource); workbook.write(row + 2, 7, point.cameraId); if (point.confidence >= 0) workbook.write(row + 2, 8, point.confidence);
+            }
+            if (!workbook.saveAs(path)) QMessageBox::warning(&dialog, QStringLiteral("导出失败"), QStringLiteral("无法写入文件。"));
+            return;
+        }
+        QFile file(path);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return;
+        QTextStream out(&file); out.setEncoding(QStringConverter::Utf8); out << headers.join(',') << '\n';
+        for (int row = 0; row < current.size(); ++row) {
+            const TrackPoint &point = current.at(row); const double speed = speedAt(current, row);
+            out << point.timestampMs << ',' << point.x << ',' << point.y << ',' << point.z << ',' << (speed >= 0 ? QString::number(speed) : QString()) << ',' << point.speedSource << ',' << point.cameraId << ',' << (point.confidence >= 0 ? QString::number(point.confidence) : QString()) << '\n';
+        }
+    };
+    connect(participantCombo, qOverload<int>(&QComboBox::currentIndexChanged), &dialog, reload);
+    connect(exportCsv, &QPushButton::clicked, &dialog, [&]() { exportPoints(QStringLiteral("csv")); });
+    connect(exportXlsx, &QPushButton::clicked, &dialog, [&]() { exportPoints(QStringLiteral("xlsx")); });
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    reload();
+    dialog.exec();
 }
 
 void MainWindow::openParticipantPoseReview(const SessionHistoryItem &record)

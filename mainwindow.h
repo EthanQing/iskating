@@ -27,6 +27,7 @@ class QProgressBar;
 class QPushButton;
 class QVBoxLayout;
 class VideoOpenGLWidget;
+class TrajectoryWidget;
 class AthleteAnalysisManager;
 class TrainingRepository;
 
@@ -83,6 +84,7 @@ private:
     QVector<TrainingSessionParticipant> currentSessionParticipants() const;
     void resetCurrentTrainingSession();
     void recordAthleteFrames(const AthleteFrameResult &athleteFrame);
+    void refreshTrajectoryView();
     void importOfflineVideo();
     void openOfflineAnalysisManager();
     void showOfflineVideoInMainView(bool autoPlay = true);
@@ -122,6 +124,7 @@ private:
                           const QString &videoFileId = QString(),
                           int videoIndex = 0);
     void openTrainingReview(const SessionHistoryItem &record);
+    void openTrackPointReview(const SessionHistoryItem &record);
     void openParticipantPoseReview(const SessionHistoryItem &record);
     void editActionStandard();
     void editCoachComment(const QString &sessionId);
@@ -199,7 +202,10 @@ private:
     QVector<EventAthlete> m_eventAthletes;
     QVector<ActionStandard> m_actionStandards;
     QVector<ParticipantPoseFrame> m_currentPoseFrames;
+    QVector<TrackPoint> m_currentTrackPoints;
     QHash<QString, qint64> m_participantPoseSampleTimes;
+    QHash<QString, qint64> m_trackPointSampleTimes;
+    TrajectoryWidget *m_trajectoryWidget = nullptr;
     AthleteFrameResult m_lastAthleteFrame;
     QVector<AthleteIdentityBinding> m_manualIdentityBindings;
     QString m_lastSavedAt;

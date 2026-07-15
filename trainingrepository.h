@@ -52,6 +52,11 @@ public:
                                                        int fromMs = -1,
                                                        int toMs = -1,
                                                        int limit = 5000) const;
+    QVector<TrackPoint> trackPointsForSession(const QString &sessionId,
+                                              const QString &participantId = QString(),
+                                              int fromMs = -1,
+                                              int toMs = -1,
+                                              int limit = 20000) const;
     QVector<VideoFileCleanupCandidate> videoFiles(const QString &status = QString(),
                                                   bool withLocalPathOnly = false,
                                                   const QDateTime &modifiedBefore = QDateTime()) const;

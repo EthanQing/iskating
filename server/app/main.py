@@ -2056,6 +2056,37 @@ def insert_participant_pose_frame(db: Session,
     return frame_id
 
 
+def insert_track_point(db: Session, point: dict[str, Any], participant_ids: set[str]) -> None:
+    participant_id = parse_uuid(point.get("participantId"))
+    if not participant_id or str(participant_id) not in participant_ids:
+        return
+    confidence_value = point.get("confidence", -1)
+    try:
+        confidence = float(confidence_value)
+    except (TypeError, ValueError):
+        confidence = -1.0
+    db.execute(
+        text(
+            "INSERT INTO track_points "
+            "(id, participant_id, t_ms, x, y, z, speed_source, camera_id, confidence) "
+            "VALUES (:id, :participant_id, :t_ms, :x, :y, :z, :speed_source, :camera_id, :confidence) "
+            "ON CONFLICT (participant_id, t_ms, camera_id) DO UPDATE SET "
+            "x=excluded.x, y=excluded.y, z=excluded.z, speed_source=excluded.speed_source, confidence=excluded.confidence"
+        ),
+        {
+            "id": parse_uuid(point.get("id")) or new_uuid(),
+            "participant_id": participant_id,
+            "t_ms": int(point.get("tMs") or 0),
+            "x": float(point.get("x") or 0.0),
+            "y": float(point.get("y") or 0.0),
+            "z": float(point.get("z") or 0.0),
+            "speed_source": point.get("speedSource") or "position_delta",
+            "camera_id": int(point.get("cameraId") or 0),
+            "confidence": confidence if confidence >= 0 else None,
+        },
+    )
+
+
 def derive_analysis_pose_frames(db: Session, session_id: str, run_id: str) -> int:
     run = db.execute(
         text("SELECT status FROM offline_analysis_runs WHERE id=:id"), {"id": parse_uuid(run_id)}
@@ -2446,6 +2477,7 @@ def save_training_session(payload: dict[str, Any] = Body(...),
     repetitions = payload.get("repetitions", [])
     participant_repetitions = payload.get("participantRepetitions", [])
     participant_pose_frames = payload.get("participantPoseFrames", [])
+    track_points = payload.get("trackPoints", [])
     session_id = parse_uuid(session.get("id")) or new_uuid()
     athlete_id = parse_uuid(session.get("athleteId"))
     action_standard_id = parse_uuid(session.get("actionStandardId"))
@@ -2545,6 +2577,7 @@ def save_training_session(payload: dict[str, Any] = Body(...),
     participant_by_athlete = save_session_participants(db, session_id, athlete_id, session.get("participants", []))
     video_file_by_index = save_training_video_files(db, session_id, session.get("videoFiles", []))
     db.execute(text("DELETE FROM participant_pose_frames WHERE session_id = :session_id"), {"session_id": session_id})
+    db.execute(text("DELETE FROM track_points WHERE participant_id IN (SELECT id FROM training_session_participants WHERE session_id = :session_id)"), {"session_id": session_id})
     db.execute(text("DELETE FROM participant_repetitions WHERE session_id = :session_id"), {"session_id": session_id})
     db.execute(text("DELETE FROM action_repetitions WHERE session_id = :session_id"), {"session_id": session_id})
     action_repetition_ids: list[str] = []
@@ -2562,6 +2595,9 @@ def save_training_session(payload: dict[str, Any] = Body(...),
         insert_participant_repetition(db, session_id, action_standard_id, repetition, participant_by_athlete, video_file_by_index, linked_action_id)
     for frame in participant_pose_frames:
         insert_participant_pose_frame(db, session_id, frame, participant_by_athlete, video_file_by_index)
+    participant_ids = set(participant_by_athlete.values())
+    for point in track_points:
+        insert_track_point(db, point, participant_ids)
     if not participant_pose_frames and analysis_run_id:
         derive_analysis_pose_frames(db, session_id, str(analysis_run_id))
     if session.get("taskId"):
@@ -3087,6 +3123,43 @@ def participant_pose_frames(session_id: str,
         args,
     ).mappings()
     return [pose_frame_row(dict(row)) for row in rows]
+
+
+@app.get("/training/sessions/{session_id}/track-points")
+def track_points_for_session(session_id: str,
+                             participantId: str = "",
+                             fromMs: int = -1,
+                             toMs: int = -1,
+                             limit: int = 20000,
+                             db: Session = Depends(db_session),
+                             _: dict[str, Any] = Depends(require_user)) -> list[dict[str, Any]]:
+    where = ["participant.session_id = :session_id"]
+    args: dict[str, Any] = {"session_id": parse_uuid(session_id)}
+    if participantId:
+        where.append("point.participant_id = :participant_id")
+        args["participant_id"] = parse_uuid(participantId)
+    if fromMs >= 0:
+        where.append("point.t_ms >= :from_ms")
+        args["from_ms"] = fromMs
+    if toMs >= 0:
+        where.append("point.t_ms <= :to_ms")
+        args["to_ms"] = toMs
+    args["limit"] = max(1, min(limit, 20000))
+    rows = db.execute(
+        text(
+            "SELECT point.* FROM track_points point "
+            "JOIN training_session_participants participant ON participant.id = point.participant_id "
+            f"WHERE {' AND '.join(where)} "
+            "ORDER BY point.t_ms ASC, point.camera_id ASC LIMIT :limit"
+        ),
+        args,
+    ).mappings()
+    return [{
+        "id": str(row["id"]), "participantId": str(row["participant_id"]),
+        "tMs": str(row["t_ms"]), "x": row["x"], "y": row["y"], "z": row["z"],
+        "speedSource": row["speed_source"], "cameraId": row["camera_id"],
+        "confidence": row["confidence"] if row["confidence"] is not None else -1,
+    } for row in rows]
 
 
 @app.post("/training/repetitions/{repetition_id}/review")

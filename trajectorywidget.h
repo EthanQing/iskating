@@ -2,6 +2,7 @@
 #define TRAJECTORYWIDGET_H
 
 #include "poseresult.h"
+#include "trainingdomain.h"
 
 #include <QPointF>
 #include <QString>
@@ -30,6 +31,7 @@ public:
 
     void setCameraSegments(const QVector<CameraSegment> &segments);
     void setPoseFrame(const PoseFrameResult &frame);
+    void setTrackPoints(const QVector<TrackPoint> &points);
     void clearPoseFrame();
 
     struct KeypointTrace

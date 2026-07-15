@@ -7,6 +7,7 @@
 #include <QAbstractItemView>
 #include <QCheckBox>
 #include <QDialogButtonBox>
+#include <QDialog>
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QGridLayout>
@@ -21,6 +22,9 @@
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QThread>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -225,7 +229,7 @@ SystemSettingsDialog::SystemSettingsDialog(int cameraCount, QWidget *parent)
     fieldTipLabel->setWordWrap(true);
     layout->addWidget(fieldTipLabel);
 
-    m_cameraFieldTable = new QTableWidget(m_cameraCount, 9, this);
+    m_cameraFieldTable = new QTableWidget(m_cameraCount, 10, this);
     m_cameraFieldTable->setHorizontalHeaderLabels({
         QStringLiteral("参与轨迹"),
         QStringLiteral("用途"),
@@ -238,6 +242,7 @@ SystemSettingsDialog::SystemSettingsDialog(int cameraCount, QWidget *parent)
         QStringLiteral("质量/兼容备注")
     });
     m_cameraFieldTable->verticalHeader()->setVisible(true);
+    m_cameraFieldTable->setHorizontalHeaderItem(9, new QTableWidgetItem(QStringLiteral("四点标定")));
     for (int i = 0; i < m_cameraCount; ++i) {
         m_cameraFieldTable->setVerticalHeaderItem(i, new QTableWidgetItem(QStringLiteral("CAM %1").arg(i + 1, 2, 10, QLatin1Char('0'))));
     }
@@ -246,6 +251,61 @@ SystemSettingsDialog::SystemSettingsDialog(int cameraCount, QWidget *parent)
     m_cameraFieldTable->setMinimumHeight(250);
     m_cameraFieldTable->setAlternatingRowColors(true);
     m_cameraFieldTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    connect(m_cameraFieldTable, &QTableWidget::cellDoubleClicked, this, [this](int row, int column) {
+        if (column != 9 || row < 0 || row >= m_cameraCalibrationJson.size()) {
+            return;
+        }
+        QDialog dialog(this);
+        dialog.setWindowTitle(QStringLiteral("CAM %1 四点冰面标定").arg(row + 1, 2, 10, QLatin1Char('0')));
+        auto *layout = new QVBoxLayout(&dialog);
+        auto *table = new QTableWidget(4, 4, &dialog);
+        table->setHorizontalHeaderLabels({QStringLiteral("像素X"), QStringLiteral("像素Y"), QStringLiteral("场地X(m)"), QStringLiteral("场地Y(m)")});
+        const QJsonArray saved = QJsonDocument::fromJson(m_cameraCalibrationJson.at(row).toUtf8()).array();
+        const QStringList keys{QStringLiteral("px"), QStringLiteral("py"), QStringLiteral("x"), QStringLiteral("y")};
+        for (int point = 0; point < 4; ++point) {
+            const QJsonObject value = point < saved.size() ? saved.at(point).toObject() : QJsonObject{};
+            for (int field = 0; field < keys.size(); ++field) {
+                table->setItem(point, field, new QTableWidgetItem(QString::number(value.value(keys.at(field)).toDouble(), 'f', 3)));
+            }
+        }
+        layout->addWidget(new QLabel(QStringLiteral("填写画面像素点和对应的统一场地米制坐标；四点不得共线。"), &dialog));
+        layout->addWidget(table);
+        auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
+        layout->addWidget(buttons);
+        connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+        connect(buttons, &QDialogButtonBox::accepted, &dialog, [&]() {
+            QJsonArray points;
+            for (int point = 0; point < 4; ++point) {
+                QJsonObject value;
+                for (int field = 0; field < keys.size(); ++field) {
+                    bool ok = false;
+                    const double number = table->item(point, field)->text().trimmed().toDouble(&ok);
+                    if (!ok) {
+                        QMessageBox::warning(&dialog, QStringLiteral("标定无效"), QStringLiteral("四个点的所有坐标必须为数字。"));
+                        return;
+                    }
+                    value.insert(keys.at(field), number);
+                }
+                points.append(value);
+            }
+            auto hasArea = [&](const QString &first, const QString &second) {
+                double maximum = 0.0;
+                for (int a = 0; a < 4; ++a) for (int b = a + 1; b < 4; ++b) for (int c = b + 1; c < 4; ++c) {
+                    const QJsonObject p1 = points.at(a).toObject(); const QJsonObject p2 = points.at(b).toObject(); const QJsonObject p3 = points.at(c).toObject();
+                    maximum = std::max(maximum, std::abs((p2.value(first).toDouble() - p1.value(first).toDouble()) * (p3.value(second).toDouble() - p1.value(second).toDouble()) - (p2.value(second).toDouble() - p1.value(second).toDouble()) * (p3.value(first).toDouble() - p1.value(first).toDouble())));
+                }
+                return maximum > 1e-6;
+            };
+            if (!hasArea(QStringLiteral("px"), QStringLiteral("py")) || !hasArea(QStringLiteral("x"), QStringLiteral("y"))) {
+                QMessageBox::warning(&dialog, QStringLiteral("标定无效"), QStringLiteral("像素点和场地点都必须包含不共线的三点。"));
+                return;
+            }
+            m_cameraCalibrationJson[row] = QString::fromUtf8(QJsonDocument(points).toJson(QJsonDocument::Compact));
+            m_cameraFieldTable->setItem(row, 9, makeTableItem(QStringLiteral("已标定")));
+            dialog.accept();
+        });
+        dialog.exec();
+    });
     layout->addWidget(m_cameraFieldTable);
 
     auto *captureTitle = new QLabel(QStringLiteral("分析设置"), this);
@@ -459,6 +519,7 @@ SharedCameraSettings SystemSettingsDialog::sharedCameraSettings() const
 
 void SystemSettingsDialog::setCameraSlotSettings(const QVector<CameraSlotSettings> &settings)
 {
+    m_cameraCalibrationJson = QVector<QString>(m_ipEdits.size());
     for (int i = 0; i < m_ipEdits.size(); ++i) {
         const CameraSlotSettings slot = i < settings.size() ? settings.at(i) : defaultCameraSlotSettings(i);
         m_ipEdits.at(i)->setText(slot.ip.trimmed());
@@ -483,6 +544,8 @@ void SystemSettingsDialog::setCameraSlotSettings(const QVector<CameraSlotSetting
         }
         const QString note = notes.join(QStringLiteral("；"));
         m_cameraFieldTable->setItem(i, 8, makeTableItem(note));
+        m_cameraCalibrationJson[i] = slot.calibrationJson;
+        m_cameraFieldTable->setItem(i, 9, makeTableItem(slot.calibrationJson.trimmed().isEmpty() ? QStringLiteral("未标定") : QStringLiteral("已标定")));
     }
 }
 
@@ -510,6 +573,7 @@ QVector<CameraSlotSettings> SystemSettingsDialog::cameraSlotSettings() const
             slot.pitchDeg = tableDoubleValue(m_cameraFieldTable, i, 7, slot.pitchDeg);
             slot.qualityNote = tableTextValue(m_cameraFieldTable, i, 8);
             slot.compatibilityNote = slot.qualityNote;
+            slot.calibrationJson = i < m_cameraCalibrationJson.size() ? m_cameraCalibrationJson.at(i) : QString();
         }
         settings.append(slot);
     }

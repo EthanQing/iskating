@@ -30,6 +30,7 @@ struct CameraSlotSettings
     double mountHeightM = 2.8;
     double yawDeg = 0.0;
     double pitchDeg = -8.0;
+    QString calibrationJson;
     QString qualityNote;
     QString compatibilityNote;
 };
@@ -111,6 +112,7 @@ private:
     QPushButton *m_connectivityTestButton = nullptr;
     QVector<QLineEdit *> m_ipEdits;
     QTableWidget *m_cameraFieldTable = nullptr;
+    QVector<QString> m_cameraCalibrationJson;
 };
 
 #endif // SYSTEMSETTINGSDIALOG_H

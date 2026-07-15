@@ -509,6 +509,19 @@ struct ParticipantPoseFrame
     QString poseSummaryJson;
 };
 
+struct TrackPoint
+{
+    QString id;
+    QString participantId;
+    qint64 timestampMs = 0;
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+    QString speedSource = QStringLiteral("position_delta");
+    int cameraId = 0;
+    double confidence = -1.0;
+};
+
 struct TrainingSession
 {
     QString id;
@@ -559,6 +572,7 @@ struct TrainingSession
     QVector<TrainingSessionParticipant> participants;
     QVector<ParticipantRepetition> participantRepetitions;
     QVector<ParticipantPoseFrame> participantPoseFrames;
+    QVector<TrackPoint> trackPoints;
     QVector<TrainingVideoFile> videoFiles;
 };
 

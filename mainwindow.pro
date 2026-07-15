@@ -136,6 +136,7 @@ SOURCES += \
     tensorrtrunner.cpp \
     trainingreviewdialog.cpp \
     trainingrepository.cpp \
+    trajectorywidget.cpp \
     videostorageplan.cpp \
     videoopenglwidget.cpp
 
@@ -164,6 +165,7 @@ HEADERS += \
     trainingdomain.h \
     trainingreviewdialog.h \
     trainingrepository.h \
+    trajectorywidget.h \
     videostorageplan.h \
     videoopenglwidget.h
 

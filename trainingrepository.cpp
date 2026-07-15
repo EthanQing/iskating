@@ -4,6 +4,7 @@
 #include <QByteArray>
 #include <QDate>
 #include <QEventLoop>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QNetworkReply>
@@ -540,6 +541,21 @@ QJsonObject participantPoseFrameToJson(const ParticipantPoseFrame &frame)
     };
 }
 
+QJsonObject trackPointToJson(const TrackPoint &point)
+{
+    return {
+        {QStringLiteral("id"), point.id},
+        {QStringLiteral("participantId"), point.participantId},
+        {QStringLiteral("tMs"), QString::number(point.timestampMs)},
+        {QStringLiteral("x"), point.x},
+        {QStringLiteral("y"), point.y},
+        {QStringLiteral("z"), point.z},
+        {QStringLiteral("speedSource"), point.speedSource},
+        {QStringLiteral("cameraId"), point.cameraId},
+        {QStringLiteral("confidence"), point.confidence}
+    };
+}
+
 QJsonObject offlineAnalysisTaskToJson(const OfflineAnalysisTask &task)
 {
     QJsonObject probeMetadata;
@@ -910,6 +926,24 @@ ParticipantPoseFrame participantPoseFrameFromJson(const QJsonObject &object)
         frame.poseSummaryJson = jsonString(object, QStringLiteral("poseSummary"));
     }
     return frame;
+}
+
+TrackPoint trackPointFromJson(const QJsonObject &object)
+{
+    TrackPoint point;
+    point.id = jsonString(object, QStringLiteral("id"));
+    point.participantId = jsonString(object, QStringLiteral("participantId"));
+    point.timestampMs = jsonInt64(object, QStringLiteral("tMs"));
+    point.x = jsonDouble(object, QStringLiteral("x"));
+    point.y = jsonDouble(object, QStringLiteral("y"));
+    point.z = jsonDouble(object, QStringLiteral("z"));
+    point.speedSource = jsonString(object, QStringLiteral("speedSource"));
+    if (point.speedSource.isEmpty()) {
+        point.speedSource = QStringLiteral("position_delta");
+    }
+    point.cameraId = jsonInt(object, QStringLiteral("cameraId"));
+    point.confidence = jsonDouble(object, QStringLiteral("confidence"), -1.0);
+    return point;
 }
 
 VideoFileCleanupCandidate cleanupCandidateFromJson(const QJsonObject &object)
@@ -1652,6 +1686,37 @@ QVector<ParticipantPoseFrame> TrainingRepository::poseFramesForSession(const QSt
     return frames;
 }
 
+QVector<TrackPoint> TrainingRepository::trackPointsForSession(const QString &sessionId,
+                                                               const QString &participantId,
+                                                               int fromMs,
+                                                               int toMs,
+                                                               int limit) const
+{
+    QVariantMap query;
+    if (!participantId.trimmed().isEmpty()) {
+        query.insert(QStringLiteral("participantId"), participantId);
+    }
+    if (fromMs >= 0) {
+        query.insert(QStringLiteral("fromMs"), fromMs);
+    }
+    if (toMs >= 0) {
+        query.insert(QStringLiteral("toMs"), toMs);
+    }
+    query.insert(QStringLiteral("limit"), limit);
+    bool ok = false;
+    const QJsonArray array = requestArray(QStringLiteral("/training/sessions/%1/track-points").arg(sessionId), query, &ok);
+    QVector<TrackPoint> points;
+    if (!ok) {
+        return points;
+    }
+    for (const QJsonValue &value : array) {
+        if (value.isObject()) {
+            points.append(trackPointFromJson(value.toObject()));
+        }
+    }
+    return points;
+}
+
 QVector<VideoFileCleanupCandidate> TrainingRepository::videoFiles(const QString &status,
                                                                   bool withLocalPathOnly,
                                                                   const QDateTime &modifiedBefore) const
@@ -2296,6 +2361,12 @@ bool TrainingRepository::saveTrainingSession(TrainingSession *session,
         return false;
     }
     session->id = ensureId(session->id);
+    QHash<QString, QString> participantIds;
+    for (TrainingSessionParticipant &participant : session->participants) {
+        participant.id = ensureId(participant.id);
+        participant.sessionId = session->id;
+        participantIds.insert(participant.athleteId, participant.id);
+    }
     QString defaultVideoFileId;
     int defaultVideoIndex = 1;
     for (TrainingVideoFile &file : session->videoFiles) {
@@ -2355,10 +2426,20 @@ bool TrainingRepository::saveTrainingSession(TrainingSession *session,
         }
         participantPoseFrames.append(participantPoseFrameToJson(frame));
     }
+    QJsonArray trackPoints;
+    for (TrackPoint point : session->trackPoints) {
+        point.id = ensureId(point.id);
+        point.participantId = participantIds.value(point.participantId, point.participantId);
+        if (point.participantId.trimmed().isEmpty()) {
+            continue;
+        }
+        trackPoints.append(trackPointToJson(point));
+    }
     const QJsonObject body{{QStringLiteral("session"), sessionToJson(*session)},
                            {QStringLiteral("repetitions"), reps},
                            {QStringLiteral("participantRepetitions"), participantReps},
-                           {QStringLiteral("participantPoseFrames"), participantPoseFrames}};
+                           {QStringLiteral("participantPoseFrames"), participantPoseFrames},
+                           {QStringLiteral("trackPoints"), trackPoints}};
     bool ok = false;
     const QJsonObject response = requestObject(QStringLiteral("POST"), QStringLiteral("/training/sessions"), body, {}, &ok, errorMessage);
     if (ok) {

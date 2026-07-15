@@ -83,6 +83,21 @@ def backfill(url: str) -> dict[str, int]:
                     CONSTRAINT uq_training_session_participants_slot UNIQUE (session_id, slot_index)
                 );
 
+                CREATE TABLE IF NOT EXISTS track_points (
+                    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                    participant_id uuid NOT NULL REFERENCES training_session_participants(id) ON DELETE CASCADE,
+                    t_ms bigint NOT NULL,
+                    x double precision NOT NULL,
+                    y double precision NOT NULL,
+                    z double precision NOT NULL DEFAULT 0,
+                    speed_source text NOT NULL DEFAULT 'position_delta',
+                    camera_id integer NOT NULL DEFAULT 0,
+                    confidence double precision,
+                    created_at timestamptz NOT NULL DEFAULT now(),
+                    UNIQUE (participant_id, t_ms, camera_id)
+                );
+                CREATE INDEX IF NOT EXISTS ix_track_points_participant_time ON track_points(participant_id, t_ms);
+
                 CREATE TABLE IF NOT EXISTS participant_repetitions (
                     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
                     session_id uuid NOT NULL REFERENCES training_sessions(id) ON DELETE CASCADE,

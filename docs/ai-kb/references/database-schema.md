@@ -1,5 +1,9 @@
 # Database Schema
 
+## F-24 `track_points`
+
+`track_points` 是二维滑行路线的权威表，字段为 `participant_id`、`t_ms`、`x`、`y`、`z`、`speed_source`、`camera_id`、`confidence` 和审计字段。`t_ms` 为 session 相对毫秒；坐标为场地米制，首版 `z=0`。唯一键 `(participant_id, t_ms, camera_id)` 支持多机位同时间点，索引按 participant/time 查询。速度由相邻有效点派生，不另存速度值；旧记录不回填伪造点。
+
 上级入口：[[00-index|AI 知识库索引]]、[[references/README|Reference 地图]]
 相关模块：[[modules/persistence|本地持久化]]、[[modules/core|应用核心]]
 相关流程：[[flows/training-record-flow|训练记录流程]]、[[flows/main-user-flow|主用户流程]]

@@ -457,6 +457,21 @@ void TrajectoryWidget::setPoseFrame(const PoseFrameResult &frame)
     update();
 }
 
+void TrajectoryWidget::setTrackPoints(const QVector<TrackPoint> &points)
+{
+    m_samples.clear();
+    m_samples.reserve(points.size());
+    for (const TrackPoint &point : points) {
+        TrajectorySample sample;
+        sample.timestampMs = point.timestampMs;
+        sample.cameraId = point.cameraId;
+        sample.fieldPoint = QPointF(point.x, point.y);
+        sample.hasFieldPoint = true;
+        m_samples.append(sample);
+    }
+    update();
+}
+
 void TrajectoryWidget::clearPoseFrame()
 {
     if (m_samples.isEmpty()) {

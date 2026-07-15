@@ -1,5 +1,7 @@
 # Pitfalls
 
+- F-24 只能将有效四点单应性标定得到的坐标写入 `track_points`；不能将未标定画面的像素坐标或旧 `participant_pose_frames.field_x/field_y` 伪装为米制轨迹。
+
 上级入口：[[00-index|AI 知识库索引]]
 相关文档：[[02-architecture|架构说明]]、[[03-commands|运行命令]]、[[07-open-questions|未确认问题]]
 高风险模块：[[modules/video-streaming|视频流]]、[[modules/ai-inference|AI 推理]]、[[modules/persistence|本地持久化]]、[[modules/background-workers|后台线程]]

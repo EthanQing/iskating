@@ -1,5 +1,7 @@
 # Major Changes
 
+- 完成 F-24：新增 `track_points`、四点冰面标定、实时二维路线、历史路线重建与 CSV/XLSX 导出；未标定机位不写轨迹。
+
 上级入口：[[00-index|AI 知识库索引]]、[[changelog/README|变更记录地图]]
 相关记录：[[tasks/done|已完成事项]]、[[decisions/initial-project-analysis|首次项目分析决策]]
 相关文档：[[01-project-overview|项目概览]]、[[02-architecture|架构说明]]、[[05-pitfalls|坑点]]

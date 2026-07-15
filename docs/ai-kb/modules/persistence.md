@@ -1,5 +1,9 @@
 # 本地持久化模块
 
+## F-24 轨迹点持久化
+
+训练 session 的二维路线写入独立的 `track_points`，由 `TrainingRepository::trackPointsForSession()` 和 `GET /training/sessions/{session_id}/track-points` 查询。该表只接受已绑定 participant、已完成四点冰面标定的米制坐标；`participant_pose_frames` 不再承担权威轨迹职责。
+
 上级入口：[[00-index|AI 知识库索引]]、[[modules/README|模块地图]]
 相关模块：[[core|应用核心]]、[[frontend|Qt Widgets 前端]]、[[ai-inference|AI 推理]]
 相关流程：[[flows/main-user-flow|主用户流程]]、[[flows/training-record-flow|训练记录流程]]

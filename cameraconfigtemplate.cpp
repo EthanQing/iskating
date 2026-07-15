@@ -161,6 +161,7 @@ QJsonObject cameraToJson(const CameraSlotSettings &settings)
     object.insert(QStringLiteral("mountHeightM"), settings.mountHeightM);
     object.insert(QStringLiteral("yawDeg"), settings.yawDeg);
     object.insert(QStringLiteral("pitchDeg"), settings.pitchDeg);
+    object.insert(QStringLiteral("calibration"), settings.calibrationJson.trimmed());
     object.insert(QStringLiteral("qualityNote"), settings.qualityNote.trimmed());
     object.insert(QStringLiteral("compatibilityNote"), settings.compatibilityNote.trimmed());
     return object;
@@ -229,6 +230,7 @@ CameraSlotSettings cameraFromJson(const QJsonObject &object, int cameraIndex)
     settings.mountHeightM = jsonDouble(object, QStringLiteral("mountHeightM"), settings.mountHeightM);
     settings.yawDeg = jsonDouble(object, QStringLiteral("yawDeg"), settings.yawDeg);
     settings.pitchDeg = jsonDouble(object, QStringLiteral("pitchDeg"), settings.pitchDeg);
+    settings.calibrationJson = jsonString(object, QStringLiteral("calibration"));
     settings.qualityNote = jsonString(object, QStringLiteral("qualityNote"));
     settings.compatibilityNote = jsonString(object, QStringLiteral("compatibilityNote"), settings.qualityNote);
     return settings;
