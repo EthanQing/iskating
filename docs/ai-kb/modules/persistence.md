@@ -1,8 +1,8 @@
 # 本地持久化模块
 
-## F-24 轨迹点持久化
+## F-24/F-25 轨迹点与速度持久化
 
-训练 session 的二维路线写入独立的 `track_points`，由 `TrainingRepository::trackPointsForSession()` 和 `GET /training/sessions/{session_id}/track-points` 查询。该表只接受已绑定 participant、已完成四点冰面标定的米制坐标；`participant_pose_frames` 不再承担权威轨迹职责。
+训练 session 的二维路线写入独立的 `track_points`，速度时序写入 `speed_metrics` 并以轨迹点外键关联。两者分别由 `TrainingRepository::trackPointsForSession()`、`speedMetricsForSession()` 和对应 session API 查询。该表只接受已绑定 participant、已完成四点冰面标定的米制坐标；`participant_pose_frames` 不再承担权威轨迹职责。
 
 上级入口：[[00-index|AI 知识库索引]]、[[modules/README|模块地图]]
 相关模块：[[core|应用核心]]、[[frontend|Qt Widgets 前端]]、[[ai-inference|AI 推理]]
@@ -116,7 +116,7 @@ PostgreSQL 主要表：
 
 `searchRepetitions(filters, page)` 是跨 session 动作实例检索入口，优先查询 `participant_repetitions` 并在旧记录缺失新表结果时回退 `action_repetitions`，支持按 session、人员、比赛/场次、动作、来源、有效性、复核状态、分数区间、训练时间、动作片段时间和错误项关键词检索。人员筛选优先匹配 participant 结果的 `athlete_id`，旧记录没有动作级身份时回退到 session 主运动员。筛选和展示默认使用“人工优先”的有效值；历史页动作明细检索对话框可将当前筛选结果导出为 CSV 或 XLSX。
 
-`poseFramesForSession(sessionId, participantId, athleteId, fromMs, toMs, limit)` 查询 `participant_pose_frames`，供历史页“姿态轨迹”复盘面板按参与者、时间轴、机位和轨迹 ID 查看连续姿态摘要。桌面端复盘面板可将当前筛选的时间线导出为 CSV/XLSX；旧 session 没有连续姿态帧时只提示暂无时间线，不影响动作复盘。
+`poseFramesForSession(sessionId, participantId, athleteId, fromMs, toMs, limit)` 查询 `participant_pose_frames`，供历史页“姿态轨迹”复盘面板按参与者、时间轴、机位和轨迹 ID 查看连续姿态摘要。轨迹复盘同时读取 `speedMetricsForSession()`，按 participant 查看瞬时/平滑速度、有效标记、窗口和算法版本，并可导出 CSV/XLSX；旧 session 没有速度时序时保持空值，不影响轨迹或动作复盘。
 
 `videoFiles(status, withLocalPathOnly, modifiedBefore)` 查询 `training_video_files` 并联查 session、运动员和动作引用数量，供系统设置生成本机视频清理候选列表。桌面端只会把“已登记、路径在配置根目录下、文件实际存在”的视频列为可删除候选；删除本机文件后调用 `markVideoFileCleaned(videoFileId, reason)` 在视频资产 metadata 写入 `cleanupDeletedAt/cleanupReason/cleanupMissing`，不删除训练记录、动作实例或视频资产行，也不扩展 `status` 枚举。
 

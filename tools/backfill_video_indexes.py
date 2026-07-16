@@ -98,6 +98,23 @@ def backfill(url: str) -> dict[str, int]:
                 );
                 CREATE INDEX IF NOT EXISTS ix_track_points_participant_time ON track_points(participant_id, t_ms);
 
+                CREATE TABLE IF NOT EXISTS speed_metrics (
+                    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                    participant_id uuid NOT NULL REFERENCES training_session_participants(id) ON DELETE CASCADE,
+                    track_point_id uuid NOT NULL REFERENCES track_points(id) ON DELETE CASCADE,
+                    t_ms bigint NOT NULL,
+                    camera_id integer NOT NULL DEFAULT 0,
+                    instantaneous_speed_mps double precision NOT NULL DEFAULT 0,
+                    smoothed_speed_mps double precision NOT NULL DEFAULT 0,
+                    smoothing_window_ms integer NOT NULL DEFAULT 1000,
+                    unit text NOT NULL DEFAULT 'm/s',
+                    algorithm_version text NOT NULL DEFAULT 'trajectory_speed_v1',
+                    valid boolean NOT NULL DEFAULT false,
+                    created_at timestamptz NOT NULL DEFAULT now(),
+                    UNIQUE (track_point_id)
+                );
+                CREATE INDEX IF NOT EXISTS ix_speed_metrics_participant_time ON speed_metrics(participant_id, t_ms);
+
                 CREATE TABLE IF NOT EXISTS participant_repetitions (
                     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
                     session_id uuid NOT NULL REFERENCES training_sessions(id) ON DELETE CASCADE,

@@ -2056,15 +2056,16 @@ def insert_participant_pose_frame(db: Session,
     return frame_id
 
 
-def insert_track_point(db: Session, point: dict[str, Any], participant_ids: set[str]) -> None:
+def insert_track_point(db: Session, point: dict[str, Any], participant_ids: set[str]) -> str | None:
     participant_id = parse_uuid(point.get("participantId"))
     if not participant_id or str(participant_id) not in participant_ids:
-        return
+        return None
     confidence_value = point.get("confidence", -1)
     try:
         confidence = float(confidence_value)
     except (TypeError, ValueError):
         confidence = -1.0
+    point_id = parse_uuid(point.get("id")) or new_uuid()
     db.execute(
         text(
             "INSERT INTO track_points "
@@ -2074,7 +2075,7 @@ def insert_track_point(db: Session, point: dict[str, Any], participant_ids: set[
             "x=excluded.x, y=excluded.y, z=excluded.z, speed_source=excluded.speed_source, confidence=excluded.confidence"
         ),
         {
-            "id": parse_uuid(point.get("id")) or new_uuid(),
+            "id": point_id,
             "participant_id": participant_id,
             "t_ms": int(point.get("tMs") or 0),
             "x": float(point.get("x") or 0.0),
@@ -2083,6 +2084,53 @@ def insert_track_point(db: Session, point: dict[str, Any], participant_ids: set[
             "speed_source": point.get("speedSource") or "position_delta",
             "camera_id": int(point.get("cameraId") or 0),
             "confidence": confidence if confidence >= 0 else None,
+        },
+    )
+    return str(point_id)
+
+
+def insert_speed_metric(db: Session,
+                        metric: dict[str, Any],
+                        participant_ids: set[str],
+                        point_ids: dict[tuple[str, int, int], str]) -> None:
+    participant_id = parse_uuid(metric.get("participantId"))
+    if not participant_id or str(participant_id) not in participant_ids:
+        return
+    timestamp_ms = int(metric.get("tMs") or 0)
+    camera_id = int(metric.get("cameraId") or 0)
+    point_id = parse_uuid(metric.get("trackPointId"))
+    if not point_id:
+        point_id = parse_uuid(point_ids.get((str(participant_id), timestamp_ms, camera_id)))
+    if not point_id:
+        return
+    try:
+        instantaneous_speed = float(metric.get("instantaneousSpeedMps") or 0.0)
+        smoothed_speed = float(metric.get("smoothedSpeedMps") or 0.0)
+    except (TypeError, ValueError):
+        return
+    db.execute(
+        text(
+            "INSERT INTO speed_metrics "
+            "(id, participant_id, track_point_id, t_ms, camera_id, instantaneous_speed_mps, smoothed_speed_mps, "
+            "smoothing_window_ms, unit, algorithm_version, valid) "
+            "VALUES (:id, :participant_id, :track_point_id, :t_ms, :camera_id, :instantaneous_speed_mps, "
+            ":smoothed_speed_mps, :smoothing_window_ms, :unit, :algorithm_version, :valid) "
+            "ON CONFLICT (track_point_id) DO UPDATE SET instantaneous_speed_mps=excluded.instantaneous_speed_mps, "
+            "smoothed_speed_mps=excluded.smoothed_speed_mps, smoothing_window_ms=excluded.smoothing_window_ms, "
+            "unit=excluded.unit, algorithm_version=excluded.algorithm_version, valid=excluded.valid"
+        ),
+        {
+            "id": parse_uuid(metric.get("id")) or new_uuid(),
+            "participant_id": participant_id,
+            "track_point_id": point_id,
+            "t_ms": timestamp_ms,
+            "camera_id": camera_id,
+            "instantaneous_speed_mps": instantaneous_speed,
+            "smoothed_speed_mps": smoothed_speed,
+            "smoothing_window_ms": max(1, int(metric.get("smoothingWindowMs") or 1000)),
+            "unit": metric.get("unit") or "m/s",
+            "algorithm_version": metric.get("algorithmVersion") or "trajectory_speed_v1",
+            "valid": bool(metric.get("valid", False)),
         },
     )
 
@@ -2478,6 +2526,7 @@ def save_training_session(payload: dict[str, Any] = Body(...),
     participant_repetitions = payload.get("participantRepetitions", [])
     participant_pose_frames = payload.get("participantPoseFrames", [])
     track_points = payload.get("trackPoints", [])
+    speed_metrics = payload.get("speedMetrics", [])
     session_id = parse_uuid(session.get("id")) or new_uuid()
     athlete_id = parse_uuid(session.get("athleteId"))
     action_standard_id = parse_uuid(session.get("actionStandardId"))
@@ -2577,6 +2626,7 @@ def save_training_session(payload: dict[str, Any] = Body(...),
     participant_by_athlete = save_session_participants(db, session_id, athlete_id, session.get("participants", []))
     video_file_by_index = save_training_video_files(db, session_id, session.get("videoFiles", []))
     db.execute(text("DELETE FROM participant_pose_frames WHERE session_id = :session_id"), {"session_id": session_id})
+    db.execute(text("DELETE FROM speed_metrics WHERE participant_id IN (SELECT id FROM training_session_participants WHERE session_id = :session_id)"), {"session_id": session_id})
     db.execute(text("DELETE FROM track_points WHERE participant_id IN (SELECT id FROM training_session_participants WHERE session_id = :session_id)"), {"session_id": session_id})
     db.execute(text("DELETE FROM participant_repetitions WHERE session_id = :session_id"), {"session_id": session_id})
     db.execute(text("DELETE FROM action_repetitions WHERE session_id = :session_id"), {"session_id": session_id})
@@ -2596,8 +2646,13 @@ def save_training_session(payload: dict[str, Any] = Body(...),
     for frame in participant_pose_frames:
         insert_participant_pose_frame(db, session_id, frame, participant_by_athlete, video_file_by_index)
     participant_ids = set(participant_by_athlete.values())
+    point_ids: dict[tuple[str, int, int], str] = {}
     for point in track_points:
-        insert_track_point(db, point, participant_ids)
+        point_id = insert_track_point(db, point, participant_ids)
+        if point_id:
+            point_ids[(str(parse_uuid(point.get("participantId"))), int(point.get("tMs") or 0), int(point.get("cameraId") or 0))] = point_id
+    for metric in speed_metrics:
+        insert_speed_metric(db, metric, participant_ids, point_ids)
     if not participant_pose_frames and analysis_run_id:
         derive_analysis_pose_frames(db, session_id, str(analysis_run_id))
     if session.get("taskId"):
@@ -3159,6 +3214,44 @@ def track_points_for_session(session_id: str,
         "tMs": str(row["t_ms"]), "x": row["x"], "y": row["y"], "z": row["z"],
         "speedSource": row["speed_source"], "cameraId": row["camera_id"],
         "confidence": row["confidence"] if row["confidence"] is not None else -1,
+    } for row in rows]
+
+
+@app.get("/training/sessions/{session_id}/speed-metrics")
+def speed_metrics_for_session(session_id: str,
+                              participantId: str = "",
+                              fromMs: int = -1,
+                              toMs: int = -1,
+                              limit: int = 20000,
+                              db: Session = Depends(db_session),
+                              _: dict[str, Any] = Depends(require_user)) -> list[dict[str, Any]]:
+    where = ["participant.session_id = :session_id"]
+    args: dict[str, Any] = {"session_id": parse_uuid(session_id)}
+    if participantId:
+        where.append("metric.participant_id = :participant_id")
+        args["participant_id"] = parse_uuid(participantId)
+    if fromMs >= 0:
+        where.append("metric.t_ms >= :from_ms")
+        args["from_ms"] = fromMs
+    if toMs >= 0:
+        where.append("metric.t_ms <= :to_ms")
+        args["to_ms"] = toMs
+    args["limit"] = max(1, min(limit, 20000))
+    rows = db.execute(
+        text(
+            "SELECT metric.* FROM speed_metrics metric "
+            "JOIN training_session_participants participant ON participant.id = metric.participant_id "
+            f"WHERE {' AND '.join(where)} "
+            "ORDER BY metric.t_ms ASC, metric.camera_id ASC LIMIT :limit"
+        ),
+        args,
+    ).mappings()
+    return [{
+        "id": str(row["id"]), "participantId": str(row["participant_id"]),
+        "trackPointId": str(row["track_point_id"]), "tMs": str(row["t_ms"]), "cameraId": row["camera_id"],
+        "instantaneousSpeedMps": row["instantaneous_speed_mps"], "smoothedSpeedMps": row["smoothed_speed_mps"],
+        "smoothingWindowMs": row["smoothing_window_ms"], "unit": row["unit"],
+        "algorithmVersion": row["algorithm_version"], "valid": row["valid"],
     } for row in rows]
 
 

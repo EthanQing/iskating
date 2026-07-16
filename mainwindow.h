@@ -203,8 +203,10 @@ private:
     QVector<ActionStandard> m_actionStandards;
     QVector<ParticipantPoseFrame> m_currentPoseFrames;
     QVector<TrackPoint> m_currentTrackPoints;
+    QVector<SpeedMetric> m_currentSpeedMetrics;
     QHash<QString, qint64> m_participantPoseSampleTimes;
     QHash<QString, qint64> m_trackPointSampleTimes;
+    QHash<QString, TrackPoint> m_latestTrackPoints;
     TrajectoryWidget *m_trajectoryWidget = nullptr;
     AthleteFrameResult m_lastAthleteFrame;
     QVector<AthleteIdentityBinding> m_manualIdentityBindings;

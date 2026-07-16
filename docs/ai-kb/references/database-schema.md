@@ -1,8 +1,10 @@
 # Database Schema
 
-## F-24 `track_points`
+## F-24/F-25 `track_points` 与 `speed_metrics`
 
-`track_points` 是二维滑行路线的权威表，字段为 `participant_id`、`t_ms`、`x`、`y`、`z`、`speed_source`、`camera_id`、`confidence` 和审计字段。`t_ms` 为 session 相对毫秒；坐标为场地米制，首版 `z=0`。唯一键 `(participant_id, t_ms, camera_id)` 支持多机位同时间点，索引按 participant/time 查询。速度由相邻有效点派生，不另存速度值；旧记录不回填伪造点。
+`track_points` 是二维滑行路线的权威表，字段为 `participant_id`、`t_ms`、`x`、`y`、`z`、`speed_source`、`camera_id`、`confidence` 和审计字段。`t_ms` 为 session 相对毫秒；坐标为场地米制，首版 `z=0`。唯一键 `(participant_id, t_ms, camera_id)` 支持多机位同时间点，索引按 participant/time 查询。
+
+`speed_metrics` 以 `track_point_id` 一对一关联轨迹点，保存算法输出的瞬时速度、平滑速度、平滑窗口、单位、算法版本和有效标记；速度单位固定为 `m/s`。桌面端以约 200ms 的相邻场地坐标生成 `trajectory_speed_v1` 结果，并对同机位同运动员最近 1000ms 的有效瞬时速度取均值。首点、时间倒退、超过 2 秒的间隔或无效检测置信度均保存为无效结果。旧记录不回填伪造速度。
 
 上级入口：[[00-index|AI 知识库索引]]、[[references/README|Reference 地图]]
 相关模块：[[modules/persistence|本地持久化]]、[[modules/core|应用核心]]

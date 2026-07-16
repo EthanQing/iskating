@@ -107,6 +107,8 @@ constexpr int kHistoryActionButtonWidth = 92;
 constexpr int kScoreTagWidth = 68;
 constexpr int kMaxParticipantPoseFrames = 20000;
 constexpr qint64 kAthleteTimelineSampleIntervalMs = 200;
+constexpr int kSpeedSmoothingWindowMs = 1000;
+constexpr const char *kSpeedAlgorithmVersion = "trajectory_speed_v1";
 constexpr const char *kPreviousWindowStateProperty = "previousWindowStateBeforeFullScreen";
 constexpr const char *kMutedInactiveColor = "#8c8c8c";
 constexpr const char *kHoverActionColor = "#3b8dff";
@@ -3744,8 +3746,10 @@ void MainWindow::resetCurrentTrainingSession()
     m_actionScoreTotal = 0;
     m_currentPoseFrames.clear();
     m_currentTrackPoints.clear();
+    m_currentSpeedMetrics.clear();
     m_participantPoseSampleTimes.clear();
     m_trackPointSampleTimes.clear();
+    m_latestTrackPoints.clear();
     refreshTrajectoryView();
     m_manualIdentityBindings.clear();
     if (m_athleteAnalysisManager) {
@@ -3827,9 +3831,46 @@ void MainWindow::recordAthleteFrames(const AthleteFrameResult &athleteFrame)
         point.cameraId = athleteFrame.cameraId;
         point.confidence = instance.detectionConfidence;
         m_currentTrackPoints.append(point);
+
+        const TrackPoint previousPoint = m_latestTrackPoints.value(pointKey);
+        const qint64 elapsedMs = point.timestampMs - previousPoint.timestampMs;
+        SpeedMetric speed;
+        speed.participantId = point.participantId;
+        speed.timestampMs = point.timestampMs;
+        speed.cameraId = point.cameraId;
+        speed.smoothingWindowMs = kSpeedSmoothingWindowMs;
+        speed.algorithmVersion = QString::fromLatin1(kSpeedAlgorithmVersion);
+        speed.valid = previousPoint.timestampMs > 0
+                      && elapsedMs >= kAthleteTimelineSampleIntervalMs
+                      && elapsedMs <= 2000
+                      && point.confidence >= 0.0;
+        if (speed.valid) {
+            speed.instantaneousSpeedMps = std::hypot(point.x - previousPoint.x, point.y - previousPoint.y)
+                                          / (static_cast<double>(elapsedMs) / 1000.0);
+            double speedTotal = speed.instantaneousSpeedMps;
+            int speedCount = 1;
+            for (auto metric = m_currentSpeedMetrics.crbegin(); metric != m_currentSpeedMetrics.crend(); ++metric) {
+                if (metric->participantId != speed.participantId || metric->cameraId != speed.cameraId) {
+                    continue;
+                }
+                if (speed.timestampMs - metric->timestampMs > speed.smoothingWindowMs) {
+                    break;
+                }
+                if (metric->valid) {
+                    speedTotal += metric->instantaneousSpeedMps;
+                    ++speedCount;
+                }
+            }
+            speed.smoothedSpeedMps = speedTotal / speedCount;
+        }
+        m_currentSpeedMetrics.append(speed);
+        m_latestTrackPoints.insert(pointKey, point);
     }
     while (m_currentPoseFrames.size() > kMaxParticipantPoseFrames) {
         m_currentPoseFrames.removeFirst();
+    }
+    while (m_currentSpeedMetrics.size() > kMaxParticipantPoseFrames) {
+        m_currentSpeedMetrics.removeFirst();
     }
     refreshTrajectoryView();
 }
@@ -4796,6 +4837,7 @@ void MainWindow::saveRecord()
     session.participantRepetitions.clear();
     session.participantPoseFrames = m_currentPoseFrames;
     session.trackPoints = m_currentTrackPoints;
+    session.speedMetrics = m_currentSpeedMetrics;
     for (ParticipantPoseFrame &frame : session.participantPoseFrames) {
         frame.sessionId = session.id;
         frame.videoFileId = session.videoFiles.isEmpty() ? QString() : session.videoFiles.first().id;
@@ -5525,6 +5567,7 @@ void MainWindow::openTrackPointReview(const SessionHistoryItem &record)
         return;
     }
     const QVector<TrackPoint> allPoints = m_trainingRepository->trackPointsForSession(record.id);
+    const QVector<SpeedMetric> allSpeedMetrics = m_trainingRepository->speedMetricsForSession(record.id);
     if (allPoints.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("暂无轨迹"), QStringLiteral("这条训练记录没有已标定的场地轨迹点。旧记录仍可使用动作和姿态复盘。"));
         return;
@@ -5551,19 +5594,15 @@ void MainWindow::openTrackPointReview(const SessionHistoryItem &record)
     auto *trajectory = new TrajectoryWidget(&dialog);
     layout->addWidget(trajectory, 1);
     auto *table = new QTableWidget(&dialog);
-    table->setColumnCount(8);
-    table->setHorizontalHeaderLabels({QStringLiteral("时间(ms)"), QStringLiteral("X(m)"), QStringLiteral("Y(m)"), QStringLiteral("Z(m)"), QStringLiteral("速度(m/s)"), QStringLiteral("来源"), QStringLiteral("机位"), QStringLiteral("置信度")});
+    table->setColumnCount(11);
+    table->setHorizontalHeaderLabels({QStringLiteral("时间(ms)"), QStringLiteral("X(m)"), QStringLiteral("Y(m)"), QStringLiteral("Z(m)"), QStringLiteral("瞬时速度(m/s)"), QStringLiteral("平滑速度(m/s)"), QStringLiteral("有效"), QStringLiteral("平滑窗口(ms)"), QStringLiteral("算法版本"), QStringLiteral("机位"), QStringLiteral("置信度")});
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table->horizontalHeader()->setStretchLastSection(true);
     layout->addWidget(table, 1);
     QVector<TrackPoint> current;
-    auto speedAt = [](const QVector<TrackPoint> &points, int index) -> double {
-        if (index <= 0) return -1.0;
-        const TrackPoint &previous = points.at(index - 1);
-        const TrackPoint &point = points.at(index);
-        const qint64 elapsed = point.timestampMs - previous.timestampMs;
-        if (elapsed <= 0 || elapsed > 2000) return -1.0;
-        return std::hypot(point.x - previous.x, point.y - previous.y) / (static_cast<double>(elapsed) / 1000.0);
+    QHash<QString, SpeedMetric> metricByPoint;
+    for (const SpeedMetric &metric : allSpeedMetrics) {
+        metricByPoint.insert(metric.trackPointId, metric);
     };
     auto reload = [&]() {
         current.clear();
@@ -5575,8 +5614,8 @@ void MainWindow::openTrackPointReview(const SessionHistoryItem &record)
         table->setRowCount(current.size());
         for (int row = 0; row < current.size(); ++row) {
             const TrackPoint &point = current.at(row);
-            const double speed = speedAt(current, row);
-            const QStringList values{QString::number(point.timestampMs), QString::number(point.x, 'f', 3), QString::number(point.y, 'f', 3), QString::number(point.z, 'f', 3), speed < 0 ? QStringLiteral("-") : QString::number(speed, 'f', 3), point.speedSource, QString::number(point.cameraId), point.confidence < 0 ? QStringLiteral("-") : QString::number(point.confidence, 'f', 3)};
+            const SpeedMetric metric = metricByPoint.value(point.id);
+            const QStringList values{QString::number(point.timestampMs), QString::number(point.x, 'f', 3), QString::number(point.y, 'f', 3), QString::number(point.z, 'f', 3), metric.id.isEmpty() ? QStringLiteral("-") : QString::number(metric.instantaneousSpeedMps, 'f', 3), metric.id.isEmpty() ? QStringLiteral("-") : QString::number(metric.smoothedSpeedMps, 'f', 3), metric.id.isEmpty() ? QStringLiteral("-") : (metric.valid ? QStringLiteral("是") : QStringLiteral("否")), metric.id.isEmpty() ? QStringLiteral("-") : QString::number(metric.smoothingWindowMs), metric.id.isEmpty() ? QStringLiteral("-") : metric.algorithmVersion, QString::number(point.cameraId), point.confidence < 0 ? QStringLiteral("-") : QString::number(point.confidence, 'f', 3)};
             for (int column = 0; column < values.size(); ++column) table->setItem(row, column, new QTableWidgetItem(values.at(column)));
         }
         table->resizeColumnsToContents();
@@ -5586,15 +5625,16 @@ void MainWindow::openTrackPointReview(const SessionHistoryItem &record)
         QString path = QFileDialog::getSaveFileName(&dialog, QStringLiteral("导出滑行轨迹"), QDir::homePath() + QStringLiteral("/track_points.") + suffix, suffix == QStringLiteral("xlsx") ? QStringLiteral("Excel 工作簿 (*.xlsx)") : QStringLiteral("CSV 文件 (*.csv)"));
         if (path.isEmpty()) return;
         if (!path.endsWith(QStringLiteral(".") + suffix, Qt::CaseInsensitive)) path += QStringLiteral(".") + suffix;
-        const QStringList headers{QStringLiteral("t_ms"), QStringLiteral("x_m"), QStringLiteral("y_m"), QStringLiteral("z_m"), QStringLiteral("speed_mps"), QStringLiteral("speed_source"), QStringLiteral("camera_id"), QStringLiteral("confidence")};
+        const QStringList headers{QStringLiteral("t_ms"), QStringLiteral("x_m"), QStringLiteral("y_m"), QStringLiteral("z_m"), QStringLiteral("instantaneous_speed_mps"), QStringLiteral("smoothed_speed_mps"), QStringLiteral("speed_valid"), QStringLiteral("smoothing_window_ms"), QStringLiteral("speed_unit"), QStringLiteral("algorithm_version"), QStringLiteral("speed_source"), QStringLiteral("camera_id"), QStringLiteral("confidence")};
         if (suffix == QStringLiteral("xlsx")) {
             QXlsx::Document workbook;
             for (int column = 0; column < headers.size(); ++column) workbook.write(1, column + 1, headers.at(column));
             for (int row = 0; row < current.size(); ++row) {
                 const TrackPoint &point = current.at(row);
                 workbook.write(row + 2, 1, QString::number(point.timestampMs)); workbook.write(row + 2, 2, point.x); workbook.write(row + 2, 3, point.y); workbook.write(row + 2, 4, point.z);
-                const double speed = speedAt(current, row); if (speed >= 0) workbook.write(row + 2, 5, speed);
-                workbook.write(row + 2, 6, point.speedSource); workbook.write(row + 2, 7, point.cameraId); if (point.confidence >= 0) workbook.write(row + 2, 8, point.confidence);
+                const SpeedMetric metric = metricByPoint.value(point.id);
+                if (!metric.id.isEmpty()) { workbook.write(row + 2, 5, metric.instantaneousSpeedMps); workbook.write(row + 2, 6, metric.smoothedSpeedMps); workbook.write(row + 2, 7, metric.valid); workbook.write(row + 2, 8, metric.smoothingWindowMs); workbook.write(row + 2, 9, metric.unit); workbook.write(row + 2, 10, metric.algorithmVersion); }
+                workbook.write(row + 2, 11, point.speedSource); workbook.write(row + 2, 12, point.cameraId); if (point.confidence >= 0) workbook.write(row + 2, 13, point.confidence);
             }
             if (!workbook.saveAs(path)) QMessageBox::warning(&dialog, QStringLiteral("导出失败"), QStringLiteral("无法写入文件。"));
             return;
@@ -5603,8 +5643,8 @@ void MainWindow::openTrackPointReview(const SessionHistoryItem &record)
         if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return;
         QTextStream out(&file); out.setEncoding(QStringConverter::Utf8); out << headers.join(',') << '\n';
         for (int row = 0; row < current.size(); ++row) {
-            const TrackPoint &point = current.at(row); const double speed = speedAt(current, row);
-            out << point.timestampMs << ',' << point.x << ',' << point.y << ',' << point.z << ',' << (speed >= 0 ? QString::number(speed) : QString()) << ',' << point.speedSource << ',' << point.cameraId << ',' << (point.confidence >= 0 ? QString::number(point.confidence) : QString()) << '\n';
+            const TrackPoint &point = current.at(row); const SpeedMetric metric = metricByPoint.value(point.id);
+            out << point.timestampMs << ',' << point.x << ',' << point.y << ',' << point.z << ',' << (metric.id.isEmpty() ? QString() : QString::number(metric.instantaneousSpeedMps)) << ',' << (metric.id.isEmpty() ? QString() : QString::number(metric.smoothedSpeedMps)) << ',' << (metric.id.isEmpty() ? QString() : (metric.valid ? QStringLiteral("true") : QStringLiteral("false"))) << ',' << (metric.id.isEmpty() ? QString() : QString::number(metric.smoothingWindowMs)) << ',' << (metric.id.isEmpty() ? QString() : metric.unit) << ',' << (metric.id.isEmpty() ? QString() : metric.algorithmVersion) << ',' << point.speedSource << ',' << point.cameraId << ',' << (point.confidence >= 0 ? QString::number(point.confidence) : QString()) << '\n';
         }
     };
     connect(participantCombo, qOverload<int>(&QComboBox::currentIndexChanged), &dialog, reload);

@@ -1,8 +1,8 @@
 # 训练记录流程
 
-## F-24 轨迹点
+## F-24/F-25 轨迹点与速度
 
-已绑定 participant 的检测框底边每约 200 ms 经相机四点单应性标定转换为场地米制 `(x,y,0)`，并以 `position_delta` 作为速度来源写入 `track_points`。`participant_pose_frames` 继续仅保存检测/姿态兼容摘要；未标定机位和未知 participant 不产生轨迹点。训练保存时服务端按 session 的 participant 替换轨迹点，历史复盘按 participant 重建路线并可导出。
+已绑定 participant 的检测框底边每约 200 ms 经相机四点单应性标定转换为场地米制 `(x,y,0)`，并以 `position_delta` 作为速度来源写入 `track_points`。每个轨迹点还承接 `trajectory_speed_v1` 的瞬时/1000ms 平滑速度、单位、版本和有效标记，服务端以轨迹点外键写入 `speed_metrics`。`participant_pose_frames` 继续仅保存检测/姿态兼容摘要；未标定机位和未知 participant 不产生轨迹点或速度。训练保存时服务端按 session 的 participant 关联轨迹点和速度，历史复盘可按运动员查看并导出速度曲线。
 
 上级入口：[[00-index|AI 知识库索引]]、[[flows/README|流程地图]]
 相关模块：[[modules/persistence|本地持久化]]、[[modules/core|应用核心]]、[[modules/ai-inference|AI 推理]]

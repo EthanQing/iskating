@@ -8,6 +8,7 @@ BUSINESS_TABLES = [
     "athlete_identity_embeddings",
     "athlete_identity_samples",
     "athlete_action_baselines",
+    "speed_metrics",
     "track_points",
     "participant_pose_frames",
     "participant_repetitions",
@@ -528,6 +529,22 @@ CREATE TABLE track_points (
     UNIQUE (participant_id, t_ms, camera_id)
 );
 
+CREATE TABLE speed_metrics (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    participant_id uuid NOT NULL REFERENCES training_session_participants(id) ON DELETE CASCADE,
+    track_point_id uuid NOT NULL REFERENCES track_points(id) ON DELETE CASCADE,
+    t_ms bigint NOT NULL,
+    camera_id integer NOT NULL DEFAULT 0,
+    instantaneous_speed_mps double precision NOT NULL DEFAULT 0,
+    smoothed_speed_mps double precision NOT NULL DEFAULT 0,
+    smoothing_window_ms integer NOT NULL DEFAULT 1000,
+    unit text NOT NULL DEFAULT 'm/s',
+    algorithm_version text NOT NULL,
+    valid boolean NOT NULL DEFAULT false,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (track_point_id)
+);
+
 CREATE TABLE athlete_action_baselines (
     athlete_id uuid NOT NULL REFERENCES athletes(id),
     action_standard_id uuid NOT NULL REFERENCES action_standards(id),
@@ -592,6 +609,7 @@ CREATE INDEX ix_participant_pose_frames_camera_track ON participant_pose_frames(
 CREATE INDEX ix_participant_pose_frames_video_file ON participant_pose_frames(video_file_id);
 CREATE INDEX ix_track_points_participant_time ON track_points(participant_id, t_ms);
 CREATE INDEX ix_track_points_camera_time ON track_points(camera_id, t_ms);
+CREATE INDEX ix_speed_metrics_participant_time ON speed_metrics(participant_id, t_ms);
 """
 
 

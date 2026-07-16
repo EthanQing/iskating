@@ -4,6 +4,10 @@
 
 完成每路相机的四点冰面标定后，应用将检测框底边投影到统一场地米制坐标，实时绘制并在保存训练时写入 `track_points`。坐标原点位于场地起点冰面，`+x` 指向滑行方向，`+y` 为预先约定的横向正方向，`z=0`。在系统设置的场地表双击“四点标定”单元格，输入四个像素点及其对应的场地 `(x,y)`；未标定的机位不会产生轨迹点。历史卡片的“姿态轨迹”入口可重建二维路线并导出 CSV/XLSX。
 
+## F-25 滑行速度序列
+
+每个有效轨迹点都关联一条 `speed_metrics` 记录，包含瞬时速度、1000ms 平滑速度、单位（`m/s`）、算法版本和有效标记。首点、时间异常、超过 2 秒的取样间隔或无效检测会保留为无效速度结果。历史轨迹复盘可按运动员筛选并查看、导出速度曲线；旧训练记录不会补写速度。
+
 Windows Qt/C++ 滑冰训练辅助应用，当前实时 AI 主流程为：`YOLO26x person 检测 → PersonViT/MSMT17 ReID → 当前 session 参与者匹配 → trackId/athleteId`。
 
 当前版本提供运动员检测与身份识别，不再提供实时姿态关键点、骨架、轨迹、动作评分或自动动作计数。历史训练记录中的旧姿态、评分和动作数据仍可读取与复盘；新训练只保存检测框、机位、trackId、身份状态和置信度。
@@ -45,9 +49,10 @@ python ..\tools\reset_postgres_schema.py --yes
 .\.venv\Scripts\uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-已有 PostgreSQL 数据库使用幂等回填工具增加完整帧率协议；空库仍可直接重建：
+已有 PostgreSQL 数据库使用幂等回填工具增加轨迹速度与完整帧率协议；空库仍可直接重建：
 
 ```powershell
+python tools/backfill_video_indexes.py
 python tools/backfill_full_rate_analysis.py
 ```
 

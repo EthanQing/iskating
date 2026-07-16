@@ -556,6 +556,23 @@ QJsonObject trackPointToJson(const TrackPoint &point)
     };
 }
 
+QJsonObject speedMetricToJson(const SpeedMetric &metric)
+{
+    return {
+        {QStringLiteral("id"), metric.id},
+        {QStringLiteral("participantId"), metric.participantId},
+        {QStringLiteral("trackPointId"), metric.trackPointId},
+        {QStringLiteral("tMs"), QString::number(metric.timestampMs)},
+        {QStringLiteral("cameraId"), metric.cameraId},
+        {QStringLiteral("instantaneousSpeedMps"), metric.instantaneousSpeedMps},
+        {QStringLiteral("smoothedSpeedMps"), metric.smoothedSpeedMps},
+        {QStringLiteral("smoothingWindowMs"), metric.smoothingWindowMs},
+        {QStringLiteral("unit"), metric.unit},
+        {QStringLiteral("algorithmVersion"), metric.algorithmVersion},
+        {QStringLiteral("valid"), metric.valid}
+    };
+}
+
 QJsonObject offlineAnalysisTaskToJson(const OfflineAnalysisTask &task)
 {
     QJsonObject probeMetadata;
@@ -944,6 +961,29 @@ TrackPoint trackPointFromJson(const QJsonObject &object)
     point.cameraId = jsonInt(object, QStringLiteral("cameraId"));
     point.confidence = jsonDouble(object, QStringLiteral("confidence"), -1.0);
     return point;
+}
+
+SpeedMetric speedMetricFromJson(const QJsonObject &object)
+{
+    SpeedMetric metric;
+    metric.id = jsonString(object, QStringLiteral("id"));
+    metric.participantId = jsonString(object, QStringLiteral("participantId"));
+    metric.trackPointId = jsonString(object, QStringLiteral("trackPointId"));
+    metric.timestampMs = jsonInt64(object, QStringLiteral("tMs"));
+    metric.cameraId = jsonInt(object, QStringLiteral("cameraId"));
+    metric.instantaneousSpeedMps = jsonDouble(object, QStringLiteral("instantaneousSpeedMps"));
+    metric.smoothedSpeedMps = jsonDouble(object, QStringLiteral("smoothedSpeedMps"));
+    metric.smoothingWindowMs = jsonInt(object, QStringLiteral("smoothingWindowMs"), 1000);
+    metric.unit = jsonString(object, QStringLiteral("unit"));
+    if (metric.unit.isEmpty()) {
+        metric.unit = QStringLiteral("m/s");
+    }
+    metric.algorithmVersion = jsonString(object, QStringLiteral("algorithmVersion"));
+    if (metric.algorithmVersion.isEmpty()) {
+        metric.algorithmVersion = QStringLiteral("trajectory_speed_v1");
+    }
+    metric.valid = object.value(QStringLiteral("valid")).toBool(false);
+    return metric;
 }
 
 VideoFileCleanupCandidate cleanupCandidateFromJson(const QJsonObject &object)
@@ -1717,6 +1757,37 @@ QVector<TrackPoint> TrainingRepository::trackPointsForSession(const QString &ses
     return points;
 }
 
+QVector<SpeedMetric> TrainingRepository::speedMetricsForSession(const QString &sessionId,
+                                                                 const QString &participantId,
+                                                                 int fromMs,
+                                                                 int toMs,
+                                                                 int limit) const
+{
+    QVariantMap query;
+    if (!participantId.trimmed().isEmpty()) {
+        query.insert(QStringLiteral("participantId"), participantId);
+    }
+    if (fromMs >= 0) {
+        query.insert(QStringLiteral("fromMs"), fromMs);
+    }
+    if (toMs >= 0) {
+        query.insert(QStringLiteral("toMs"), toMs);
+    }
+    query.insert(QStringLiteral("limit"), limit);
+    bool ok = false;
+    const QJsonArray array = requestArray(QStringLiteral("/training/sessions/%1/speed-metrics").arg(sessionId), query, &ok);
+    QVector<SpeedMetric> metrics;
+    if (!ok) {
+        return metrics;
+    }
+    for (const QJsonValue &value : array) {
+        if (value.isObject()) {
+            metrics.append(speedMetricFromJson(value.toObject()));
+        }
+    }
+    return metrics;
+}
+
 QVector<VideoFileCleanupCandidate> TrainingRepository::videoFiles(const QString &status,
                                                                   bool withLocalPathOnly,
                                                                   const QDateTime &modifiedBefore) const
@@ -2435,11 +2506,21 @@ bool TrainingRepository::saveTrainingSession(TrainingSession *session,
         }
         trackPoints.append(trackPointToJson(point));
     }
+    QJsonArray speedMetrics;
+    for (SpeedMetric metric : session->speedMetrics) {
+        metric.id = ensureId(metric.id);
+        metric.participantId = participantIds.value(metric.participantId, metric.participantId);
+        if (metric.participantId.trimmed().isEmpty()) {
+            continue;
+        }
+        speedMetrics.append(speedMetricToJson(metric));
+    }
     const QJsonObject body{{QStringLiteral("session"), sessionToJson(*session)},
                            {QStringLiteral("repetitions"), reps},
                            {QStringLiteral("participantRepetitions"), participantReps},
                            {QStringLiteral("participantPoseFrames"), participantPoseFrames},
-                           {QStringLiteral("trackPoints"), trackPoints}};
+                           {QStringLiteral("trackPoints"), trackPoints},
+                           {QStringLiteral("speedMetrics"), speedMetrics}};
     bool ok = false;
     const QJsonObject response = requestObject(QStringLiteral("POST"), QStringLiteral("/training/sessions"), body, {}, &ok, errorMessage);
     if (ok) {

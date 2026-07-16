@@ -522,6 +522,21 @@ struct TrackPoint
     double confidence = -1.0;
 };
 
+struct SpeedMetric
+{
+    QString id;
+    QString participantId;
+    QString trackPointId;
+    qint64 timestampMs = 0;
+    int cameraId = 0;
+    double instantaneousSpeedMps = 0.0;
+    double smoothedSpeedMps = 0.0;
+    int smoothingWindowMs = 1000;
+    QString unit = QStringLiteral("m/s");
+    QString algorithmVersion = QStringLiteral("trajectory_speed_v1");
+    bool valid = false;
+};
+
 struct TrainingSession
 {
     QString id;
@@ -573,6 +588,7 @@ struct TrainingSession
     QVector<ParticipantRepetition> participantRepetitions;
     QVector<ParticipantPoseFrame> participantPoseFrames;
     QVector<TrackPoint> trackPoints;
+    QVector<SpeedMetric> speedMetrics;
     QVector<TrainingVideoFile> videoFiles;
 };
 
