@@ -264,6 +264,7 @@ struct VideoFileCleanupCandidate
 struct OfflineAnalysisTask
 {
     QString id;
+    QString analysisTaskId;
     QString batchId;
     int cameraId = 0;
     int timeOffsetMs = 0;
@@ -275,6 +276,19 @@ struct OfflineAnalysisTask
     QString status = QStringLiteral("imported");
     QString probeMetadataJson;
     QString summaryMetadataJson;
+    QDateTime createdAt;
+    QDateTime updatedAt;
+};
+
+struct AnalysisTask
+{
+    QString id;
+    QString type;
+    QString status = QStringLiteral("queued");
+    double progress = 0.0;
+    QString inputJson;
+    QString outputSessionId;
+    QString errorMessage;
     QDateTime createdAt;
     QDateTime updatedAt;
 };
@@ -341,6 +355,7 @@ struct OfflineAnalysisRun
 struct OfflineAnalysisBatch
 {
     QString id;
+    QString analysisTaskId;
     QString status;
     QDateTime sourceStartedAt;
     QString activeRunId;

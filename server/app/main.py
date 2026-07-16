@@ -441,9 +441,52 @@ def metadata_from_payload(value: Any) -> dict[str, Any]:
     return {}
 
 
+ANALYSIS_TASK_TYPES = {"offline_import", "full_rate_batch"}
+ANALYSIS_TASK_STATUSES = {"queued", "running", "completed", "failed", "cancelled"}
+
+
+def analysis_task_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row["id"]), "type": row["type"], "status": row["status"],
+        "progress": float(row["progress"]), "input": row["input"] or {},
+        "outputSessionId": str(row.get("output_session_id") or ""), "error": row.get("error") or "",
+        "createdAt": row["created_at"].isoformat() if row.get("created_at") else "",
+        "updatedAt": row["updated_at"].isoformat() if row.get("updated_at") else "",
+    }
+
+
+def save_analysis_task_row(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
+    task_type = str(payload.get("type") or "").strip()
+    if task_type not in ANALYSIS_TASK_TYPES:
+        raise HTTPException(status_code=400, detail="unsupported analysis task type")
+    status = str(payload.get("status") or "queued").strip()
+    if status not in ANALYSIS_TASK_STATUSES:
+        raise HTTPException(status_code=400, detail="unsupported analysis task status")
+    try:
+        progress = max(0.0, min(100.0, float(payload.get("progress", 0))))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="progress must be numeric")
+    if status == "completed":
+        progress = 100.0
+    task_id = parse_uuid(payload.get("id")) or new_uuid()
+    db.execute(
+        text(
+            "INSERT INTO analysis_tasks (id, type, status, progress, input, output_session_id, error, updated_at) "
+            "VALUES (:id, :type, :status, :progress, CAST(:input AS jsonb), :output_session_id, :error, now()) "
+            "ON CONFLICT (id) DO UPDATE SET type=excluded.type, status=excluded.status, progress=excluded.progress, "
+            "input=excluded.input, output_session_id=excluded.output_session_id, error=excluded.error, updated_at=now()"
+        ),
+        {"id": task_id, "type": task_type, "status": status, "progress": progress,
+         "input": json.dumps(metadata_from_payload(payload.get("input")), ensure_ascii=False),
+         "output_session_id": parse_uuid(payload.get("outputSessionId")), "error": payload.get("error") or None},
+    )
+    return dict(db.execute(text("SELECT * FROM analysis_tasks WHERE id=:id"), {"id": task_id}).mappings().one())
+
+
 def offline_analysis_task_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(row["id"]),
+        "analysisTaskId": str(row.get("analysis_task_id") or ""),
         "batchId": str(row["batch_id"] or ""),
         "cameraId": row["camera_id"],
         "timeOffsetMs": row["time_offset_ms"],
@@ -463,6 +506,7 @@ def offline_analysis_task_row(row: dict[str, Any]) -> dict[str, Any]:
 def analysis_batch_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(row["id"]),
+        "analysisTaskId": str(row.get("analysis_task_id") or ""),
         "status": row["status"],
         "sourceStartedAt": row["source_started_at"].isoformat() if row.get("source_started_at") else "",
         "activeRunId": str(row.get("active_run_id") or ""),
@@ -1324,6 +1368,36 @@ def ensure_daily_task(payload: dict[str, Any] = Body(...),
     return {"planId": plan_id, "taskId": task_id}
 
 
+@app.post("/analysis-tasks")
+def save_analysis_task(payload: dict[str, Any] = Body(...),
+                       db: Session = Depends(db_session),
+                       _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    return analysis_task_row(save_analysis_task_row(db, payload))
+
+
+@app.get("/analysis-tasks")
+def analysis_tasks(type: str = "", status: str = "", offlineTaskId: str = "", batchId: str = "",
+                   db: Session = Depends(db_session),
+                   _: dict[str, Any] = Depends(require_user)) -> list[dict[str, Any]]:
+    where: list[str] = []
+    args: dict[str, Any] = {}
+    if type:
+        where.append("task.type = :type")
+        args["type"] = type
+    if status:
+        where.append("task.status = :status")
+        args["status"] = status
+    if offlineTaskId:
+        where.append("EXISTS (SELECT 1 FROM offline_analysis_tasks offline WHERE offline.analysis_task_id=task.id AND offline.id=:offline_task_id)")
+        args["offline_task_id"] = parse_uuid(offlineTaskId)
+    if batchId:
+        where.append("EXISTS (SELECT 1 FROM offline_analysis_batches batch WHERE batch.analysis_task_id=task.id AND batch.id=:batch_id)")
+        args["batch_id"] = parse_uuid(batchId)
+    where_sql = "WHERE " + " AND ".join(where) if where else ""
+    rows = db.execute(text(f"SELECT task.* FROM analysis_tasks task {where_sql} ORDER BY task.created_at DESC, task.id DESC"), args).mappings()
+    return [analysis_task_row(dict(row)) for row in rows]
+
+
 @app.post("/offline-analysis/tasks")
 def save_offline_analysis_task(payload: dict[str, Any] = Body(...),
                                db: Session = Depends(db_session),
@@ -1335,6 +1409,13 @@ def save_offline_analysis_task(payload: dict[str, Any] = Body(...),
     status_value = payload.get("status") or "imported"
     if status_value not in {"imported", "analyzing", "completed", "failed", "archived"}:
         status_value = "imported"
+    analysis_task_id = parse_uuid(payload.get("analysisTaskId"))
+    if not analysis_task_id:
+        analysis_task = save_analysis_task_row(db, {
+            "type": "offline_import", "status": "queued", "progress": 0,
+            "input": {"offlineTaskId": str(task_id), "videoPath": video_path, "fileName": payload.get("fileName") or ""},
+        })
+        analysis_task_id = analysis_task["id"]
     batch_id = parse_uuid(payload.get("batchId"))
     if batch_id:
         db.execute(
@@ -1347,11 +1428,11 @@ def save_offline_analysis_task(payload: dict[str, Any] = Body(...),
     db.execute(
         text(
             "INSERT INTO offline_analysis_tasks "
-            "(id, batch_id, camera_id, time_offset_ms, video_path, file_name, file_size_bytes, file_modified_at, "
+            "(id, analysis_task_id, batch_id, camera_id, time_offset_ms, video_path, file_name, file_size_bytes, file_modified_at, "
             "duration_ms, status, probe_metadata, summary_metadata, updated_at) "
-            "VALUES (:id, :batch_id, :camera_id, :time_offset_ms, :video_path, :file_name, :file_size_bytes, :file_modified_at, "
+            "VALUES (:id, :analysis_task_id, :batch_id, :camera_id, :time_offset_ms, :video_path, :file_name, :file_size_bytes, :file_modified_at, "
             ":duration_ms, :status, CAST(:probe_metadata AS jsonb), CAST(:summary_metadata AS jsonb), now()) "
-            "ON CONFLICT (id) DO UPDATE SET batch_id=excluded.batch_id, camera_id=excluded.camera_id, "
+            "ON CONFLICT (id) DO UPDATE SET analysis_task_id=excluded.analysis_task_id, batch_id=excluded.batch_id, camera_id=excluded.camera_id, "
             "time_offset_ms=excluded.time_offset_ms, video_path=excluded.video_path, file_name=excluded.file_name, "
             "file_size_bytes=excluded.file_size_bytes, file_modified_at=excluded.file_modified_at, "
             "duration_ms=excluded.duration_ms, status=excluded.status, probe_metadata=excluded.probe_metadata, "
@@ -1359,6 +1440,7 @@ def save_offline_analysis_task(payload: dict[str, Any] = Body(...),
         ),
         {
             "id": task_id,
+            "analysis_task_id": analysis_task_id,
             "batch_id": batch_id,
             "camera_id": int(payload.get("cameraId") or 0),
             "time_offset_ms": int(payload.get("timeOffsetMs") or 0),
@@ -1410,12 +1492,16 @@ def create_offline_analysis_batch(payload: dict[str, Any] = Body(...),
 
     batch_id = parse_uuid(payload.get("id")) or new_uuid()
     source_started_at = parse_dt(payload.get("sourceStartedAt")) if payload.get("sourceStartedAt") else None
+    analysis_task = save_analysis_task_row(db, {
+        "id": payload.get("analysisTaskId"), "type": "full_rate_batch", "status": "queued", "progress": 0,
+        "input": {"batchId": str(batch_id), "sourceCount": len(sources), "mode": "synchronized_12_camera"},
+    })
     db.execute(
         text(
-            "INSERT INTO offline_analysis_batches (id, status, source_started_at, metadata) "
-            "VALUES (:id, 'imported', :source_started_at, CAST(:metadata AS jsonb))"
+            "INSERT INTO offline_analysis_batches (id, analysis_task_id, status, source_started_at, metadata) "
+            "VALUES (:id, :analysis_task_id, 'imported', :source_started_at, CAST(:metadata AS jsonb))"
         ),
-        {"id": batch_id, "source_started_at": source_started_at,
+        {"id": batch_id, "analysis_task_id": analysis_task["id"], "source_started_at": source_started_at,
          "metadata": json.dumps(metadata_from_payload(payload.get("metadata")), ensure_ascii=False)},
     )
     for source in sources:
@@ -2696,6 +2782,20 @@ def save_training_session(payload: dict[str, Any] = Body(...),
         db.execute(text("UPDATE training_tasks SET status = :status, updated_at = now() WHERE id = :id"), {"id": parse_uuid(session.get("taskId")), "status": status_value})
     if repetitions or participant_repetitions:
         refresh_baseline(db, athlete_id, action_standard_id)
+    generic_task_id = None
+    if analysis_task_id:
+        generic_task_id = db.execute(
+            text("SELECT analysis_task_id FROM offline_analysis_tasks WHERE id=:id"), {"id": analysis_task_id}
+        ).scalar()
+    if not generic_task_id and analysis_batch_id:
+        generic_task_id = db.execute(
+            text("SELECT analysis_task_id FROM offline_analysis_batches WHERE id=:id"), {"id": analysis_batch_id}
+        ).scalar()
+    if generic_task_id:
+        db.execute(
+            text("UPDATE analysis_tasks SET output_session_id=:session_id, status='completed', progress=100, error=NULL, updated_at=now() WHERE id=:id"),
+            {"session_id": session_id, "id": generic_task_id},
+        )
     return {"id": session_id}
 
 

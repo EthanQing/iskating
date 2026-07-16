@@ -93,6 +93,11 @@ public:
                               QString *errorMessage = nullptr);
     bool saveOfflineAnalysisTask(OfflineAnalysisTask *task,
                                  QString *errorMessage = nullptr);
+    bool saveAnalysisTask(AnalysisTask *task, QString *errorMessage = nullptr);
+    QVector<AnalysisTask> analysisTasks(const QString &type = QString(),
+                                        const QString &status = QString(),
+                                        const QString &offlineTaskId = QString(),
+                                        const QString &batchId = QString()) const;
     bool createOfflineAnalysisBatch(OfflineAnalysisBatch *batch,
                                     const QVector<QString> &athleteIds,
                                     QString *errorMessage = nullptr);

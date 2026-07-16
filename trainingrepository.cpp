@@ -597,6 +597,7 @@ QJsonObject offlineAnalysisTaskToJson(const OfflineAnalysisTask &task)
     }
     return {
         {QStringLiteral("id"), task.id},
+        {QStringLiteral("analysisTaskId"), task.analysisTaskId},
         {QStringLiteral("batchId"), task.batchId},
         {QStringLiteral("cameraId"), task.cameraId},
         {QStringLiteral("timeOffsetMs"), task.timeOffsetMs},
@@ -615,6 +616,7 @@ OfflineAnalysisTask offlineAnalysisTaskFromJson(const QJsonObject &object)
 {
     OfflineAnalysisTask task;
     task.id = jsonString(object, QStringLiteral("id"));
+    task.analysisTaskId = jsonString(object, QStringLiteral("analysisTaskId"));
     task.batchId = jsonString(object, QStringLiteral("batchId"));
     task.cameraId = jsonInt(object, QStringLiteral("cameraId"));
     task.timeOffsetMs = jsonInt(object, QStringLiteral("timeOffsetMs"));
@@ -635,6 +637,33 @@ OfflineAnalysisTask offlineAnalysisTaskFromJson(const QJsonObject &object)
     if (summaryMetadata.isObject()) {
         task.summaryMetadataJson = QString::fromUtf8(QJsonDocument(summaryMetadata.toObject()).toJson(QJsonDocument::Compact));
     }
+    task.createdAt = dateTimeFromJson(object.value(QStringLiteral("createdAt")));
+    task.updatedAt = dateTimeFromJson(object.value(QStringLiteral("updatedAt")));
+    return task;
+}
+
+QJsonObject analysisTaskToJson(const AnalysisTask &task)
+{
+    QJsonObject input;
+    const QJsonDocument document = QJsonDocument::fromJson(task.inputJson.toUtf8());
+    if (document.isObject()) input = document.object();
+    return {{QStringLiteral("id"), task.id}, {QStringLiteral("type"), task.type},
+            {QStringLiteral("status"), task.status}, {QStringLiteral("progress"), task.progress},
+            {QStringLiteral("input"), input}, {QStringLiteral("outputSessionId"), task.outputSessionId},
+            {QStringLiteral("error"), task.errorMessage}};
+}
+
+AnalysisTask analysisTaskFromJson(const QJsonObject &object)
+{
+    AnalysisTask task;
+    task.id = jsonString(object, QStringLiteral("id"));
+    task.type = jsonString(object, QStringLiteral("type"));
+    task.status = jsonString(object, QStringLiteral("status"));
+    task.progress = jsonDouble(object, QStringLiteral("progress"));
+    const QJsonValue input = object.value(QStringLiteral("input"));
+    if (input.isObject()) task.inputJson = QString::fromUtf8(QJsonDocument(input.toObject()).toJson(QJsonDocument::Compact));
+    task.outputSessionId = jsonString(object, QStringLiteral("outputSessionId"));
+    task.errorMessage = jsonString(object, QStringLiteral("error"));
     task.createdAt = dateTimeFromJson(object.value(QStringLiteral("createdAt")));
     task.updatedAt = dateTimeFromJson(object.value(QStringLiteral("updatedAt")));
     return task;
@@ -744,6 +773,7 @@ OfflineAnalysisBatch offlineAnalysisBatchFromJson(const QJsonObject &object)
 {
     OfflineAnalysisBatch batch;
     batch.id = jsonString(object, QStringLiteral("id"));
+    batch.analysisTaskId = jsonString(object, QStringLiteral("analysisTaskId"));
     batch.status = jsonString(object, QStringLiteral("status"));
     batch.sourceStartedAt = dateTimeFromJson(object.value(QStringLiteral("sourceStartedAt")));
     batch.activeRunId = jsonString(object, QStringLiteral("activeRunId"));
@@ -2025,6 +2055,36 @@ bool TrainingRepository::saveOfflineAnalysisTask(OfflineAnalysisTask *task, QStr
         *task = offlineAnalysisTaskFromJson(response);
     }
     return ok;
+}
+
+bool TrainingRepository::saveAnalysisTask(AnalysisTask *task, QString *errorMessage)
+{
+    if (!task || task->type.trimmed().isEmpty()) {
+        if (errorMessage) *errorMessage = QStringLiteral("分析任务类型不能为空。");
+        return false;
+    }
+    task->id = ensureId(task->id);
+    bool ok = false;
+    const QJsonObject response = requestObject(QStringLiteral("POST"), QStringLiteral("/analysis-tasks"),
+                                               analysisTaskToJson(*task), {}, &ok, errorMessage);
+    if (ok) *task = analysisTaskFromJson(response);
+    return ok;
+}
+
+QVector<AnalysisTask> TrainingRepository::analysisTasks(const QString &type, const QString &status,
+                                                         const QString &offlineTaskId, const QString &batchId) const
+{
+    QVariantMap query;
+    if (!type.isEmpty()) query.insert(QStringLiteral("type"), type);
+    if (!status.isEmpty()) query.insert(QStringLiteral("status"), status);
+    if (!offlineTaskId.isEmpty()) query.insert(QStringLiteral("offlineTaskId"), offlineTaskId);
+    if (!batchId.isEmpty()) query.insert(QStringLiteral("batchId"), batchId);
+    bool ok = false;
+    const QJsonArray array = requestArray(QStringLiteral("/analysis-tasks"), query, &ok);
+    QVector<AnalysisTask> tasks;
+    if (!ok) return tasks;
+    for (const QJsonValue &value : array) if (value.isObject()) tasks.append(analysisTaskFromJson(value.toObject()));
+    return tasks;
 }
 
 bool TrainingRepository::createOfflineAnalysisBatch(OfflineAnalysisBatch *batch,

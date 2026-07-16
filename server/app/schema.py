@@ -21,6 +21,7 @@ BUSINESS_TABLES = [
     "offline_analysis_runs",
     "offline_analysis_tasks",
     "offline_analysis_batches",
+    "analysis_tasks",
     "training_tasks",
     "training_plans",
     "event_athletes",
@@ -213,11 +214,24 @@ CREATE TABLE training_tasks (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE analysis_tasks (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    type text NOT NULL CHECK (type IN ('offline_import', 'full_rate_batch')),
+    status text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled')),
+    progress double precision NOT NULL DEFAULT 0 CHECK (progress >= 0 AND progress <= 100),
+    input jsonb NOT NULL DEFAULT '{}'::jsonb,
+    output_session_id uuid,
+    error text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE offline_analysis_batches (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     status text NOT NULL DEFAULT 'imported',
     source_started_at timestamptz,
     active_run_id uuid,
+    analysis_task_id uuid REFERENCES analysis_tasks(id) ON DELETE SET NULL,
     metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
@@ -227,6 +241,7 @@ CREATE TABLE offline_analysis_batches (
 
 CREATE TABLE offline_analysis_tasks (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    analysis_task_id uuid REFERENCES analysis_tasks(id) ON DELETE SET NULL,
     batch_id uuid REFERENCES offline_analysis_batches(id) ON DELETE CASCADE,
     camera_id integer NOT NULL DEFAULT 0,
     time_offset_ms integer NOT NULL DEFAULT 0,
@@ -590,6 +605,10 @@ CREATE INDEX ix_training_sessions_analysis_batch ON training_sessions(analysis_b
 CREATE INDEX ix_training_sessions_analysis_run ON training_sessions(analysis_run_id);
 CREATE INDEX ix_offline_analysis_batches_active_run ON offline_analysis_batches(active_run_id);
 CREATE INDEX ix_offline_analysis_tasks_batch ON offline_analysis_tasks(batch_id);
+CREATE INDEX ix_offline_analysis_tasks_analysis_task ON offline_analysis_tasks(analysis_task_id);
+CREATE INDEX ix_offline_analysis_batches_analysis_task ON offline_analysis_batches(analysis_task_id);
+CREATE INDEX ix_analysis_tasks_type_status ON analysis_tasks(type, status, created_at DESC);
+CREATE INDEX ix_analysis_tasks_output_session ON analysis_tasks(output_session_id);
 CREATE INDEX ix_offline_analysis_tasks_video_path ON offline_analysis_tasks(video_path);
 CREATE INDEX ix_offline_analysis_runs_batch ON offline_analysis_runs(batch_id, created_at DESC);
 CREATE INDEX ix_offline_analysis_runs_status ON offline_analysis_runs(status, created_at);

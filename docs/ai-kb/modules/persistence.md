@@ -120,7 +120,7 @@ PostgreSQL 主要表：
 
 `videoFiles(status, withLocalPathOnly, modifiedBefore)` 查询 `training_video_files` 并联查 session、运动员和动作引用数量，供系统设置生成本机视频清理候选列表。桌面端只会把“已登记、路径在配置根目录下、文件实际存在”的视频列为可删除候选；删除本机文件后调用 `markVideoFileCleaned(videoFileId, reason)` 在视频资产 metadata 写入 `cleanupDeletedAt/cleanupReason/cleanupMissing`，不删除训练记录、动作实例或视频资产行，也不扩展 `status` 枚举。
 
-`saveOfflineAnalysisTask(task)` 保留旧单视频导入兼容。完整帧率路径使用 `createOfflineAnalysisBatch()`、`createOfflineAnalysisRun()`、运行控制、范围查询和激活接口。批次固定含 12 路 `nas://` 源；运行源独立保存帧数、PTS、重试与完成状态；结果分块索引保存 URI、时间/帧范围、SHA256 和 schema 版本。
+`analysis_tasks` 是 F-28 的通用主任务表，统一保存单视频 `offline_import` 与 12 路 `full_rate_batch` 的类型、状态、0-100 进度、输入摘要、最终输出 session 和错误。`offline_analysis_tasks` 与 `offline_analysis_batches` 通过 `analysis_task_id` 关联主任务，仍保留自身的媒体/源明细及历史兼容语义。`saveOfflineAnalysisTask(task)` 保留旧单视频导入兼容；完整帧率路径使用 `createOfflineAnalysisBatch()`、`createOfflineAnalysisRun()`、运行控制、范围查询和激活接口。批次固定含 12 路 `nas://` 源；运行源独立保存帧数、PTS、重试与完成状态；结果分块索引保存 URI、时间/帧范围、SHA256 和 schema 版本。
 
 完整逐帧结果不写 PostgreSQL。worker 将 10 秒 gzip JSONL 分块原子写入 `ISKATING_ANALYSIS_NAS_ROOT`，数据库仅保存索引。带完整分析批次的 `saveTrainingSession()` 不再上传全量 `participant_pose_frames`；完成运行激活后，服务端按约 200 ms 从分块派生兼容摘要。视频资产全部标记清理后，服务端删除对应结果文件、保留最小审计信息并把运行/批次归档。
 
