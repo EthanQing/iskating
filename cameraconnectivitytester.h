@@ -12,9 +12,15 @@ struct CameraConnectivityResult
     int cameraIndex = 0;
     QString ip;
     QString status;
+    QString addressStatus;
     QString transport;
+    qint64 openElapsedMs = -1;
+    qint64 firstFrameElapsedMs = -1;
     QString resolution;
     QString frameRate;
+    QString failureStage;
+    QString errorCode;
+    QString ffmpegErrorCode;
     QString message;
     bool success = false;
     bool skipped = false;

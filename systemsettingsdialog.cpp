@@ -864,7 +864,7 @@ void SystemSettingsDialog::testCameraConnectivity()
 
     auto *dialog = new QDialog(this);
     dialog->setWindowTitle(QStringLiteral("批量连通测试"));
-    dialog->setMinimumSize(820, 460);
+    dialog->setMinimumSize(1180, 460);
     dialog->setWindowFlag(Qt::WindowCloseButtonHint, false);
 
     auto *dialogLayout = new QVBoxLayout(dialog);
@@ -872,14 +872,19 @@ void SystemSettingsDialog::testCameraConnectivity()
     summaryLabel->setWordWrap(true);
     dialogLayout->addWidget(summaryLabel);
 
-    auto *resultTable = new QTableWidget(cameras.size(), 7, dialog);
+    auto *resultTable = new QTableWidget(cameras.size(), 12, dialog);
     resultTable->setHorizontalHeaderLabels({
         QStringLiteral("机位"),
         QStringLiteral("IP"),
+        QStringLiteral("地址"),
         QStringLiteral("状态"),
         QStringLiteral("协议"),
+        QStringLiteral("Open 耗时"),
+        QStringLiteral("首帧耗时"),
         QStringLiteral("分辨率"),
         QStringLiteral("帧率"),
+        QStringLiteral("失败阶段"),
+        QStringLiteral("错误码"),
         QStringLiteral("结果")
     });
     resultTable->horizontalHeader()->setStretchLastSection(true);
@@ -890,11 +895,9 @@ void SystemSettingsDialog::testCameraConnectivity()
     for (int i = 0; i < cameras.size(); ++i) {
         resultTable->setItem(i, 0, makeTableItem(QStringLiteral("CAM %1").arg(i + 1, 2, 10, QLatin1Char('0'))));
         resultTable->setItem(i, 1, makeTableItem(cameras.at(i).ip.trimmed()));
-        resultTable->setItem(i, 2, makeTableItem(QStringLiteral("等待")));
-        resultTable->setItem(i, 3, makeTableItem(QStringLiteral("-")));
-        resultTable->setItem(i, 4, makeTableItem(QStringLiteral("-")));
-        resultTable->setItem(i, 5, makeTableItem(QStringLiteral("-")));
-        resultTable->setItem(i, 6, makeTableItem(QStringLiteral("-")));
+        for (int column = 2; column < resultTable->columnCount(); ++column) {
+            resultTable->setItem(i, column, makeTableItem(column == 3 ? QStringLiteral("等待") : QStringLiteral("-")));
+        }
     }
     dialogLayout->addWidget(resultTable);
 
@@ -934,11 +937,19 @@ void SystemSettingsDialog::testCameraConnectivity()
                 }
 
                 resultTable->setItem(result.cameraIndex, 1, makeTableItem(result.ip));
-                resultTable->setItem(result.cameraIndex, 2, makeTableItem(result.status));
-                resultTable->setItem(result.cameraIndex, 3, makeTableItem(result.transport));
-                resultTable->setItem(result.cameraIndex, 4, makeTableItem(result.resolution));
-                resultTable->setItem(result.cameraIndex, 5, makeTableItem(result.frameRate));
-                resultTable->setItem(result.cameraIndex, 6, makeTableItem(result.message));
+                resultTable->setItem(result.cameraIndex, 2, makeTableItem(result.addressStatus));
+                resultTable->setItem(result.cameraIndex, 3, makeTableItem(result.status));
+                resultTable->setItem(result.cameraIndex, 4, makeTableItem(result.transport));
+                resultTable->setItem(result.cameraIndex, 5, makeTableItem(result.openElapsedMs < 0 ? QStringLiteral("-") : QStringLiteral("%1 ms").arg(result.openElapsedMs)));
+                resultTable->setItem(result.cameraIndex, 6, makeTableItem(result.firstFrameElapsedMs < 0 ? QStringLiteral("-") : QStringLiteral("%1 ms").arg(result.firstFrameElapsedMs)));
+                resultTable->setItem(result.cameraIndex, 7, makeTableItem(result.resolution));
+                resultTable->setItem(result.cameraIndex, 8, makeTableItem(result.frameRate));
+                resultTable->setItem(result.cameraIndex, 9, makeTableItem(result.failureStage));
+                const QString errorCode = result.ffmpegErrorCode.isEmpty()
+                                              ? result.errorCode
+                                              : QStringLiteral("%1 (%2)").arg(result.errorCode, result.ffmpegErrorCode);
+                resultTable->setItem(result.cameraIndex, 10, makeTableItem(errorCode));
+                resultTable->setItem(result.cameraIndex, 11, makeTableItem(result.message));
                 summaryLabel->setText(QStringLiteral("正在测试 %1/%2 路相机；成功 %3，失败 %4，跳过 %5。")
                                           .arg(completed)
                                           .arg(total)

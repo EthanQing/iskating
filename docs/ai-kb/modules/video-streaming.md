@@ -23,7 +23,7 @@
 - `d3dvideosurface.cpp`: D3D11 swap chain、shader、视频渲染和检测框叠加。
 - `d3dframeextractor.cpp`: 将 D3D 帧复制/转换为 RGB，供 AI 推理使用。
 - `nvrplayback.h/.cpp`: 根据系统设置中的 NVR 回放模板、session 开始时间、机位 IP 和动作片段窗口生成 RTSP 回放 URL。
-- `cameraconnectivitytester.h/.cpp`: 系统设置中的批量连通测试，逐路探测 RTSP 预览流并返回首帧、协议、分辨率、帧率和错误原因。
+- `cameraconnectivitytester.h/.cpp`: 系统设置中的批量连通测试，逐路探测地址解析、RTSP open、首帧、协议、分辨率、帧率、阶段和错误码。
 
 ## 当前设计
 
@@ -42,7 +42,7 @@
 - 保存训练记录时会通过 `videostorageplan.h/.cpp` 登记主视频/主机位的 session 级视频资产。目录默认来自 `QSettings videoStorage/rootDir`，未配置时使用应用本机数据目录下的 `recordings`；当前只生成可反查的规范路径、时间覆盖范围和元数据，不启动 RTSP 录制。动作实例会通过 `video_file_id/video_index` 关联到该视频资产，历史定位和复盘校准会优先使用该索引查找本地文件；文件不存在时回退到 NVR 模板或保存的 RTSP/离线引用并提示无法精确 seek。
 - 系统设置可配置视频存储根目录、容量阈值和保留天数，并扫描已登记且位于根目录下的本机视频文件。清理候选需要用户手动勾选并二次确认；清理只删除本机文件并写入视频资产 metadata，不删除训练记录或动作实例。
 - 系统设置可导入/导出 JSON 摄像头配置模板，批量交换公共 RTSP 参数、预览/主码流路径、NVR 回放模板、12 路 IP 和场地标定。导入只更新设置表单，点击“保存”后才写入 QSettings 并刷新视频控件。
-- 系统设置可对当前表单中的 12 路 IP 执行一次性连通测试；测试只使用预览路径，优先 UDP、失败后 TCP，不复用 `VideoOpenGLWidget`，不会启动或修改正在播放的小窗，也不会把结果写回配置。
+- 系统设置可对当前表单中的 12 路 IP 执行一次性连通测试；测试只使用预览路径，优先 UDP、失败后 TCP，不复用 `VideoOpenGLWidget`，不会启动或修改正在播放的小窗，也不会把结果写回配置。结果包含地址状态、RTSP open/首帧耗时、分辨率、帧率、失败阶段、稳定错误码和可选的 FFmpeg 返回码；IP 字面量不额外解析，主机名在测试线程中解析。
 
 ## 对外接口
 
@@ -120,7 +120,7 @@
 ### 调整批量连通测试
 
 1. 修改 `cameraconnectivitytester.cpp`，保持 UDP 优先、TCP fallback 和 3 秒探测超时。
-2. `SystemSettingsDialog::testCameraConnectivity()` 只负责弹窗、进度和结果表，不直接拼接厂商 URL。
+2. `SystemSettingsDialog::testCameraConnectivity()` 只负责弹窗、进度和结果表，不直接拼接厂商 URL；结果表应保留地址、Open/首帧耗时、阶段和错误码列。
 3. 结果只用于本次显示，不自动保存到每路质量/兼容备注。
 
 ## 注意事项

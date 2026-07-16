@@ -43,6 +43,8 @@ powershell -ExecutionPolicy Bypass -File tools/export_deepstream_models.ps1
 离线单视频导入和 12 路完整帧率批次会创建可追踪的通用分析任务；已有数据库可运行 `python tools/backfill_analysis_tasks.py` 补齐任务记录关联。
 采集页的“任务中心”以单并发队列在后台准备本地导入、创建并提交完整帧率远端运行，再跟踪其进度；可暂停、继续或取消任务。应用重启后未完成任务会保持暂停，需在任务中心手动继续。
 
+系统设置中的“连通测试”会逐路探测预览 RTSP 流，展示地址解析状态、UDP/TCP 协议、RTSP Open 耗时、首帧耗时、分辨率、帧率、失败阶段和错误码。结果仅供本次联调查看，不会保存或影响正在播放的视频。
+
 ```powershell
 cd server
 python -m venv .venv
