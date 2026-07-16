@@ -2,7 +2,7 @@
 
 ## F-24/F-25 轨迹点与速度持久化
 
-训练 session 的二维路线写入独立的 `track_points`，速度时序写入 `speed_metrics` 并以轨迹点外键关联。两者分别由 `TrainingRepository::trackPointsForSession()`、`speedMetricsForSession()` 和对应 session API 查询。该表只接受已绑定 participant、已完成四点冰面标定的米制坐标；`participant_pose_frames` 不再承担权威轨迹职责。
+训练 session 的二维路线写入独立的 `track_points`，速度时序写入 `speed_metrics` 并以轨迹点外键关联。两者分别由 `TrainingRepository::trackPointsForSession()`、`speedMetricsForSession()` 和对应 session API 查询。关节专项指标写入 `joint_metrics`，按参与者、时间、机位、关节和左右侧唯一，保存角度（deg）、角速度（deg/s）、有效性、置信度和算法版本，并由 `jointMetricsForSession()` 查询。该表只接受已绑定 participant、已完成四点冰面标定的米制坐标；`participant_pose_frames` 不再承担权威轨迹职责。
 
 上级入口：[[00-index|AI 知识库索引]]、[[modules/README|模块地图]]
 相关模块：[[core|应用核心]]、[[frontend|Qt Widgets 前端]]、[[ai-inference|AI 推理]]
@@ -174,5 +174,5 @@ PostgreSQL 主要表：
 
 ## 未确认问题
 
-- TODO: 未确认是否需要可导入第三方训练系统的专用格式；当前支持 Markdown、CSV 明细、PDF 复盘报告，以及跨 session 动作明细 CSV/XLSX 导出。
+- TODO: 未确认是否需要可导入第三方训练系统的专用格式；当前支持 Markdown、CSV 明细、PDF 复盘报告、专项指标 CSV/PDF 验收报告，以及跨 session 动作明细 CSV/XLSX 导出。
 - TODO: 未确认 QSettings 中密码是否需要加密。

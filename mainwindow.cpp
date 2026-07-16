@@ -1722,9 +1722,10 @@ void MainWindow::installHistorySearchPanel()
     auto *resetButton = new QPushButton(QStringLiteral("重置"), m_historySearchPanel);
     auto *repetitionSearchButton = new QPushButton(QStringLiteral("动作检索"), m_historySearchPanel);
     auto *manageCompetitionsButton = new QPushButton(QStringLiteral("比赛管理"), m_historySearchPanel);
+    auto *reportCenterButton = new QPushButton(QStringLiteral("报告中心"), m_historySearchPanel);
     m_historyPreviousPageButton = new QPushButton(QStringLiteral("上一页"), m_historySearchPanel);
     m_historyNextPageButton = new QPushButton(QStringLiteral("下一页"), m_historySearchPanel);
-    for (QPushButton *button : {searchButton, resetButton, repetitionSearchButton, manageCompetitionsButton, m_historyPreviousPageButton, m_historyNextPageButton}) {
+    for (QPushButton *button : {searchButton, resetButton, repetitionSearchButton, manageCompetitionsButton, reportCenterButton, m_historyPreviousPageButton, m_historyNextPageButton}) {
         button->setProperty("role", "secondaryButton");
         configureStableButton(button, kHistoryActionButtonWidth, 32, QSize(0, 0));
     }
@@ -1758,8 +1759,9 @@ void MainWindow::installHistorySearchPanel()
     grid->addWidget(resetButton, 2, 13);
     grid->addWidget(repetitionSearchButton, 2, 14);
     grid->addWidget(manageCompetitionsButton, 2, 15);
-    grid->addWidget(m_historyPreviousPageButton, 2, 16);
-    grid->addWidget(m_historyNextPageButton, 2, 17);
+    grid->addWidget(reportCenterButton, 2, 16);
+    grid->addWidget(m_historyPreviousPageButton, 2, 17);
+    grid->addWidget(m_historyNextPageButton, 2, 18);
 
     panelLayout->addLayout(grid);
     ui->historyPageLayout->insertWidget(1, m_historySearchPanel);
@@ -1773,6 +1775,7 @@ void MainWindow::installHistorySearchPanel()
         refreshSuggestions();
     });
     connect(resetButton, &QPushButton::clicked, this, [this]() { resetHistorySearch(); });
+    connect(reportCenterButton, &QPushButton::clicked, this, &MainWindow::openMetricReportCenter);
     connect(repetitionSearchButton, &QPushButton::clicked, this, [this]() { openRepetitionSearchDialog(); });
     connect(manageCompetitionsButton, &QPushButton::clicked, this, [this]() { openCompetitionManagement(); });
     connect(m_historyCompetitionComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
@@ -6600,6 +6603,104 @@ void MainWindow::exportTrainingReport(const QString &sessionId)
 
     ui->saveTipLabel->setText(QStringLiteral("训练报告已导出：%1").arg(QDir::toNativeSeparators(filePath)));
     ui->saveTipLabel->show();
+}
+
+void MainWindow::openMetricReportCenter()
+{
+    if (!m_trainingRepository || !m_trainingRepository->isOpen()) {
+        QMessageBox::warning(this, QStringLiteral("数据库未就绪"), QStringLiteral("无法生成专项指标报告。"));
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("报告中心 · 专项指标"));
+    dialog.resize(680, 360);
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *form = new QFormLayout();
+    auto *fromDate = new QDateEdit(QDate::currentDate().addMonths(-1), &dialog);
+    auto *toDate = new QDateEdit(QDate::currentDate(), &dialog);
+    auto *participant = new QComboBox(&dialog);
+    auto *fromMs = new QSpinBox(&dialog);
+    auto *toMs = new QSpinBox(&dialog);
+    for (QDateEdit *edit : {fromDate, toDate}) { edit->setCalendarPopup(true); edit->setDisplayFormat(QStringLiteral("yyyy-MM-dd")); }
+    for (QSpinBox *spin : {fromMs, toMs}) { spin->setRange(0, 24 * 60 * 60 * 1000); spin->setSingleStep(1000); }
+    toMs->setValue(24 * 60 * 60 * 1000);
+    participant->addItem(QStringLiteral("全部参与者"), QString());
+    QSet<QString> participantIds;
+    for (const SessionHistoryItem &record : std::as_const(m_records)) {
+        for (const TrainingSessionParticipant &item : record.participants) {
+            if (!item.id.isEmpty() && !participantIds.contains(item.id)) {
+                participantIds.insert(item.id);
+                participant->addItem(item.athleteName.isEmpty() ? item.athleteId : item.athleteName, item.id);
+            }
+        }
+    }
+    form->addRow(QStringLiteral("训练保存日期"), [&]() { auto *row = new QWidget(&dialog); auto *line = new QHBoxLayout(row); line->setContentsMargins(0, 0, 0, 0); line->addWidget(fromDate); line->addWidget(new QLabel(QStringLiteral("至"), row)); line->addWidget(toDate); return row; }());
+    form->addRow(QStringLiteral("参与者"), participant);
+    form->addRow(QStringLiteral("训练内时间(ms)"), [&]() { auto *row = new QWidget(&dialog); auto *line = new QHBoxLayout(row); line->setContentsMargins(0, 0, 0, 0); line->addWidget(fromMs); line->addWidget(new QLabel(QStringLiteral("至"), row)); line->addWidget(toMs); return row; }());
+    layout->addLayout(form);
+    auto *track = new QCheckBox(QStringLiteral("轨迹"), &dialog);
+    auto *speed = new QCheckBox(QStringLiteral("速度"), &dialog);
+    auto *angle = new QCheckBox(QStringLiteral("关节角"), &dialog);
+    auto *angularVelocity = new QCheckBox(QStringLiteral("角速度"), &dialog);
+    for (QCheckBox *box : {track, speed, angle, angularVelocity}) box->setChecked(true);
+    auto *types = new QHBoxLayout();
+    types->addWidget(new QLabel(QStringLiteral("导出指标"), &dialog));
+    for (QCheckBox *box : {track, speed, angle, angularVelocity}) types->addWidget(box);
+    types->addStretch();
+    layout->addLayout(types);
+    auto *hint = new QLabel(QStringLiteral("CSV 为逐点明细；PDF 为所选 session 的验收汇总。旧记录没有专项数据时会明确标记。"), &dialog);
+    hint->setWordWrap(true);
+    layout->addWidget(hint);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, &dialog);
+    auto *csvButton = buttons->addButton(QStringLiteral("导出 CSV"), QDialogButtonBox::ActionRole);
+    auto *pdfButton = buttons->addButton(QStringLiteral("导出 PDF"), QDialogButtonBox::ActionRole);
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    auto exportReport = [&](const QString &suffix) {
+        if (!track->isChecked() && !speed->isChecked() && !angle->isChecked() && !angularVelocity->isChecked()) {
+            QMessageBox::information(&dialog, QStringLiteral("请选择指标"), QStringLiteral("至少选择一种专项指标。")); return;
+        }
+        QString path = QFileDialog::getSaveFileName(&dialog, QStringLiteral("导出专项指标报告"),
+                                                    QDir::homePath() + QStringLiteral("/iSkating-metrics.") + suffix,
+                                                    suffix == QStringLiteral("pdf") ? QStringLiteral("PDF 报告 (*.pdf)") : QStringLiteral("CSV 明细 (*.csv)"));
+        if (path.isEmpty()) return;
+        if (!path.endsWith(QStringLiteral(".") + suffix, Qt::CaseInsensitive)) path += QStringLiteral(".") + suffix;
+        struct Row { QString sessionId; QString participantId; QString athlete; QString savedDate; qint64 t; int camera; QString type; QString name; QString value; QString unit; bool valid; QString version; double confidence; };
+        QVector<Row> rows;
+        const QString wantedParticipant = participant->currentData().toString();
+        const int start = fromMs->value(), end = toMs->value();
+        for (const SessionHistoryItem &record : std::as_const(m_records)) {
+            const QDate date = QDate::fromString(record.time.left(10), QStringLiteral("yyyy-MM-dd"));
+            if (date.isValid() && (date < fromDate->date() || date > toDate->date())) continue;
+            QHash<QString, QString> names;
+            for (const TrainingSessionParticipant &item : record.participants) names.insert(item.id, item.athleteName);
+            if (track->isChecked()) for (const TrackPoint &point : m_trainingRepository->trackPointsForSession(record.id, wantedParticipant, start, end)) rows.append({record.id, point.participantId, names.value(point.participantId), record.time, point.timestampMs, point.cameraId, QStringLiteral("trajectory"), QStringLiteral("position"), QStringLiteral("%1;%2;%3").arg(point.x).arg(point.y).arg(point.z), QStringLiteral("m"), true, point.speedSource, point.confidence});
+            if (speed->isChecked()) for (const SpeedMetric &metric : m_trainingRepository->speedMetricsForSession(record.id, wantedParticipant, start, end)) rows.append({record.id, metric.participantId, names.value(metric.participantId), record.time, metric.timestampMs, metric.cameraId, QStringLiteral("speed"), QStringLiteral("smoothed_speed"), QString::number(metric.smoothedSpeedMps), metric.unit, metric.valid, metric.algorithmVersion, -1});
+            if (angle->isChecked() || angularVelocity->isChecked()) for (const JointMetric &metric : m_trainingRepository->jointMetricsForSession(record.id, wantedParticipant, start, end)) {
+                const QString label = metric.side + QStringLiteral("_") + metric.joint;
+                if (angle->isChecked()) rows.append({record.id, metric.participantId, names.value(metric.participantId), record.time, metric.timestampMs, metric.cameraId, QStringLiteral("joint_angle"), label, QString::number(metric.angleDeg), QStringLiteral("deg"), metric.valid, metric.algorithmVersion, metric.confidence});
+                if (angularVelocity->isChecked()) rows.append({record.id, metric.participantId, names.value(metric.participantId), record.time, metric.timestampMs, metric.cameraId, QStringLiteral("angular_velocity"), label, QString::number(metric.angularVelocityDegPerSec), QStringLiteral("deg/s"), metric.valid, metric.algorithmVersion, metric.confidence});
+            }
+        }
+        if (suffix == QStringLiteral("csv")) {
+            QFile file(path); if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) { QMessageBox::warning(&dialog, QStringLiteral("导出失败"), file.errorString()); return; }
+            QTextStream out(&file); out.setEncoding(QStringConverter::Utf8);
+            out << "session_id,participant_id,athlete,saved_at,t_ms,camera_id,metric_type,metric_name,value,unit,valid,algorithm_version,confidence\n";
+            for (const Row &row : rows) out << csvField(row.sessionId) << ',' << csvField(row.participantId) << ',' << csvField(row.athlete) << ',' << csvField(row.savedDate) << ',' << row.t << ',' << row.camera << ',' << csvField(row.type) << ',' << csvField(row.name) << ',' << csvField(row.value) << ',' << csvField(row.unit) << ',' << (row.valid ? "true" : "false") << ',' << csvField(row.version) << ',' << (row.confidence >= 0 ? QString::number(row.confidence) : QString()) << '\n';
+        } else {
+            QHash<QString, int> counts; for (const Row &row : rows) ++counts[row.type];
+            QString html = QStringLiteral("<html><meta charset='utf-8'><style>body{font-family:'Microsoft YaHei';font-size:10pt}table{border-collapse:collapse;width:100%%}td,th{border:1px solid #c9d1dc;padding:5px}th{background:#eef3f9}</style><body><h1>iSkating 专项指标验收报告</h1><p>保存日期：%1 至 %2；训练内时间：%3-%4 ms；参与者：%5</p><h2>指标覆盖量</h2><table><tr><th>指标</th><th>有效数据点</th></tr>").arg(fromDate->date().toString(Qt::ISODate), toDate->date().toString(Qt::ISODate)).arg(start).arg(end).arg(participant->currentText());
+            for (const QString &type : {QStringLiteral("trajectory"), QStringLiteral("speed"), QStringLiteral("joint_angle"), QStringLiteral("angular_velocity")}) html += QStringLiteral("<tr><td>%1</td><td>%2</td></tr>").arg(type, QString::number(counts.value(type)));
+            html += rows.isEmpty() ? QStringLiteral("</table><p>所选范围没有可用专项指标数据。</p></body></html>") : QStringLiteral("</table><p>逐点明细请导出 CSV。</p></body></html>");
+            QTextDocument document; document.setHtml(html); QPrinter printer(QPrinter::HighResolution); printer.setOutputFormat(QPrinter::PdfFormat); printer.setOutputFileName(path); printer.setPageSize(QPageSize(QPageSize::A4)); document.print(&printer);
+        }
+        ui->saveTipLabel->setText(QStringLiteral("专项指标报告已导出：%1（%2 条）").arg(QDir::toNativeSeparators(path)).arg(rows.size())); ui->saveTipLabel->show();
+    };
+    connect(csvButton, &QPushButton::clicked, &dialog, [&]() { exportReport(QStringLiteral("csv")); });
+    connect(pdfButton, &QPushButton::clicked, &dialog, [&]() { exportReport(QStringLiteral("pdf")); });
+    dialog.exec();
 }
 
 // 根据侧栏显示状态刷新顶部侧栏按钮：默认仅显示灰色图标，悬停时显示文字并变为蓝色。

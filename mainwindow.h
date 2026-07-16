@@ -129,6 +129,7 @@ private:
     void editActionStandard();
     void editCoachComment(const QString &sessionId);
     void exportTrainingReport(const QString &sessionId);
+    void openMetricReportCenter();
     void refreshSidebarButton();
     void refreshFullScreenButton();
     void refreshModelStatus(const QString &statusText);

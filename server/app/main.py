@@ -2135,6 +2135,38 @@ def insert_speed_metric(db: Session,
     )
 
 
+def insert_joint_metric(db: Session, metric: dict[str, Any], participant_ids: set[str]) -> None:
+    participant_id = parse_uuid(metric.get("participantId"))
+    if not participant_id or str(participant_id) not in participant_ids:
+        return
+    joint = str(metric.get("joint") or "").strip().lower()
+    side = str(metric.get("side") or "").strip().lower()
+    if joint not in {"elbow", "hip", "knee", "ankle"} or side not in {"left", "right"}:
+        return
+    try:
+        angle = float(metric.get("angleDeg") or 0.0)
+        velocity = float(metric.get("angularVelocityDegPerSec") or 0.0)
+        confidence = float(metric.get("confidence", -1))
+    except (TypeError, ValueError):
+        return
+    db.execute(
+        text(
+            "INSERT INTO joint_metrics (id, participant_id, t_ms, camera_id, joint, side, angle_deg, "
+            "angular_velocity_deg_per_sec, valid, confidence, algorithm_version) "
+            "VALUES (:id, :participant_id, :t_ms, :camera_id, :joint, :side, :angle_deg, "
+            ":angular_velocity_deg_per_sec, :valid, :confidence, :algorithm_version) "
+            "ON CONFLICT (participant_id, t_ms, camera_id, joint, side) DO UPDATE SET "
+            "angle_deg=excluded.angle_deg, angular_velocity_deg_per_sec=excluded.angular_velocity_deg_per_sec, "
+            "valid=excluded.valid, confidence=excluded.confidence, algorithm_version=excluded.algorithm_version"
+        ),
+        {"id": parse_uuid(metric.get("id")) or new_uuid(), "participant_id": participant_id,
+         "t_ms": int(metric.get("tMs") or 0), "camera_id": int(metric.get("cameraId") or 0),
+         "joint": joint, "side": side, "angle_deg": angle, "angular_velocity_deg_per_sec": velocity,
+         "valid": bool(metric.get("valid", False)), "confidence": confidence if confidence >= 0 else None,
+         "algorithm_version": metric.get("algorithmVersion") or "joint_angle_v1"},
+    )
+
+
 def derive_analysis_pose_frames(db: Session, session_id: str, run_id: str) -> int:
     run = db.execute(
         text("SELECT status FROM offline_analysis_runs WHERE id=:id"), {"id": parse_uuid(run_id)}
@@ -2527,6 +2559,7 @@ def save_training_session(payload: dict[str, Any] = Body(...),
     participant_pose_frames = payload.get("participantPoseFrames", [])
     track_points = payload.get("trackPoints", [])
     speed_metrics = payload.get("speedMetrics", [])
+    joint_metrics = payload.get("jointMetrics", [])
     session_id = parse_uuid(session.get("id")) or new_uuid()
     athlete_id = parse_uuid(session.get("athleteId"))
     action_standard_id = parse_uuid(session.get("actionStandardId"))
@@ -2627,6 +2660,7 @@ def save_training_session(payload: dict[str, Any] = Body(...),
     video_file_by_index = save_training_video_files(db, session_id, session.get("videoFiles", []))
     db.execute(text("DELETE FROM participant_pose_frames WHERE session_id = :session_id"), {"session_id": session_id})
     db.execute(text("DELETE FROM speed_metrics WHERE participant_id IN (SELECT id FROM training_session_participants WHERE session_id = :session_id)"), {"session_id": session_id})
+    db.execute(text("DELETE FROM joint_metrics WHERE participant_id IN (SELECT id FROM training_session_participants WHERE session_id = :session_id)"), {"session_id": session_id})
     db.execute(text("DELETE FROM track_points WHERE participant_id IN (SELECT id FROM training_session_participants WHERE session_id = :session_id)"), {"session_id": session_id})
     db.execute(text("DELETE FROM participant_repetitions WHERE session_id = :session_id"), {"session_id": session_id})
     db.execute(text("DELETE FROM action_repetitions WHERE session_id = :session_id"), {"session_id": session_id})
@@ -2653,6 +2687,8 @@ def save_training_session(payload: dict[str, Any] = Body(...),
             point_ids[(str(parse_uuid(point.get("participantId"))), int(point.get("tMs") or 0), int(point.get("cameraId") or 0))] = point_id
     for metric in speed_metrics:
         insert_speed_metric(db, metric, participant_ids, point_ids)
+    for metric in joint_metrics:
+        insert_joint_metric(db, metric, participant_ids)
     if not participant_pose_frames and analysis_run_id:
         derive_analysis_pose_frames(db, session_id, str(analysis_run_id))
     if session.get("taskId"):
@@ -3252,6 +3288,51 @@ def speed_metrics_for_session(session_id: str,
         "instantaneousSpeedMps": row["instantaneous_speed_mps"], "smoothedSpeedMps": row["smoothed_speed_mps"],
         "smoothingWindowMs": row["smoothing_window_ms"], "unit": row["unit"],
         "algorithmVersion": row["algorithm_version"], "valid": row["valid"],
+    } for row in rows]
+
+
+@app.get("/training/sessions/{session_id}/joint-metrics")
+def joint_metrics_for_session(session_id: str,
+                              participantId: str = "",
+                              fromMs: int = -1,
+                              toMs: int = -1,
+                              joint: str = "",
+                              side: str = "",
+                              limit: int = 20000,
+                              db: Session = Depends(db_session),
+                              _: dict[str, Any] = Depends(require_user)) -> list[dict[str, Any]]:
+    where = ["participant.session_id = :session_id"]
+    args: dict[str, Any] = {"session_id": parse_uuid(session_id)}
+    if participantId:
+        where.append("metric.participant_id = :participant_id")
+        args["participant_id"] = parse_uuid(participantId)
+    if fromMs >= 0:
+        where.append("metric.t_ms >= :from_ms")
+        args["from_ms"] = fromMs
+    if toMs >= 0:
+        where.append("metric.t_ms <= :to_ms")
+        args["to_ms"] = toMs
+    if joint:
+        where.append("metric.joint = :joint")
+        args["joint"] = joint.lower()
+    if side:
+        where.append("metric.side = :side")
+        args["side"] = side.lower()
+    args["limit"] = max(1, min(limit, 20000))
+    rows = db.execute(
+        text(
+            "SELECT metric.* FROM joint_metrics metric "
+            "JOIN training_session_participants participant ON participant.id = metric.participant_id "
+            f"WHERE {' AND '.join(where)} "
+            "ORDER BY metric.t_ms ASC, metric.camera_id ASC, metric.joint ASC, metric.side ASC LIMIT :limit"
+        ), args,
+    ).mappings()
+    return [{
+        "id": str(row["id"]), "participantId": str(row["participant_id"]), "tMs": str(row["t_ms"]),
+        "cameraId": row["camera_id"], "joint": row["joint"], "side": row["side"],
+        "angleDeg": row["angle_deg"], "angularVelocityDegPerSec": row["angular_velocity_deg_per_sec"],
+        "valid": row["valid"], "confidence": row["confidence"] if row["confidence"] is not None else -1,
+        "algorithmVersion": row["algorithm_version"],
     } for row in rows]
 
 

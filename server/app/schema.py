@@ -545,6 +545,22 @@ CREATE TABLE speed_metrics (
     UNIQUE (track_point_id)
 );
 
+CREATE TABLE joint_metrics (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    participant_id uuid NOT NULL REFERENCES training_session_participants(id) ON DELETE CASCADE,
+    t_ms bigint NOT NULL,
+    camera_id integer NOT NULL DEFAULT 0,
+    joint text NOT NULL,
+    side text NOT NULL CHECK (side IN ('left', 'right')),
+    angle_deg double precision NOT NULL DEFAULT 0,
+    angular_velocity_deg_per_sec double precision NOT NULL DEFAULT 0,
+    valid boolean NOT NULL DEFAULT false,
+    confidence double precision,
+    algorithm_version text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (participant_id, t_ms, camera_id, joint, side)
+);
+
 CREATE TABLE athlete_action_baselines (
     athlete_id uuid NOT NULL REFERENCES athletes(id),
     action_standard_id uuid NOT NULL REFERENCES action_standards(id),
@@ -610,6 +626,8 @@ CREATE INDEX ix_participant_pose_frames_video_file ON participant_pose_frames(vi
 CREATE INDEX ix_track_points_participant_time ON track_points(participant_id, t_ms);
 CREATE INDEX ix_track_points_camera_time ON track_points(camera_id, t_ms);
 CREATE INDEX ix_speed_metrics_participant_time ON speed_metrics(participant_id, t_ms);
+CREATE INDEX ix_joint_metrics_participant_time ON joint_metrics(participant_id, t_ms);
+CREATE INDEX ix_joint_metrics_filter ON joint_metrics(participant_id, joint, side, t_ms);
 """
 
 

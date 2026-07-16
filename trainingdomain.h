@@ -537,6 +537,21 @@ struct SpeedMetric
     bool valid = false;
 };
 
+struct JointMetric
+{
+    QString id;
+    QString participantId;
+    qint64 timestampMs = 0;
+    int cameraId = 0;
+    QString joint;
+    QString side;
+    double angleDeg = 0.0;
+    double angularVelocityDegPerSec = 0.0;
+    bool valid = false;
+    double confidence = -1.0;
+    QString algorithmVersion = QStringLiteral("joint_angle_v1");
+};
+
 struct TrainingSession
 {
     QString id;
@@ -589,6 +604,7 @@ struct TrainingSession
     QVector<ParticipantPoseFrame> participantPoseFrames;
     QVector<TrackPoint> trackPoints;
     QVector<SpeedMetric> speedMetrics;
+    QVector<JointMetric> jointMetrics;
     QVector<TrainingVideoFile> videoFiles;
 };
 
