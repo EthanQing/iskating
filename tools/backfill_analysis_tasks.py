@@ -13,7 +13,7 @@ MIGRATION_SQL = """
 CREATE TABLE IF NOT EXISTS analysis_tasks (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     type text NOT NULL CHECK (type IN ('offline_import', 'full_rate_batch')),
-    status text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled')),
+    status text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'paused', 'completed', 'failed', 'cancelled')),
     progress double precision NOT NULL DEFAULT 0 CHECK (progress >= 0 AND progress <= 100),
     input jsonb NOT NULL DEFAULT '{}'::jsonb,
     output_session_id uuid,
@@ -24,6 +24,20 @@ CREATE TABLE IF NOT EXISTS analysis_tasks (
 
 ALTER TABLE offline_analysis_tasks ADD COLUMN IF NOT EXISTS analysis_task_id uuid;
 ALTER TABLE offline_analysis_batches ADD COLUMN IF NOT EXISTS analysis_task_id uuid;
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='analysis_tasks_status_check') THEN
+        ALTER TABLE analysis_tasks DROP CONSTRAINT analysis_tasks_status_check;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='analysis_tasks_status_check1') THEN
+        ALTER TABLE analysis_tasks DROP CONSTRAINT analysis_tasks_status_check1;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_analysis_tasks_status') THEN
+        ALTER TABLE analysis_tasks ADD CONSTRAINT ck_analysis_tasks_status
+            CHECK (status IN ('queued', 'running', 'paused', 'completed', 'failed', 'cancelled'));
+    END IF;
+END $$;
 
 INSERT INTO analysis_tasks (id, type, status, progress, input, created_at, updated_at)
 SELECT gen_random_uuid(), 'offline_import',

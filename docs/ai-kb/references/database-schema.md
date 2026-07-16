@@ -227,7 +227,7 @@ ReID 向量：`sample_id`, `athlete_id`, `embedding`, `embedding_dimension`, `mo
 
 #### `analysis_tasks`
 
-通用分析主任务，首批类型为单视频导入 `offline_import` 和 12 路完整帧率批次 `full_rate_batch`。保存 `status`（`queued/running/completed/failed/cancelled`）、`progress`（0-100）、JSONB `input`、可空 `output_session_id`、`error` 与审计时间。`offline_analysis_tasks.analysis_task_id` 和 `offline_analysis_batches.analysis_task_id` 指向该表；保存最终训练 session 后主任务回填输出 session 并标记完成。该表只做可追踪调度基础，不承担 F-29 的桌面队列或后台执行。
+通用分析主任务，首批类型为单视频导入 `offline_import` 和 12 路完整帧率批次 `full_rate_batch`。保存 `status`（`queued/running/paused/completed/failed/cancelled`）、`progress`（0-100）、JSONB `input`、可空 `output_session_id`、`error` 与审计时间。`offline_analysis_tasks.analysis_task_id` 和 `offline_analysis_batches.analysis_task_id` 指向该表；保存最终训练 session 后主任务回填输出 session 并标记完成。F-29 的桌面 `AnalysisTaskManager` 以此表持久化单并发队列状态，应用启动时会把 `running`/`paused` 恢复为 `paused`。
 
 #### 完整帧率分析表
 

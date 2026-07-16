@@ -217,7 +217,7 @@ CREATE TABLE training_tasks (
 CREATE TABLE analysis_tasks (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     type text NOT NULL CHECK (type IN ('offline_import', 'full_rate_batch')),
-    status text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled')),
+    status text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'paused', 'completed', 'failed', 'cancelled')),
     progress double precision NOT NULL DEFAULT 0 CHECK (progress >= 0 AND progress <= 100),
     input jsonb NOT NULL DEFAULT '{}'::jsonb,
     output_session_id uuid,

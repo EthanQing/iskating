@@ -114,6 +114,8 @@ win32:msvc {
 }
 
 SOURCES += \
+    analysistaskcenterdialog.cpp \
+    analysistaskmanager.cpp \
     athleteanalysismanager.cpp \
     cameraconfigtemplate.cpp \
     cameraconnectivitytester.cpp \
@@ -141,6 +143,8 @@ SOURCES += \
     videoopenglwidget.cpp
 
 HEADERS += \
+    analysistaskcenterdialog.h \
+    analysistaskmanager.h \
     athleteanalysismanager.h \
     athleteanalysisresult.h \
     cameraconfigtemplate.h \

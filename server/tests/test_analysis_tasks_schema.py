@@ -18,6 +18,14 @@ class AnalysisTasksSchemaTests(unittest.TestCase):
         self.assertIn("full_rate_batch", api)
         self.assertIn("output_session_id=:session_id", api)
 
+    def test_paused_state_and_transitions_exist(self) -> None:
+        root = Path(__file__).parents[1]
+        schema = (root / "app" / "schema.py").read_text(encoding="utf-8")
+        api = (root / "app" / "main.py").read_text(encoding="utf-8")
+        self.assertIn("'paused'", schema)
+        self.assertIn("ANALYSIS_TASK_TRANSITIONS", api)
+        self.assertIn("invalid analysis task transition", api)
+
 
 if __name__ == "__main__":
     unittest.main()

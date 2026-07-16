@@ -442,7 +442,15 @@ def metadata_from_payload(value: Any) -> dict[str, Any]:
 
 
 ANALYSIS_TASK_TYPES = {"offline_import", "full_rate_batch"}
-ANALYSIS_TASK_STATUSES = {"queued", "running", "completed", "failed", "cancelled"}
+ANALYSIS_TASK_STATUSES = {"queued", "running", "paused", "completed", "failed", "cancelled"}
+ANALYSIS_TASK_TRANSITIONS = {
+    "queued": {"queued", "running", "paused", "cancelled"},
+    "running": {"running", "paused", "completed", "failed", "cancelled"},
+    "paused": {"paused", "queued", "running", "cancelled"},
+    "completed": {"completed"},
+    "failed": {"failed"},
+    "cancelled": {"cancelled"},
+}
 
 
 def analysis_task_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -469,6 +477,9 @@ def save_analysis_task_row(db: Session, payload: dict[str, Any]) -> dict[str, An
     if status == "completed":
         progress = 100.0
     task_id = parse_uuid(payload.get("id")) or new_uuid()
+    existing = db.execute(text("SELECT status FROM analysis_tasks WHERE id=:id"), {"id": task_id}).mappings().first()
+    if existing and status not in ANALYSIS_TASK_TRANSITIONS[existing["status"]]:
+        raise HTTPException(status_code=400, detail=f"invalid analysis task transition: {existing['status']} -> {status}")
     db.execute(
         text(
             "INSERT INTO analysis_tasks (id, type, status, progress, input, output_session_id, error, updated_at) "

@@ -41,6 +41,7 @@ powershell -ExecutionPolicy Bypass -File tools/export_deepstream_models.ps1
 历史页的“报告中心”可按训练保存日期、参与者、训练内时间段及专项指标导出 CSV 明细或 PDF 验收汇总。专项指标覆盖轨迹、速度、关节角和角速度；已有数据库需先运行 `python tools/backfill_joint_metrics.py` 后再启用关节指标保存。
 
 离线单视频导入和 12 路完整帧率批次会创建可追踪的通用分析任务；已有数据库可运行 `python tools/backfill_analysis_tasks.py` 补齐任务记录关联。
+采集页的“任务中心”以单并发队列在后台准备本地导入、创建并提交完整帧率远端运行，再跟踪其进度；可暂停、继续或取消任务。应用重启后未完成任务会保持暂停，需在任务中心手动继续。
 
 ```powershell
 cd server

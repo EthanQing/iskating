@@ -13,12 +13,14 @@ class QProgressBar;
 class QPushButton;
 class QTableWidget;
 class TrainingRepository;
+class AnalysisTaskManager;
 
 class OfflineAnalysisDialog : public QDialog
 {
 public:
     OfflineAnalysisDialog(TrainingRepository *repository,
                           QVector<QString> athleteIds,
+                          AnalysisTaskManager *taskManager = nullptr,
                           QWidget *parent = nullptr);
     QString batchId() const { return m_batch.id; }
     QString activeRunId() const { return m_batch.activeRunId; }
@@ -35,6 +37,7 @@ private:
     OfflineAnalysisBatch batchFromTable(QString *errorMessage) const;
 
     TrainingRepository *m_repository = nullptr;
+    AnalysisTaskManager *m_taskManager = nullptr;
     QVector<QString> m_athleteIds;
     QTableWidget *m_sourcesTable = nullptr;
     QLineEdit *m_nasRootEdit = nullptr;

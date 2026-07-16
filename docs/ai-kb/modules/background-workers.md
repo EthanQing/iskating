@@ -25,6 +25,7 @@
 - AI 分析结果通过 `QMetaObject::invokeMethod(..., Qt::QueuedConnection)` 发送回 `MainWindow`。
 - `AthleteAnalysisWorker::stop()` 等待最长 180 秒，因为 TensorRT 关闭可能很慢。
 - `analysis_worker/worker.py` 通过服务令牌领取带租约的离线运行，启动原生 DeepStream 子进程并发送 heartbeat；租约过期后其他 worker 可重新领取。
+- `analysistaskmanager.cpp` 使用独立 `QThread` 与独立 `TrainingRepository` 执行单并发 FIFO 队列；本地导入在后台完成探测和入库，完整帧率任务在后台创建、提交并轮询远端运行。
 - 离线 worker 与 Qt 实时 worker 完全隔离。它按完整分块做检查点，允许处理慢于视频，不使用 latest-frame 覆盖；单路失败保留其他机位已提交分块，运行状态进入 `partial` 或 `failed`。
 
 ## 对外接口
@@ -53,6 +54,7 @@
 ## 注意事项
 
 - 不要从 worker 线程直接操作 QWidget。
+- `AnalysisTaskManager` 只通过 signal 返回主线程；不要把 `MainWindow` 的仓储传入任务线程。
 - 不要在持有 mutex 时调用可能回调 UI 或耗时的逻辑。
 - 多路分析是单个 TensorRT worker 在多路流之间轮询，不是 12 个并行模型实例；12 路同时接入时实际每路 FPS 取决于 GPU、解码、目标 FPS、自动降级和档位。
 - `StreamRegistry` 使用 weak pointer；没有控件引用时流会自然释放。

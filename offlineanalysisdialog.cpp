@@ -1,5 +1,6 @@
 #include "offlineanalysisdialog.h"
 
+#include "analysistaskmanager.h"
 #include "trainingrepository.h"
 
 #include <QDateTime>
@@ -22,6 +23,7 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <cmath>
 
 namespace {
 
@@ -68,10 +70,12 @@ int durationMs(const QString &text)
 
 OfflineAnalysisDialog::OfflineAnalysisDialog(TrainingRepository *repository,
                                              QVector<QString> athleteIds,
+                                             AnalysisTaskManager *taskManager,
                                              QWidget *parent)
     : QDialog(parent),
       m_repository(repository),
-      m_athleteIds(std::move(athleteIds))
+      m_athleteIds(std::move(athleteIds)),
+      m_taskManager(taskManager)
 {
     setWindowTitle(QStringLiteral("12 路完整帧率离线分析"));
     resize(1240, 620);
@@ -136,6 +140,25 @@ OfflineAnalysisDialog::OfflineAnalysisDialog(TrainingRepository *repository,
     connect(m_retryButton, &QPushButton::clicked, this, [this]() { retryRun(); });
     connect(m_activateButton, &QPushButton::clicked, this, [this]() { activateRun(); });
     connect(&m_refreshTimer, &QTimer::timeout, this, [this]() { refreshRun(); });
+    if (m_taskManager) {
+        connect(m_taskManager, &AnalysisTaskManager::fullRateRunReady, this,
+                [this](const OfflineAnalysisBatch &batch, const OfflineAnalysisRun &run) {
+            setBatch(batch);
+            setRun(run);
+            QSettings().setValue(QStringLiteral("offlineAnalysis/lastBatchId"), batch.id);
+        }, Qt::QueuedConnection);
+        connect(m_taskManager, &AnalysisTaskManager::taskUpdated, this, [this](const QString &taskId) {
+            if (m_batch.analysisTaskId != taskId) return;
+            for (const AnalysisTask &task : m_taskManager->tasks()) {
+                if (task.id != taskId) continue;
+                m_progressBar->setValue(static_cast<int>(std::round(task.progress * 10.0)));
+                m_statusLabel->setText(QStringLiteral("任务 %1 · %2 · %3%")
+                                           .arg(task.id.left(8), task.status)
+                                           .arg(task.progress, 0, 'f', 1));
+                break;
+            }
+        }, Qt::QueuedConnection);
+    }
     m_refreshTimer.setInterval(2000);
 
     const QString lastBatchId = QSettings().value(QStringLiteral("offlineAnalysis/lastBatchId")).toString();
@@ -232,6 +255,19 @@ OfflineAnalysisBatch OfflineAnalysisDialog::batchFromTable(QString *errorMessage
 
 void OfflineAnalysisDialog::createBatch()
 {
+    if (m_taskManager) {
+        QSettings().setValue(QStringLiteral("offlineAnalysis/nasRoot"), m_nasRootEdit->text().trimmed());
+        QString error;
+        const OfflineAnalysisBatch batch = batchFromTable(&error);
+        if (batch.sources.size() != 12) {
+            QMessageBox::warning(this, QStringLiteral("配置无效"), error);
+            return;
+        }
+        m_createButton->setEnabled(false);
+        m_statusLabel->setText(QStringLiteral("已进入后台队列，等待创建批次和提交远端运行。"));
+        m_taskManager->enqueueFullRateBatch(batch, m_athleteIds);
+        return;
+    }
     if (!m_repository || !m_repository->isOpen()) {
         QMessageBox::warning(this, QStringLiteral("服务不可用"), QStringLiteral("训练服务未连接。"));
         return;

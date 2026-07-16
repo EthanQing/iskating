@@ -1,5 +1,7 @@
 #include "mainwindow.h"
 #include "athleteanalysismanager.h"
+#include "analysistaskcenterdialog.h"
+#include "analysistaskmanager.h"
 #include "iconutils.h"
 #include "nvrplayback.h"
 #include "offlineanalysisdialog.h"
@@ -1208,6 +1210,16 @@ MainWindow::MainWindow(QWidget *parent)
     ui->headlineLayout->insertWidget(std::max(0, importButtonIndex), m_fullRateAnalysisButton, 0, Qt::AlignRight | Qt::AlignVCenter);
     connect(m_fullRateAnalysisButton, &QPushButton::clicked, this, [this]() { openOfflineAnalysisManager(); });
 
+    m_taskCenterButton = new QPushButton(ui->leftCard);
+    m_taskCenterButton->setObjectName(QStringLiteral("analysisTaskCenterButton"));
+    m_taskCenterButton->setProperty("role", "secondaryButton");
+    m_taskCenterButton->setText(QStringLiteral("任务中心"));
+    m_taskCenterButton->setToolTip(QStringLiteral("查看、暂停、继续或取消后台分析任务"));
+    configureStableButton(m_taskCenterButton, kHistoryActionButtonWidth, 32, QSize(18, 18));
+    ui->headlineLayout->insertWidget(std::max(0, ui->headlineLayout->indexOf(m_fullRateAnalysisButton)),
+                                     m_taskCenterButton, 0, Qt::AlignRight | Qt::AlignVCenter);
+    connect(m_taskCenterButton, &QPushButton::clicked, this, [this]() { openAnalysisTaskCenter(); });
+
     ui->mainImageLabel->setPlaceholderText(QStringLiteral("主视频\n未播放"));
     ui->mainImageLabel->setOverlayControlsVisible(false);
     ui->mainImageLabel->setStreamChangedHandler([this](VideoOpenGLWidget *) {
@@ -1232,6 +1244,26 @@ MainWindow::MainWindow(QWidget *parent)
     }
     loadCameraSettings();
     initializeTrainingRepository();
+    m_analysisTaskManager = std::make_unique<AnalysisTaskManager>(this);
+    connect(m_analysisTaskManager.get(), &AnalysisTaskManager::offlineImportReady, this,
+            [this](const OfflineAnalysisTask &task, const OfflineVideoProbeResult &probe) {
+        m_offlineVideoPath = task.videoPath;
+        m_offlineVideoName = offlineVideoDisplayName(task.videoPath);
+        m_offlineVideoProbe = probe;
+        m_offlineAnalysisTask = task;
+        for (auto *videoWidget : m_cameraButtons) {
+            if (videoWidget && videoWidget->isPlaying()) videoWidget->stopPlayback();
+        }
+        showOfflineVideoInMainView(true);
+        ui->saveTipLabel->setText(QStringLiteral("离线视频已准备完成：%1。任务 %2 已入库。")
+                                      .arg(QDir::toNativeSeparators(task.videoPath), task.id.left(8)));
+        ui->saveTipLabel->show();
+    }, Qt::QueuedConnection);
+    connect(m_analysisTaskManager.get(), &AnalysisTaskManager::taskError, this,
+            [this](const QString &, const QString &message) {
+        if (!message.isEmpty()) ui->saveTipLabel->setText(QStringLiteral("后台任务失败：%1").arg(message));
+    }, Qt::QueuedConnection);
+    m_analysisTaskManager->restorePendingTasks();
 
     applyStyleSheet();
     installStaticImages();
@@ -3912,70 +3944,15 @@ void MainWindow::importOfflineVideo()
         return;
     }
 
+    if (!m_analysisTaskManager) {
+        QMessageBox::warning(this, QStringLiteral("导入失败"), QStringLiteral("后台任务服务未就绪。"));
+        return;
+    }
     const QFileInfo fileInfo(filePath);
-    if (!fileInfo.exists() || !fileInfo.isFile()) {
-        QMessageBox::warning(this,
-                             QStringLiteral("导入失败"),
-                             QStringLiteral("找不到所选视频文件：%1").arg(QDir::toNativeSeparators(filePath)));
-        return;
-    }
-
-    const OfflineVideoProbeResult probe = OfflineVideoProbe::probe(fileInfo.absoluteFilePath());
-    if (!probe.success) {
-        QMessageBox::warning(this,
-                             QStringLiteral("导入失败"),
-                             QStringLiteral("视频文件校验失败：%1\n\n文件：%2")
-                                 .arg(probe.message, QDir::toNativeSeparators(fileInfo.absoluteFilePath())));
-        return;
-    }
-
-    OfflineAnalysisTask task;
-    task.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    task.batchId = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    task.cameraId = 0;
-    task.timeOffsetMs = 0;
-    task.videoPath = fileInfo.absoluteFilePath();
-    task.fileName = fileInfo.fileName();
-    task.fileSizeBytes = fileInfo.size();
-    task.fileModifiedAt = fileInfo.lastModified();
-    task.durationMs = static_cast<int>(std::max<qint64>(0, probe.durationMs));
-    task.status = QStringLiteral("imported");
-    task.probeMetadataJson = offlineProbeMetadataJson(probe);
-    task.summaryMetadataJson = QString::fromUtf8(QJsonDocument(QJsonObject{
-        {QStringLiteral("mode"), QStringLiteral("single_video")},
-        {QStringLiteral("multiVideoReserved"), true}
-    }).toJson(QJsonDocument::Compact));
-    if (!m_trainingRepository || !m_trainingRepository->isOpen()) {
-        QMessageBox::warning(this,
-                             QStringLiteral("导入失败"),
-                             QStringLiteral("训练服务未连接，无法创建离线分析任务。"));
-        return;
-    }
-    QString taskError;
-    if (!m_trainingRepository->saveOfflineAnalysisTask(&task, &taskError)) {
-        QMessageBox::warning(this,
-                             QStringLiteral("导入失败"),
-                             QStringLiteral("无法创建离线分析任务：%1").arg(taskError));
-        return;
-    }
-
     settings.setValue(QStringLiteral("offlineVideo/lastDir"), fileInfo.absolutePath());
-    m_offlineVideoPath = fileInfo.absoluteFilePath();
-    m_offlineVideoName = offlineVideoDisplayName(m_offlineVideoPath);
-    m_offlineVideoProbe = probe;
-    m_offlineAnalysisTask = task;
-
-    for (auto *videoWidget : m_cameraButtons) {
-        if (videoWidget && videoWidget->isPlaying()) {
-            videoWidget->stopPlayback();
-        }
-    }
-    showOfflineVideoInMainView(true);
-    const QString summary = offlineProbeSummary(m_offlineVideoProbe);
-    ui->saveTipLabel->setText(QStringLiteral("已导入离线视频：%1%2。离线任务 %3 已入库，点击“开始采集”后将基于该视频记录训练复盘。")
-                                  .arg(QDir::toNativeSeparators(m_offlineVideoPath),
-                                       summary.isEmpty() ? QString() : QStringLiteral("（%1）").arg(summary),
-                                       m_offlineAnalysisTask.id.left(8)));
+    const QString taskId = m_analysisTaskManager->enqueueOfflineImport(fileInfo.absoluteFilePath());
+    ui->saveTipLabel->setText(QStringLiteral("离线视频已进入后台队列：任务 %1。完成准备后将自动切换到该视频。")
+                                  .arg(taskId.left(8)));
     ui->saveTipLabel->show();
 }
 
@@ -3991,12 +3968,23 @@ void MainWindow::openOfflineAnalysisManager()
             athleteIds.append(participant.athleteId);
         }
     }
-    OfflineAnalysisDialog dialog(m_trainingRepository.get(), athleteIds, this);
+    OfflineAnalysisDialog dialog(m_trainingRepository.get(), athleteIds, m_analysisTaskManager.get(), this);
     dialog.exec();
     if (!dialog.batchId().isEmpty()) {
         m_offlineAnalysisBatchId = dialog.batchId();
         m_offlineAnalysisRunId = dialog.activeRunId();
     }
+}
+
+void MainWindow::openAnalysisTaskCenter()
+{
+    if (!m_analysisTaskManager) return;
+    AnalysisTaskCenterDialog dialog(m_analysisTaskManager.get(), this);
+    connect(&dialog, &AnalysisTaskCenterDialog::openSessionRequested, this, [this](const QString &) {
+        switchPage(kHistoryPage);
+        refreshHistory();
+    });
+    dialog.exec();
 }
 
 void MainWindow::showOfflineVideoInMainView(bool autoPlay)

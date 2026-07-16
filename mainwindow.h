@@ -29,6 +29,7 @@ class QVBoxLayout;
 class VideoOpenGLWidget;
 class TrajectoryWidget;
 class AthleteAnalysisManager;
+class AnalysisTaskManager;
 class TrainingRepository;
 
 namespace Ui {
@@ -87,6 +88,7 @@ private:
     void refreshTrajectoryView();
     void importOfflineVideo();
     void openOfflineAnalysisManager();
+    void openAnalysisTaskCenter();
     void showOfflineVideoInMainView(bool autoPlay = true);
     void showCameraInMainView(int cameraIndex, bool autoPlay = true);
     void applyCameraSettingsToWidgets(bool restorePlayback);
@@ -155,7 +157,9 @@ private:
     QPushButton *m_fullScreenButton = nullptr;
     QPushButton *m_importVideoButton = nullptr;
     QPushButton *m_fullRateAnalysisButton = nullptr;
+    QPushButton *m_taskCenterButton = nullptr;
     std::unique_ptr<AthleteAnalysisManager> m_athleteAnalysisManager;
+    std::unique_ptr<AnalysisTaskManager> m_analysisTaskManager;
     std::unique_ptr<TrainingRepository> m_trainingRepository;
     QWidget *m_trainingContextPanel = nullptr;
     QComboBox *m_athleteComboBox = nullptr;
