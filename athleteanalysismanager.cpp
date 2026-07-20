@@ -144,6 +144,7 @@ public:
         m_streams = std::move(states);
         m_nextStreamIndex = 0;
         m_lastResultMsec = 0;
+        m_lastNoFrameStatusMsec = 0;
     }
 
     void setAnalysisProfile(const QString &profile)
@@ -234,6 +235,21 @@ private:
         }
 
         if (!frame || selectedIndex < 0) {
+            QString sourceName;
+            {
+                QMutexLocker locker(&m_mutex);
+                if (!m_streams.isEmpty()) {
+                    sourceName = m_streams.constFirst().sourceName;
+                }
+                if (nowMsec - m_lastNoFrameStatusMsec >= 1000) {
+                    m_lastNoFrameStatusMsec = nowMsec;
+                } else {
+                    sourceName.clear();
+                }
+            }
+            if (!sourceName.isEmpty()) {
+                publishStatus(QStringLiteral("运动员识别等待视频帧：%1").arg(sourceName));
+            }
             expireResultsIfNeeded();
             return;
         }
@@ -333,6 +349,7 @@ private:
     QVector<AthleteIdentityBinding> m_manualBindings;
     int m_nextStreamIndex = 0;
     qint64 m_lastResultMsec = 0;
+    qint64 m_lastNoFrameStatusMsec = 0;
     qint64 m_resultTtlMs = 350;
     QString m_lastPublishedStatus;
     ResultCallback m_resultCallback;

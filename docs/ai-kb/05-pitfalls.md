@@ -115,6 +115,8 @@ F-10 的 `action_repetitions.video_file_id/video_index` 只是把动作片段时
 
 `passlib[bcrypt]==1.7.4` 与较新的 `bcrypt` 不兼容，会在默认管理员 seed 阶段失败或打印后端版本异常；服务端依赖固定为 `bcrypt==4.0.1`。
 
+本机离线视频启动采集后，顶部 AI 状态应在一秒内从“已就绪”变为“等待视频帧”或“运行中”。若持续显示等待视频帧，说明播放画面没有进入 AI 帧流，问题不在 FastAPI/PostgreSQL。
+
 桌面端 `TrainingRepository::open()` 不建表、不补列。新增字段必须同步当前 schema、FastAPI 读写、Qt JSON 映射和导入工具。
 
 旧 SQLite 数据不会在桌面端启动时自动导入；需要先重建空库 schema，再执行 `tools/import_sqlite_to_postgres.py` 并核对导入数量。
