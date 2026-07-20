@@ -19,6 +19,10 @@
 - [[06-glossary|术语表]]
 - [[07-open-questions|未确认问题]]
 
+## 产品功能盘点
+
+- [[../../feature-inventory|当前功能全量清单]]：供产品、界面和使用流程重新编排使用。
+
 ## 模块入口
 
 - [[modules/README|模块总览]]
