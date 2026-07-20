@@ -59,7 +59,7 @@
 ## 注意事项
 
 - 不要把耗时推理或视频解码放到 UI 线程。
-- 不要绕开 `clearRealtimePose()` 手工清多个视图，避免状态不一致。
+- 不要绕开 `clearRealtimePose()` 手工清检测覆盖层，避免状态不一致；该函数沿用旧命名，当前只清 `AthleteFrameResult`。
 - 修改摄像头配置时要兼容旧 QSettings 字段。
 - 新增源码文件需要更新 `mainwindow.pro`。
 

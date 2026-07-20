@@ -7,7 +7,7 @@
 
 ## 安装依赖
 
-项目没有包管理器脚本。依赖需要本机预先安装：
+桌面端没有统一包管理脚本，FastAPI 使用 `server/requirements.txt`，DeepStream worker 使用 Docker Compose。主要依赖包括：
 
 - Qt 6.7.3 MSVC 2022 x64，默认路径见 `mainwindow.pro`，需要 QtNetwork。
 - Python 3.11+、PostgreSQL 14+，用于 FastAPI 训练服务。
@@ -16,7 +16,7 @@
 - TensorRT 10.1.0.27，默认路径见 `mainwindow.pro`。
 - CUDA 11.8，默认路径见 `mainwindow.pro`。
 
-TODO: 未找到正式依赖安装文档或自动化安装脚本。
+服务端、worker 和桌面端的安装/运行示例见根目录 `README.md` 和 `docs/full-rate-analysis-guide.md`。
 
 ## 本地开发
 
@@ -108,6 +108,15 @@ python tools/backfill_video_indexes.py
 ```powershell
 python tools/backfill_full_rate_analysis.py
 ```
+
+已有开发库还可分别回填通用分析任务和关节指标：
+
+```powershell
+python tools/backfill_analysis_tasks.py
+python tools/backfill_joint_metrics.py
+```
+
+回填脚本用于需要保留数据的已有开发库；可丢弃的空库优先直接重建当前 schema。
 
 ## seed 数据
 

@@ -1,8 +1,10 @@
-# 本地持久化模块
+# 持久化与训练服务模块
 
 ## F-24/F-25 轨迹点与速度持久化
 
-训练 session 的二维路线写入独立的 `track_points`，速度时序写入 `speed_metrics` 并以轨迹点外键关联。两者分别由 `TrainingRepository::trackPointsForSession()`、`speedMetricsForSession()` 和对应 session API 查询。关节专项指标写入 `joint_metrics`，按参与者、时间、机位、关节和左右侧唯一，保存角度（deg）、角速度（deg/s）、有效性、置信度和算法版本，并由 `jointMetricsForSession()` 查询。该表只接受已绑定 participant、已完成四点冰面标定的米制坐标；`participant_pose_frames` 不再承担权威轨迹职责。
+训练 session 的二维路线预期写入独立的 `track_points`，速度时序写入 `speed_metrics` 并以轨迹点外键关联。两者分别由 `TrainingRepository::trackPointsForSession()`、`speedMetricsForSession()` 和对应 session API 查询。关节专项指标写入 `joint_metrics`，按参与者、时间、机位、关节和左右侧唯一，保存角度（deg）、角速度（deg/s）、有效性、置信度和算法版本，并由 `jointMetricsForSession()` 查询。`participant_pose_frames` 不再承担权威轨迹职责。
+
+已知闭环缺口：客户端预生成的主 participant UUID 与服务端重建 UUID 可能不一致，导致主运动员 `track_points`/`speed_metrics` 被静默跳过。当前不能仅凭客户端轨迹绘制成功宣称持久化通过。`joint_metrics` 另外只有存储/查询/导出能力，当前 YOLO/ReID 链路不生成新关节指标。
 
 上级入口：[[00-index|AI 知识库索引]]、[[modules/README|模块地图]]
 相关模块：[[core|应用核心]]、[[frontend|Qt Widgets 前端]]、[[ai-inference|AI 推理]]
@@ -63,11 +65,12 @@
 
 PostgreSQL 主要表：
 
-- `athletes`, `coaches`, `coach_athletes`
+- `users`, `athletes`, `athlete_identity_samples`, `athlete_identity_embeddings`, `coaches`, `coach_athletes`
 - `competitions`, `competition_events`, `event_athletes`
 - `action_categories`, `action_standards`
 - `training_plans`, `training_tasks`
-- `training_sessions`, `training_session_participants`, `training_video_files`, `offline_analysis_tasks`, `offline_analysis_batches`, `offline_analysis_runs`, `offline_analysis_run_sources`, `offline_analysis_result_chunks`, `action_repetitions`, `participant_repetitions`, `participant_pose_frames`
+- `analysis_tasks`, `offline_analysis_tasks`, `offline_analysis_batches`, `offline_analysis_runs`, `offline_analysis_run_sources`, `offline_analysis_result_chunks`
+- `training_sessions`, `training_session_participants`, `training_video_files`, `action_repetitions`, `participant_repetitions`, `participant_pose_frames`, `track_points`, `speed_metrics`, `joint_metrics`
 - `athlete_action_baselines`
 
 `athletes` 保存运动员档案并用 `active` 做归档；`athlete_identity_samples` 保存 ReID 样本文件路径、文件名、模型版本和预处理版本；`athlete_identity_embeddings` 保存样本对应的 embedding、维度、模型版本和预处理版本。人员删除不会硬删历史外键，只从训练选择与人员管理列表中隐藏。`coaches`、比赛、训练 session 和视频资产继续保留历史兼容字段。`participant_pose_frames` 仍可保存旧姿态时间线，也承载新训练的检测框、trackId、身份状态和置信度；新训练不填充虚假的关键点。`action_repetitions`、`participant_repetitions` 和评分字段只供旧记录或人工复盘兼容使用。
@@ -116,15 +119,15 @@ PostgreSQL 主要表：
 
 `searchRepetitions(filters, page)` 是跨 session 动作实例检索入口，优先查询 `participant_repetitions` 并在旧记录缺失新表结果时回退 `action_repetitions`，支持按 session、人员、比赛/场次、动作、来源、有效性、复核状态、分数区间、训练时间、动作片段时间和错误项关键词检索。人员筛选优先匹配 participant 结果的 `athlete_id`，旧记录没有动作级身份时回退到 session 主运动员。筛选和展示默认使用“人工优先”的有效值；历史页动作明细检索对话框可将当前筛选结果导出为 CSV 或 XLSX。
 
-`poseFramesForSession(sessionId, participantId, athleteId, fromMs, toMs, limit)` 查询 `participant_pose_frames`，供历史页“姿态轨迹”复盘面板按参与者、时间轴、机位和轨迹 ID 查看连续姿态摘要。轨迹复盘同时读取 `speedMetricsForSession()`，按 participant 查看瞬时/平滑速度、有效标记、窗口和算法版本，并可导出 CSV/XLSX；旧 session 没有速度时序时保持空值，不影响轨迹或动作复盘。
+`poseFramesForSession(sessionId, participantId, athleteId, fromMs, toMs, limit)` 查询 `participant_pose_frames`，可供 `openParticipantPoseReview()` 按参与者/未知身份、时间轴、机位和 trackId 查看 bbox/身份兼容摘要；该面板当前没有主界面入口。历史卡片“姿态轨迹”按钮实际调用 `openTrackPointReview()`，读取 `trackPointsForSession()` 和 `speedMetricsForSession()`，按 participant 绘制二维路线/速度曲线并导出 CSV/XLSX。旧 session 没有速度时序时保持空值。
 
 `videoFiles(status, withLocalPathOnly, modifiedBefore)` 查询 `training_video_files` 并联查 session、运动员和动作引用数量，供系统设置生成本机视频清理候选列表。桌面端只会把“已登记、路径在配置根目录下、文件实际存在”的视频列为可删除候选；删除本机文件后调用 `markVideoFileCleaned(videoFileId, reason)` 在视频资产 metadata 写入 `cleanupDeletedAt/cleanupReason/cleanupMissing`，不删除训练记录、动作实例或视频资产行，也不扩展 `status` 枚举。
 
-`analysis_tasks` 是 F-28/F-29 的通用主任务表，统一保存单视频 `offline_import` 与 12 路 `full_rate_batch` 的类型、状态、0-100 进度、输入摘要、最终输出 session 和错误。状态为 `queued/running/paused/completed/failed/cancelled`；桌面启动时把未完成的 `running/paused` 任务统一恢复为 `paused`。`offline_analysis_tasks` 与 `offline_analysis_batches` 通过 `analysis_task_id` 关联主任务，仍保留自身的媒体/源明细及历史兼容语义。`saveOfflineAnalysisTask(task)` 保留旧单视频导入兼容；完整帧率路径使用 `createOfflineAnalysisBatch()`、`createOfflineAnalysisRun()`、运行控制、范围查询和激活接口。批次固定含 12 路 `nas://` 源；运行源独立保存帧数、PTS、重试与完成状态；结果分块索引保存 URI、时间/帧范围、SHA256 和 schema 版本。
+`analysis_tasks` 是 F-28/F-29 的通用主任务表，统一保存单视频 `offline_import` 与 12 路 `full_rate_batch` 的类型、状态、0-100 进度、输入摘要、最终输出 session 和错误。状态为 `queued/running/paused/completed/failed/cancelled`；桌面启动时把未完成的 `running/paused` 任务统一恢复为 `paused`，但不重建本地 job 参数，因此不能直接继续。完整 run 进度是 0–1，当前任务中心按百分比直接展示，存在量纲不一致。`offline_analysis_tasks` 与 `offline_analysis_batches` 通过 `analysis_task_id` 关联主任务，仍保留自身的媒体/源明细及历史兼容语义。`saveOfflineAnalysisTask(task)` 保留旧单视频导入兼容；完整帧率路径使用 `createOfflineAnalysisBatch()`、`createOfflineAnalysisRun()`、运行控制、范围查询和激活接口。批次固定含 12 路 `nas://` 源；运行源独立保存帧数、PTS、重试与完成状态；结果分块索引保存 URI、时间/帧范围、SHA256 和 schema 版本。
 
 完整逐帧结果不写 PostgreSQL。worker 将 10 秒 gzip JSONL 分块原子写入 `ISKATING_ANALYSIS_NAS_ROOT`，数据库仅保存索引。带完整分析批次的 `saveTrainingSession()` 不再上传全量 `participant_pose_frames`；完成运行激活后，服务端按约 200 ms 从分块派生兼容摘要。视频资产全部标记清理后，服务端删除对应结果文件、保留最小审计信息并把运行/批次归档。
 
-`trendForRecentDays(days)` 用 `training_sessions.saved_at` 做最近 N 天窗口统计，返回训练次数、session 均分、最佳分和动作完成数；动作完成数优先来自 participant 结果数量，旧记录没有新表动作明细时退回 `action_repetitions` 或 session 汇总字段。弱项分项均值优先来自动作实例的人工有效分项分，没有动作实例分项时退回 session 分项分。
+`trendForRecentDays(days)` 用 `training_sessions.saved_at` 做最近 N 天窗口统计，返回训练次数、session 均分、最佳分和动作完成数。session 汇总可在复核后重算，但趋势中的五项分仍聚合 participant 原始 scores，不是所有指标都严格“人工优先”。新 person/ReID session 的零分/零动作不具有新的技术趋势语义。
 
 ## 常见修改任务
 

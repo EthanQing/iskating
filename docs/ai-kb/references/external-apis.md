@@ -23,4 +23,18 @@
 
 ## 其他外部 API
 
-TODO: 未发现 HTTP API、支付 API、邮件 API、对象存储 API 或监控 API。
+### FastAPI 训练服务
+
+- 默认地址：`http://127.0.0.1:8000`，可用 `ISKATING_API_BASE_URL` 覆盖。
+- 用途：`/health`、登录、人员/ReID、比赛/标准、session/复核/趋势、视频资产、通用任务和完整帧率分析。
+- 桌面端认证：账号密码换取 bearer JWT；客户端可保存 token 或使用环境账号自动登录。
+- worker 认证：`/analysis-worker/*` 使用独立 worker token。
+- 风险：当前只校验有效用户/token，未按 role 做业务路由 RBAC；默认密码和 JWT secret 不能用于生产。
+
+### NAS 分析资产
+
+- 跨主机视频使用受根目录约束的 `nas://` URI；Windows 和 Ubuntu 分别配置物理根映射。
+- DeepStream worker 将 10 秒 gzip JSONL 分块写入 NAS，再向 FastAPI 登记 SHA256 和范围索引。
+- NAS 是共享文件系统依赖，不是对象存储 API。
+
+当前未发现支付、邮件、外部对象存储或监控 API。

@@ -26,7 +26,7 @@
 
 ## API 写法
 
-本项目没有 HTTP API。内部接口通常使用：
+桌面端通过 `TrainingRepository`/QtNetwork 同步调用 FastAPI；普通业务路由使用 bearer JWT，worker 路由使用独立 token。C++ 内部接口通常使用：
 
 - `bool initialize(..., QString *error)` 返回成功/失败和错误文本。
 - `StatusCallback` / `ResultCallback` 从后台线程向 UI 线程发布状态或结果。
@@ -35,8 +35,9 @@
 相关文件：
 
 - `tensorrtrunner.h`
-- `tensorrtbodyposebackend.h`
-- `handanalysismanager.cpp`
+- `trainingrepository.h/.cpp`
+- `athleteanalysismanager.cpp`
+- `server/app/main.py`
 
 ## 错误处理方式
 
@@ -65,7 +66,7 @@
 
 ## 测试习惯
 
-TODO: 当前项目未发现测试文件、测试框架或测试命令。
+`server/tests` 使用 Python `unittest` 验证协议、schema 合同和纯逻辑，命令见 [[03-commands|运行命令]] 和 [[runbooks/testing|测试 Runbook]]。真实 PostgreSQL/API、Qt UI、GPU/DeepStream 和 12 路压测仍需集成环境。
 
 ## Git 工作规则
 
@@ -75,8 +76,8 @@ TODO: 当前项目未发现测试文件、测试框架或测试命令。
 
 ## 类型定义习惯
 
-- 简单数据结构用 `struct` 放在头文件，例如 `PoseFrameResult`, `TrainingRecord`, `SharedCameraSettings`。
-- 枚举使用 `enum class`，例如 `PoseSkeletonType`, `PoseInstanceKind`, `Handedness`。
+- 简单数据结构用 `struct` 放在头文件，例如 `AthleteAnalysisResult`, `TrainingSession`, `AnalysisTask`, `SharedCameraSettings`；`PoseFrameResult` 等旧姿态类型只用于兼容边界。
+- 枚举使用 `enum class`，例如任务、视频或识别状态类型。
 - Qt 容器与类型较多，例如 `QVector`, `QString`, `QImage`, `QPointF`。
 
 ## import/export 风格

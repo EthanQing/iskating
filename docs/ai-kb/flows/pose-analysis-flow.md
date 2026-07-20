@@ -6,7 +6,7 @@
 
 ## 简介
 
-采集流由 `AthleteAnalysisManager` 读取最新帧，经过 YOLO26x person 检测和 PersonViT ReID 后，回写检测框、身份标签、trackId 和身份状态。此流程不生成姿态、骨架、轨迹或动作评分。
+采集流由 `AthleteAnalysisManager` 读取最新帧，经过 YOLO26x person 检测和 PersonViT ReID 后，回写检测框、身份标签、trackId 和身份状态。已识别运动员且机位具有有效四点标定时，后续记录流程还会生成场地米制二维轨迹和速度。此流程不生成姿态关键点、3D 骨架、自动动作或技术评分。
 
 ## 流程步骤
 
@@ -17,8 +17,8 @@
 5. 对每个检测框 crop 并 resize 到 `128x256`，运行 PersonViT，得到 768 维 L2 embedding。
 6. 在当前 session 最多四名参与者 gallery 中计算余弦相似度；最高分达到 `0.60` 且与第二名差值不小于 `0.05` 时标记 identified。
 7. 使用框 IoU 和 `1200ms` TTL 维护 per-camera trackId；session 或参与者变化时清空旧 track；人工绑定在低置信度和 unknown 结果上覆盖身份。
-8. `MainWindow` 更新主视频检测框和标签，并按约 `200ms` 采样保存兼容字段到 `participant_pose_frames`。
-9. 停止采集后保存视频、参与者、检测框、身份状态、机位、trackId 和置信度；不写入伪造姿态、评分或 repetition。
+8. `MainWindow` 更新主视频检测框和标签，并按约 `200ms` 采样保存 bbox/track/身份兼容字段到 `participant_pose_frames` 内存列表。有效身份和四点标定还会产生 `track_points` 与 `speed_metrics` 待保存数据。
+9. 停止采集后保存视频、参与者、检测框、身份状态、机位、trackId、置信度和条件式轨迹/速度；不写入伪造姿态、评分或 repetition。当前主 participant UUID 映射不一致可导致轨迹/速度静默漏存。
 
 ## 样本库流程
 
@@ -37,9 +37,9 @@
 
 ## 完整帧率离线流程
 
-1. Windows 客户端创建含 12 个 `nas://` 源的批次，再以模型、预处理、同步和 gallery 快照创建运行版本。
+1. Windows 客户端创建含 12 个 `nas://` 源的批次，再用模型、预处理、同步和 gallery hash 标签创建 run。这些字段尚未冻结真实模型/gallery 快照。
 2. DeepStream worker 领取租约，逐源解码并以 `batchTime = sourcePTS + sourceStartOffset + manualCorrection` 建立统一时间轴。
 3. 每个解码帧运行 YOLO；NvDCF 维护机位内 track，PersonViT 按新轨迹、周期和低置信度条件复核身份。
 4. 每 10 秒关闭一个 gzip JSONL 分块，计算 SHA256、原子重命名，再通过 worker API 幂等登记。
 5. 范围查询只返回已提交分块内的帧，同时声明缺口；Qt 回放按 PTS 预取并在缺口处清空覆盖层。
-6. 12 路全部通过帧数、连续 frameIndex 和 PTS 校验后运行才可完成；激活时原子更新批次和 session 当前版本，并派生约 200 ms 兼容摘要。
+6. 12 路都为 `completed`，且通过当前已实现的分块哈希、块内范围/不重叠和已登记帧数检查后才可激活。现有代码未强制全局 frameIndex 无 gap、PTS 跨块单调和内容/元数据一致。激活会更新已关联 session 并派生约 200 ms bbox/track/身份兼容摘要，但不自动创建 session。

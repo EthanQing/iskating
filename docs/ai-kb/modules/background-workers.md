@@ -43,13 +43,13 @@
 
 1. 优先检查 `intervalForProfile()` in `athleteanalysismanager.cpp`。
 2. 评估 TensorRT 推理耗时和 GPU 占用。
-3. 验证 UI 刷新、动作计数和视频播放是否稳定。
+3. 验证检测框、身份标签、二维轨迹、速度采样和视频播放是否稳定；当前主链路不生成自动动作计数。
 
 ### 调整结果过期策略
 
 1. 修改 `kResultTtlMs` in `athleteanalysismanager.cpp`。
 2. 确认短暂断帧时检测框是否应该保留。
-3. 验证暂停/停止时 `clearRealtimePose()` 行为。
+3. 验证暂停/停止时 `clearRealtimePose()` 是否清除检测覆盖层；该函数名是旧命名，当前不会清理或生成姿态结果。
 
 ## 注意事项
 

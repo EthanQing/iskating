@@ -31,7 +31,7 @@
 - `StreamRegistry::acquire(url)` 按 URL 返回共享 `RtspStream`。
 - `RtspStream` 后台线程使用 FFmpeg 打开视频源，优先 RTSP UDP，失败后尝试 TCP；断流时记录连续/总重连次数、最近断流/恢复时间、最近错误和当前传输协议。
 - RTSP 断流后保留 1s/2s/5s/5s 退避重连；超过 30 秒未恢复时状态显示“长时间断流，请检查摄像头网络或 RTSP 配置”。
-- 离线视频导入先由 `OfflineVideoProbe` 校验本地文件、视频轨、时长、seek 能力、D3D11VA 支持和首帧硬解；通过后由 `MainWindow::importOfflineVideo()` 创建 `offline_analysis_tasks` 任务，再切换主视图并通过 `VideoOpenGLWidget::playFile()` 打开文件交给 AI 分析。
+- 离线视频导入先由 `OfflineVideoProbe` 校验本地文件、视频轨、时长、seek 能力、D3D11VA 支持和首帧硬解；通过后由 `MainWindow::importOfflineVideo()` 创建 `offline_analysis_tasks` 任务，再切换主视图并通过 `VideoOpenGLWidget::playFile()` 打开文件。导入本身不启动 AI，用户点击“开始采集”后才订阅该本地文件流进行实时抽帧分析。
 - 解码必须输出 `AV_PIX_FMT_D3D11`，否则视为 fatal error。
 - `D3DVideoSurface` 负责把最新 `D3DFrame` 显示到 Qt 控件。
 - `AthleteAnalysisManager` 用 `D3DFrameExtractor` 从当前分析流转 RGB；采集中会由 `MainWindow::syncAnalysisStreams()` 按“主机位优先、最大分析路数、每路目标 FPS、自动降级”策略把活动相机流同步给 AI。

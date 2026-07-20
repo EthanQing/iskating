@@ -2,7 +2,9 @@
 
 ## F-24/F-25 轨迹点与速度
 
-已绑定 participant 的检测框底边每约 200 ms 经相机四点单应性标定转换为场地米制 `(x,y,0)`，并以 `position_delta` 作为速度来源写入 `track_points`。每个轨迹点还承接 `trajectory_speed_v1` 的瞬时/1000ms 平滑速度、单位、版本和有效标记，服务端以轨迹点外键写入 `speed_metrics`。`participant_pose_frames` 继续仅保存检测/姿态兼容摘要；未标定机位和未知 participant 不产生轨迹点或速度。训练保存时服务端按 session 的 participant 关联轨迹点和速度，历史复盘可按运动员查看并导出速度曲线。
+已绑定 participant 的检测框底边每约 200 ms 经相机四点单应性标定转换为场地米制 `(x,y,0)`，并以 `position_delta` 作为速度来源提交 `track_points`。每个轨迹点还承接 `trajectory_speed_v1` 的瞬时/1000ms 平滑速度、单位、版本和有效标记，服务端以轨迹点外键写入 `speed_metrics`。`participant_pose_frames` 继续仅保存检测/姿态兼容摘要；未标定机位和未知 participant 不产生轨迹点或速度。
+
+已知持久化缺口：客户端在保存前为参与者预生成 UUID，服务端 `save_session_participants()` 又为主运动员重建 UUID；`insert_track_point()`/速度仅接受服务端映射时，主运动员指标可被静默跳过。修复前不得将实时绘制成功视为入库验收通过。
 
 上级入口：[[00-index|AI 知识库索引]]、[[flows/README|流程地图]]
 相关模块：[[modules/persistence|本地持久化]]、[[modules/core|应用核心]]、[[modules/ai-inference|AI 推理]]
@@ -21,7 +23,7 @@
 4. `syncAnalysisStreams()` 为活动视频流创建 `AthleteAnalysisManager` 订阅。
 5. AI 回调更新主视频检测框、身份标签和 trackId，并按约 200ms 将结果写入兼容的 `participant_pose_frames` 内存列表。
 6. 用户可通过“人工绑定”把当前机位的 trackId 绑定到当前 session 参与者；绑定优先覆盖 unknown 或低置信度身份。
-7. `saveRecord()` 保存视频资产、参与者和检测框/身份时间线，`totalReps`、`validReps`、评分字段保持为 0，不创建 repetition。
+7. `saveRecord()` 保存视频资产、参与者、检测框/身份时间线和条件式轨迹/速度，`totalReps`、`validReps`、评分字段保持为 0，不创建 repetition。轨迹/速度需注意上述 participant UUID 缺口。
 8. 服务端保存 session 时，如果没有 repetition，不刷新旧动作 baseline；已有旧 baseline 不会被新检测记录污染。
 9. 历史页继续读取旧动作和评分复盘；姿态时间线入口可读取旧关键点，也可展示新版本的检测框字段，但不把检测框解释为姿态。
 

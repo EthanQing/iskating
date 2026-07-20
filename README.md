@@ -1,8 +1,12 @@
 # iSkating Coach
 
+项目全量功能、已知边界和重编后的客户端流程见 [全量功能盘点与客户端流程重构](docs/feature-inventory.md)；单文件交互示意见 [HTML 原型](docs/client-flow-prototype.html)。
+
 ## F-24 二维滑行轨迹
 
-完成每路相机的四点冰面标定后，应用将检测框底边投影到统一场地米制坐标，实时绘制并在保存训练时写入 `track_points`。坐标原点位于场地起点冰面，`+x` 指向滑行方向，`+y` 为预先约定的横向正方向，`z=0`。在系统设置的场地表双击“四点标定”单元格，输入四个像素点及其对应的场地 `(x,y)`；未标定的机位不会产生轨迹点。历史卡片的“姿态轨迹”入口可重建二维路线并导出 CSV/XLSX。
+完成每路相机的四点冰面标定后，应用将检测框底边投影到统一场地米制坐标，实时绘制并在保存训练时提交 `track_points`。坐标原点位于场地起点冰面，`+x` 指向滑行方向，`+y` 为预先约定的横向正方向，`z=0`。在系统设置的场地表双击“四点标定”单元格，输入四个像素点及其对应的场地 `(x,y)`；未标定的机位不会产生轨迹点。历史卡片的“姿态轨迹”入口实际打开二维轨迹/速度面板，可导出 CSV/XLSX。
+
+已知限制：客户端预生成的主运动员 participant UUID 与服务端重建的 UUID 可能不一致，导致主运动员轨迹/速度在入库时被跳过。实时绘制能力已存在，但持久化闭环需要修复后做 PostgreSQL 集成验证。
 
 ## F-25 滑行速度序列
 
@@ -10,7 +14,7 @@
 
 Windows Qt/C++ 滑冰训练辅助应用，当前实时 AI 主流程为：`YOLO26x person 检测 → PersonViT/MSMT17 ReID → 当前 session 参与者匹配 → trackId/athleteId`。
 
-当前版本提供运动员检测与身份识别，不再提供实时姿态关键点、骨架、轨迹、动作评分或自动动作计数。历史训练记录中的旧姿态、评分和动作数据仍可读取与复盘；新训练只保存检测框、机位、trackId、身份状态和置信度。
+当前版本提供运动员检测、身份识别，以及在“已识别 + 有效四点标定”条件下的二维轨迹与速度；不再生成实时姿态关键点、3D 骨架、动作评分或自动动作计数。历史训练记录中的旧姿态、评分和动作数据仍可读取与复盘；新训练保存检测框、机位、trackId、身份状态、置信度，并尝试保存有效轨迹/速度。
 
 系统同时支持 12 路完整帧率离线分析：Windows 端继续以默认每路 5 FPS 做低延迟实时预览；Ubuntu 24.04 + NVIDIA DeepStream 9 worker 对 NAS 中的 12 路 1080p60 同步录像逐解码帧执行 YOLO，并按轨迹触发 PersonViT。完整结果写入 NAS 的 10 秒 gzip JSONL 分块，PostgreSQL 只保存任务、版本、进度与分块索引。
 
@@ -24,7 +28,7 @@ Windows Qt/C++ 滑冰训练辅助应用，当前实时 AI 主流程为：`YOLO26
 模型下载、YOLO 导出、PersonViT 转换和校验：
 
 ```powershell
-.	ools\download_athlete_models.ps1
+.\tools\download_athlete_models.ps1
 python tools\check_athlete_models.py
 ```
 
@@ -38,10 +42,10 @@ powershell -ExecutionPolicy Bypass -File tools/export_deepstream_models.ps1
 
 桌面端使用 Qt Widgets + QtNetwork，服务端使用 FastAPI，训练业务数据保存到 PostgreSQL。运动员管理页可以添加、查看和删除 ReID 样本，样本图片和 embedding 通过 `athlete_identity_samples` / `athlete_identity_embeddings` 保存。服务端样本文件目录由 `ISKATING_IDENTITY_GALLERY_ROOT` 配置。
 
-历史页的“报告中心”可按训练保存日期、参与者、训练内时间段及专项指标导出 CSV 明细或 PDF 验收汇总。专项指标覆盖轨迹、速度、关节角和角速度；已有数据库需先运行 `python tools/backfill_joint_metrics.py` 后再启用关节指标保存。
+历史页的“报告中心”可按训练保存日期、参与者、训练内时间段及专项指标导出 CSV 明细或 PDF 验收汇总。专项指标覆盖轨迹、速度、关节角和角速度；已有数据库需先运行 `python tools/backfill_joint_metrics.py` 后再启用关节指标保存。当前历史顶部汇总和专项报告中心只使用客户端已加载的当前页 session，不代表全部筛选结果。
 
 离线单视频导入和 12 路完整帧率批次会创建可追踪的通用分析任务；已有数据库可运行 `python tools/backfill_analysis_tasks.py` 补齐任务记录关联。
-采集页的“任务中心”以单并发队列在后台准备本地导入、创建并提交完整帧率远端运行，再跟踪其进度；可暂停、继续或取消任务。应用重启后未完成任务会保持暂停，需在任务中心手动继续。
+采集页的“任务中心”以单并发队列在后台准备本地导入、创建并提交完整帧率远端运行，再跟踪其进度；当前进程内可暂停、继续或取消。应用重启后会把遗留任务显示为 `paused`，但不会重建 job 参数，因此不能直接继续，需重新发起对应导入或批次。完整分析的“暂停”只停止客户端轮询，不会暂停远端 worker。
 
 系统设置中的“连通测试”会逐路探测预览 RTSP 流，展示地址解析状态、UDP/TCP 协议、RTSP Open 耗时、首帧耗时、分辨率、帧率、失败阶段和错误码。结果仅供本次联调查看，不会保存或影响正在播放的视频。
 
@@ -61,6 +65,8 @@ python ..\tools\reset_postgres_schema.py --yes
 ```powershell
 python tools/backfill_video_indexes.py
 python tools/backfill_full_rate_analysis.py
+python tools/backfill_analysis_tasks.py
+python tools/backfill_joint_metrics.py
 ```
 
 ## DeepStream 离线 worker
@@ -75,7 +81,7 @@ export ISKATING_ANALYSIS_NAS_ROOT=/srv/iskating
 docker compose -f analysis_worker/compose.yml up -d --build
 ```
 
-桌面端点击“完整分析”导入恰好 12 路 `nas://` 源，创建运行并查看每路进度。Windows 回放前需在该窗口配置同一 `nas://` 根目录对应的盘符或 UNC 路径；完成区间可渐进回放，缺口不会沿用旧检测框，新版本完成后需显式激活。
+桌面端点击“完整分析”导入恰好 12 路 `nas://` 源，创建运行并查看每路进度。Windows 回放前需在该窗口配置同一 `nas://` 根目录对应的盘符或 UNC 路径；完成区间可渐进回放，缺口不会沿用旧检测框，新版本完成后需显式激活。完成或激活不会自动创建训练 session；运行中的模型/gallery 版本字段也只是标签，尚未冻结可复现快照。
 
 操作清单与 manifest 格式见 [12 路完整帧率分析用户指南](docs/full-rate-analysis-guide.md)。
 

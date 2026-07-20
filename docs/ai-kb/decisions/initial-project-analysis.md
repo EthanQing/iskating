@@ -128,7 +128,7 @@ Superseded by FastAPI/PostgreSQL and development schema reset
 
 TODO: 未确认训练数据库的长期归档、备份恢复和隐私删除策略。
 
-## Decision: 主流程以人体姿态为核心，手部模型暂未接入
+## Decision: 主流程以人体检测与 ReID 为核心，旧姿态和手部模型未接入
 
 ### Status
 
@@ -136,7 +136,7 @@ Observed
 
 ### Context
 
-仓库保留旧手部/姿态后端源文件，但实时主流程使用 `AthleteAnalysisManager` 初始化 `TensorRtAthleteBackend`。
+仓库保留旧手部/姿态后端源文件，但实时主流程使用 `AthleteAnalysisManager` 初始化 `TensorRtAthleteBackend`，只生成 person 检测、ReID、机位内 track，以及满足条件时由 bbox 派生的二维轨迹和速度。
 
 ### Evidence
 

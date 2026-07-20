@@ -38,6 +38,7 @@
 - `tools/export_deepstream_models.py` 导出 YOLO batch 1-12 和 PersonViT batch 1-32 的动态 ONNX，并生成模型校验元数据。
 - PersonViT 只在新 track、固定周期或身份低置信度/冲突时执行，gallery 匹配和 ambiguous margin 保持业务规则；结果沿 track 传播，不保存长期原始 embedding。
 - 每个解码帧都生成 `frameIndex`、PTS、批次时间、cameraId 和对象列表。PTS 缺失或倒退会使该源失败，不会静默补帧。
+- 当前结果收集器只提交 bbox、单机位 track 和 ReID 身份结果，不生成场地轨迹、速度、关节点、姿态、动作计数或评分。
 
 ## 模型与运行时
 

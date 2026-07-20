@@ -73,7 +73,8 @@
 - RTSP URL
 - `RtspStream::State`
 - `D3DFrame`
-- `PoseFrameResult`，用于视频叠加骨架
+- `AthleteAnalysisResult`，用于视频叠加 person bbox、身份和 trackId
+- `PoseFrameResult` 只用于旧姿态复盘兼容
 
 ## 错误处理
 

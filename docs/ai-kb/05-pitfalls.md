@@ -1,6 +1,7 @@
 # Pitfalls
 
 - F-24 只能将有效四点单应性标定得到的坐标写入 `track_points`；不能将未标定画面的像素坐标或旧 `participant_pose_frames.field_x/field_y` 伪装为米制轨迹。
+- 当前客户端预生成的主运动员 participant UUID 可与服务端重建 UUID 不一致，导致轨迹/速度入库时静默跳过。修复前不得把实时绘图成功当作 PostgreSQL 持久化闭环验收。
 
 上级入口：[[00-index|AI 知识库索引]]
 相关文档：[[02-architecture|架构说明]]、[[03-commands|运行命令]]、[[07-open-questions|未确认问题]]
@@ -58,7 +59,9 @@ F-10 的 `action_repetitions.video_file_id/video_index` 只是把动作片段时
 
 完整帧率与实时预览不可共用 latest-frame worker。离线管线的队列、mux 和推理不得配置 leaky/drop 或 YOLO interval；性能不足必须背压。只有原子重命名且 SHA256 校验后的完整 gzip JSONL 分块才能登记检查点，临时文件和未登记文件都不属于已完成结果。
 
-不要覆盖激活运行的分块。模型、预处理、gallery 或同步校正变化必须创建新运行，12 路完整性校验成功后再原子激活。`participant_pose_frames` 只是约 200 ms 兼容摘要，不能用于判断逐帧完整性。
+不要手工改写激活运行的分块。当前 retry 会就地重置同一 run，同起始帧分块允许幂等 upsert；客户端没有在同一 batch 新建第二个 run 的入口。当前激活前只检查分块哈希、块内范围/不重叠和已登记帧数，尚未强制全局 frameIndex 无 gap、PTS 跨块单调或内容/元数据一致。`participant_pose_frames` 只是约 200 ms bbox/track/身份兼容摘要，不能用于判断逐帧完整性。
+
+完整分析 run 中的模型、预处理和 gallery hash 只是标签字段；worker 使用固定模型配置并在运行时读取当前 gallery，不能将现有 run 宣称为可复现快照。
 
 相关文件：
 
@@ -68,6 +71,12 @@ F-10 的 `action_repetitions.video_file_id/video_index` 只是把动作片段时
 - `mainwindow.cpp`
 - `d3d11videodevice.cpp`
 - `d3dvideosurface.cpp`
+
+## ⚠️ 任务中心的恢复与暂停语义
+
+`restorePendingTasks()` 会将服务端 `running/paused` 任务恢复为客户端 `paused` 展示，但不会重建本进程的 job 参数；`resumeTask()` 因此无法直接继续这些任务。界面必须提示“需重新发起”，不能承诺断点恢复。
+
+完整分析的“暂停”只停止客户端轮询，DeepStream worker 仍可继续运行；只有取消才请求远端停止。此外 run 进度是 0–1，通用任务进度是 0–100，未统一前不能直接拼接 `%`。
 
 ## ⚠️ 高风险区域：TensorRT engine 缓存
 
@@ -80,9 +89,11 @@ F-10 的 `action_repetitions.video_file_id/video_index` 只是把动作片段时
 - `models/athlete/athlete_models.json`
 - `models/hand/hand_model.json`
 
-## ⚠️ 高风险区域：多相机轨迹 P1 边界
+## ⚠️ 高风险区域：多相机轨迹边界
 
-旧版本 12 路相机轨迹还原是 P1 版本；当前实时主流程不再刷新轨迹。历史轨迹数据仍可按旧结构读取。
+当前实时主链路会把已识别人体的 bbox 底边中点通过每路四点单应性投影为场地米制坐标，并绘制二维路线/计算速度。这不是旧姿态轨迹，也不提供自动跨机位全局 track；跨机位同人依赖 athleteId。未标定机位、unknown 结果和完整帧率 worker 都不产生场地轨迹。
+
+`trajectoryEnabled` 当前同时控制 RTSP 机位是否进入 AI 分析，不能在 UI 中把它表述为仅影响轨迹绘制。
 
 多路 AI 分析由一个 `AthleteAnalysisWorker` 在多路流之间 round-robin 处理，不是每路一个 TensorRT worker。默认最多 12 路、每路目标 5 FPS，并在超载时优先拉长非主机位分析间隔；实际有效 FPS仍会受 GPU、解码、码流分辨率、`capture/modelPrecision` 档位和 TensorRT 推理耗时影响。
 

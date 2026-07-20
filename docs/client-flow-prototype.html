@@ -1,0 +1,989 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>iSkating Coach · 客户端流程原型</title>
+  <style>
+    :root {
+      --bg: #07111f;
+      --panel: #0d1a2b;
+      --panel-2: #122238;
+      --panel-3: #182b43;
+      --line: #28415e;
+      --line-soft: #1c324b;
+      --text: #eef6ff;
+      --muted: #91a8c0;
+      --blue: #5aa9ff;
+      --blue-strong: #2b86ee;
+      --cyan: #51d8d0;
+      --green: #58d68d;
+      --amber: #ffc96b;
+      --red: #ff7b86;
+      --violet: #a98bff;
+      --sidebar: 252px;
+      --radius: 16px;
+      --shadow: 0 20px 60px rgba(0, 0, 0, .22);
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      background:
+        radial-gradient(circle at 85% 0%, rgba(43, 134, 238, .15), transparent 28rem),
+        var(--bg);
+      color: var(--text);
+      font-family: "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+      font-size: 14px;
+    }
+
+    button, input, select, textarea { font: inherit; }
+
+    button { color: inherit; }
+
+    .skip-link {
+      position: fixed;
+      top: 8px;
+      left: 8px;
+      z-index: 100;
+      padding: 9px 12px;
+      border-radius: 8px;
+      background: var(--text);
+      color: var(--bg);
+      transform: translateY(-150%);
+    }
+
+    .skip-link:focus { transform: translateY(0); }
+
+    .app-shell { min-height: 100vh; }
+
+    .sidebar {
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 30;
+      display: flex;
+      width: var(--sidebar);
+      flex-direction: column;
+      border-right: 1px solid var(--line-soft);
+      background: rgba(8, 19, 33, .96);
+      backdrop-filter: blur(18px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 78px;
+      padding: 17px 20px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 42px;
+      height: 42px;
+      place-items: center;
+      border: 1px solid rgba(90, 169, 255, .45);
+      border-radius: 13px;
+      background: linear-gradient(145deg, rgba(90, 169, 255, .24), rgba(81, 216, 208, .08));
+      color: var(--cyan);
+      font-size: 22px;
+      box-shadow: inset 0 0 22px rgba(90, 169, 255, .08);
+    }
+
+    .brand strong, .brand span { display: block; }
+    .brand strong { letter-spacing: .04em; }
+    .brand span { margin-top: 3px; color: var(--muted); font-size: 11px; }
+
+    .nav-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px 12px 20px;
+    }
+
+    .nav-group + .nav-group { margin-top: 18px; }
+
+    .nav-label {
+      margin: 0 10px 7px;
+      color: #819ab5;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .14em;
+    }
+
+    .nav-button {
+      display: grid;
+      width: 100%;
+      grid-template-columns: 30px 1fr auto;
+      align-items: center;
+      gap: 7px;
+      margin: 3px 0;
+      padding: 10px 11px;
+      border: 1px solid transparent;
+      border-radius: 11px;
+      background: transparent;
+      color: #aec0d4;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .nav-button:hover { background: rgba(90, 169, 255, .07); color: var(--text); }
+
+    .nav-button.active {
+      border-color: rgba(90, 169, 255, .24);
+      background: linear-gradient(90deg, rgba(43, 134, 238, .2), rgba(43, 134, 238, .06));
+      color: #fff;
+      box-shadow: inset 3px 0 var(--blue);
+    }
+
+    .nav-icon { color: var(--blue); font-size: 17px; text-align: center; }
+
+    .nav-count {
+      min-width: 22px;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: rgba(255, 201, 107, .14);
+      color: var(--amber);
+      font-size: 11px;
+      text-align: center;
+    }
+
+    .sidebar-note {
+      margin: 0 12px 14px;
+      padding: 12px;
+      border: 1px solid var(--line-soft);
+      border-radius: 12px;
+      background: rgba(18, 34, 56, .75);
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.6;
+    }
+
+    .content-shell { min-height: 100vh; margin-left: var(--sidebar); }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      min-height: 78px;
+      align-items: center;
+      gap: 16px;
+      padding: 13px 28px;
+      border-bottom: 1px solid var(--line-soft);
+      background: rgba(7, 17, 31, .87);
+      backdrop-filter: blur(16px);
+    }
+
+    .mobile-nav { display: none; }
+
+    .top-title { min-width: 200px; flex: 1; }
+    .top-title strong { display: block; font-size: 16px; }
+    .top-title span { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
+
+    .status-cluster { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+
+    .status-chip, .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(18, 34, 56, .9);
+      color: #b7c7d9;
+      white-space: nowrap;
+    }
+
+    .status-chip { padding: 7px 10px; font-size: 11px; }
+    .tag { padding: 4px 8px; font-size: 11px; }
+
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 10px currentColor; }
+    .ok { color: var(--green); }
+    .warn { color: var(--amber); }
+    .bad { color: var(--red); }
+    .info { color: var(--blue); }
+    .violet { color: var(--violet); }
+
+    main { padding: 26px 28px 48px; }
+
+    .page[hidden] { display: none; }
+
+    .page-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .eyebrow {
+      margin: 0 0 7px;
+      color: var(--cyan);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { margin-bottom: 8px; font-size: clamp(24px, 3vw, 36px); letter-spacing: -.03em; }
+    h2 { margin-bottom: 14px; font-size: 18px; }
+    h3 { margin-bottom: 8px; font-size: 15px; }
+    .lead { max-width: 780px; margin-bottom: 0; color: var(--muted); line-height: 1.7; }
+
+    .button {
+      display: inline-flex;
+      min-height: 38px;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 8px 13px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel-2);
+      color: var(--text);
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .button:hover { border-color: var(--blue); background: var(--panel-3); }
+    .button.primary { border-color: var(--blue-strong); background: var(--blue-strong); color: #fff; }
+    .button.success { border-color: rgba(88, 214, 141, .45); background: rgba(88, 214, 141, .13); color: var(--green); }
+    .button.danger { border-color: rgba(255, 123, 134, .4); background: rgba(255, 123, 134, .1); color: var(--red); }
+    .button.ghost { background: transparent; }
+    .button:disabled { cursor: not-allowed; opacity: .38; }
+    .button.small { min-height: 31px; padding: 5px 9px; font-size: 12px; }
+
+    .grid { display: grid; gap: 16px; }
+    .grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .span-2 { grid-column: span 2; }
+    .span-3 { grid-column: span 3; }
+
+    .card {
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      background: linear-gradient(145deg, rgba(18, 34, 56, .94), rgba(11, 25, 42, .96));
+      box-shadow: var(--shadow);
+    }
+
+    .card-body { padding: 18px; }
+    .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 13px; }
+    .card-head h2, .card-head h3 { margin: 0; }
+
+    .notice {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 18px;
+      padding: 12px 14px;
+      border: 1px solid rgba(90, 169, 255, .25);
+      border-radius: 12px;
+      background: rgba(43, 134, 238, .08);
+      color: #c8dcf2;
+      line-height: 1.55;
+    }
+
+    .notice.warning { border-color: rgba(255, 201, 107, .3); background: rgba(255, 201, 107, .07); }
+    .notice strong { color: #fff; }
+
+    .metric-card { padding: 16px; }
+    .metric-label { color: var(--muted); font-size: 12px; }
+    .metric-value { margin: 8px 0 5px; font-size: 24px; font-weight: 800; letter-spacing: -.03em; }
+    .metric-note { color: #7890aa; font-size: 11px; line-height: 1.5; }
+
+    .mode-card {
+      position: relative;
+      min-height: 210px;
+      overflow: hidden;
+      padding: 20px;
+    }
+
+    .mode-card::after {
+      position: absolute;
+      right: -25px;
+      bottom: -36px;
+      width: 140px;
+      height: 140px;
+      border: 28px solid rgba(90, 169, 255, .05);
+      border-radius: 50%;
+      content: "";
+    }
+
+    .mode-index { color: var(--blue); font-size: 30px; font-weight: 900; }
+    .mode-card p { min-height: 64px; color: var(--muted); line-height: 1.6; }
+    .mode-meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 13px 0 18px; }
+
+    .flow-strip {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 8px;
+      margin-top: 18px;
+    }
+
+    .flow-step {
+      position: relative;
+      padding: 12px 10px;
+      border: 1px solid var(--line-soft);
+      border-radius: 10px;
+      background: rgba(13, 26, 43, .7);
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .flow-step strong { display: block; margin-bottom: 4px; color: var(--text); }
+
+    .list { display: grid; gap: 10px; }
+
+    .list-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 11px 0;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .list-row:last-child { border-bottom: 0; }
+    .list-row-main { min-width: 0; flex: 1; }
+    .list-row-main strong, .list-row-main span { display: block; }
+    .list-row-main span { margin-top: 4px; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+
+    .progress { height: 6px; overflow: hidden; border-radius: 999px; background: #07121f; }
+    .progress > span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--blue-strong), var(--cyan)); }
+
+    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+    .field { display: grid; gap: 6px; }
+    .field.full { grid-column: 1 / -1; }
+    .field label { color: var(--muted); font-size: 11px; font-weight: 700; }
+
+    input, select, textarea {
+      width: 100%;
+      min-height: 39px;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      outline: none;
+      background: #091729;
+      color: var(--text);
+    }
+
+    input:focus, select:focus, textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(90, 169, 255, .12); }
+    textarea { min-height: 80px; resize: vertical; }
+
+    .participant-list { display: flex; flex-wrap: wrap; gap: 8px; }
+    .participant { padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: #0a192a; }
+    .participant small { display: block; margin-top: 3px; color: var(--muted); }
+
+    .check-list { display: grid; gap: 10px; }
+    .check-item { display: flex; align-items: flex-start; gap: 9px; color: #c0d0e1; line-height: 1.45; }
+    .check-mark { display: grid; width: 21px; height: 21px; flex: 0 0 auto; place-items: center; border-radius: 7px; background: rgba(88, 214, 141, .12); color: var(--green); font-size: 12px; }
+
+    .action-row { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 16px; }
+
+    .video-layout { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 15px; }
+
+    .video-stage {
+      position: relative;
+      min-height: 440px;
+      overflow: hidden;
+      border: 1px solid #315275;
+      border-radius: 14px;
+      background:
+        linear-gradient(90deg, transparent 49.7%, rgba(255,255,255,.1) 50%, transparent 50.3%),
+        radial-gradient(ellipse at center, rgba(81, 216, 208, .14), transparent 44%),
+        linear-gradient(155deg, #173150, #071420 78%);
+    }
+
+    .video-stage::before, .video-stage::after {
+      position: absolute;
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 50%;
+      content: "";
+    }
+
+    .video-stage::before { inset: 15% 8%; }
+    .video-stage::after { inset: 31% 29%; }
+
+    .video-label { position: absolute; top: 13px; left: 14px; z-index: 2; }
+    .video-time { position: absolute; top: 13px; right: 14px; z-index: 2; font-variant-numeric: tabular-nums; }
+
+    .person-box {
+      position: absolute;
+      z-index: 3;
+      left: 47%;
+      top: 23%;
+      width: 16%;
+      height: 52%;
+      border: 2px solid var(--green);
+      border-radius: 5px;
+      box-shadow: 0 0 14px rgba(88, 214, 141, .22);
+    }
+
+    .person-box.unknown { left: 23%; top: 33%; width: 13%; height: 43%; border-color: var(--amber); }
+    .person-box span { position: absolute; top: -25px; left: -2px; padding: 4px 7px; border-radius: 6px; background: var(--green); color: #03140b; font-size: 10px; font-weight: 800; white-space: nowrap; }
+    .person-box.unknown span { background: var(--amber); color: #241702; }
+
+    .route-line {
+      position: absolute;
+      z-index: 2;
+      left: 18%;
+      bottom: 15%;
+      width: 59%;
+      height: 26%;
+      border: 3px solid transparent;
+      border-bottom-color: var(--cyan);
+      border-radius: 50%;
+      transform: rotate(-8deg);
+      filter: drop-shadow(0 0 6px rgba(81,216,208,.6));
+    }
+
+    .video-overlay-note { position: absolute; right: 14px; bottom: 13px; z-index: 3; padding: 7px 9px; border-radius: 8px; background: rgba(5, 15, 27, .8); color: #c8d7e6; font-size: 10px; }
+
+    .control-stack { display: grid; align-content: start; gap: 10px; }
+    .control-stack .button { width: 100%; min-height: 43px; }
+
+    .stat-block { padding: 13px; border: 1px solid var(--line-soft); border-radius: 12px; background: #0a192a; }
+    .stat-block span { color: var(--muted); font-size: 11px; }
+    .stat-block strong { display: block; margin-top: 5px; font-size: 19px; }
+
+    .camera-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 9px; margin-top: 13px; }
+
+    .camera-tile {
+      position: relative;
+      min-height: 78px;
+      overflow: hidden;
+      padding: 8px;
+      border: 1px solid var(--line-soft);
+      border-radius: 10px;
+      background: linear-gradient(145deg, #17304c, #091525);
+      color: var(--muted);
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .camera-tile::after { position: absolute; right: -12px; bottom: -18px; width: 60px; height: 60px; border: 10px solid rgba(255,255,255,.04); border-radius: 50%; content: ""; }
+    .camera-tile.active { border-color: var(--blue); color: #fff; box-shadow: inset 0 0 0 1px rgba(90,169,255,.2); }
+    .camera-tile span { display: block; margin-top: 24px; font-size: 10px; }
+
+    .tabs { display: flex; gap: 6px; margin-bottom: 16px; padding: 5px; border: 1px solid var(--line-soft); border-radius: 12px; background: #091729; }
+    .tab { flex: 1; padding: 9px 12px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; }
+    .tab[aria-selected="true"] { background: var(--panel-3); color: #fff; box-shadow: 0 3px 12px rgba(0,0,0,.22); }
+    .tab-panel[hidden] { display: none; }
+
+    .drop-zone { display: grid; min-height: 205px; place-items: center; padding: 22px; border: 1px dashed #3b648e; border-radius: 14px; background: rgba(43, 134, 238, .05); text-align: center; }
+    .drop-zone strong { display: block; margin-bottom: 7px; font-size: 17px; }
+    .drop-zone p { margin-bottom: 14px; color: var(--muted); }
+
+    .mode-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .choice { padding: 13px; border: 1px solid var(--line); border-radius: 11px; background: #091729; cursor: pointer; }
+    .choice.selected { border-color: var(--blue); background: rgba(43, 134, 238, .1); }
+    .choice strong { display: block; margin-bottom: 5px; }
+    .choice span { color: var(--muted); font-size: 11px; line-height: 1.5; }
+
+    .source-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .source-item { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; padding: 9px; border: 1px solid var(--line-soft); border-radius: 9px; background: #0a192a; }
+    .source-item strong { font-size: 11px; }
+    .source-item span { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 11px 10px; border-bottom: 1px solid var(--line-soft); text-align: left; vertical-align: middle; }
+    th { color: #7791ac; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+    td { color: #c8d6e5; font-size: 12px; }
+    tbody tr:hover { background: rgba(90, 169, 255, .035); }
+
+    .session-card { display: grid; grid-template-columns: 1fr auto; gap: 18px; padding: 17px; border: 1px solid var(--line-soft); border-radius: 13px; background: #0a192a; }
+    .session-card + .session-card { margin-top: 11px; }
+    .session-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .session-title h3 { margin: 0; }
+    .session-meta { display: flex; flex-wrap: wrap; gap: 14px; margin: 9px 0; color: var(--muted); font-size: 11px; }
+    .session-actions { display: flex; flex-wrap: wrap; align-content: flex-start; justify-content: flex-end; gap: 7px; max-width: 300px; }
+
+    .bar-chart { display: flex; height: 145px; align-items: end; gap: 9px; padding-top: 14px; }
+    .bar-item { display: grid; height: 100%; flex: 1; align-items: end; gap: 5px; color: var(--muted); font-size: 9px; text-align: center; }
+    .bar { min-height: 4px; border-radius: 5px 5px 2px 2px; background: linear-gradient(180deg, var(--cyan), var(--blue-strong)); }
+
+    .management-layout { display: grid; grid-template-columns: 310px minmax(0, 1fr); gap: 15px; }
+    .person-row { display: flex; gap: 10px; padding: 10px; border: 1px solid transparent; border-radius: 10px; cursor: pointer; }
+    .person-row:hover, .person-row.active { border-color: var(--line); background: #0a192a; }
+    .avatar { display: grid; width: 38px; height: 38px; flex: 0 0 auto; place-items: center; border-radius: 12px; background: linear-gradient(145deg, rgba(90,169,255,.28), rgba(169,139,255,.18)); color: #fff; font-weight: 800; }
+
+    .settings-nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; }
+
+    .camera-status-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+    .camera-status { padding: 10px; border: 1px solid var(--line-soft); border-radius: 10px; background: #091729; }
+    .camera-status span { display: block; margin-top: 5px; color: var(--muted); font-size: 10px; }
+
+    .toast {
+      position: fixed;
+      right: 22px;
+      bottom: 22px;
+      z-index: 60;
+      max-width: min(410px, calc(100vw - 44px));
+      padding: 13px 15px;
+      border: 1px solid rgba(90, 169, 255, .4);
+      border-radius: 12px;
+      background: #10253d;
+      box-shadow: 0 22px 70px rgba(0,0,0,.42);
+      color: #eaf4ff;
+      transform: translateY(30px);
+      opacity: 0;
+      pointer-events: none;
+      transition: .22s ease;
+    }
+
+    .toast.show { transform: translateY(0); opacity: 1; }
+
+    @media (max-width: 1260px) {
+      .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .camera-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .source-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 980px) {
+      .sidebar { transform: translateX(-100%); transition: transform .2s ease; }
+      body.nav-open .sidebar { transform: translateX(0); box-shadow: 20px 0 60px rgba(0,0,0,.5); }
+      .content-shell { margin-left: 0; }
+      .mobile-nav { display: inline-flex; }
+      .topbar { padding-inline: 18px; }
+      main { padding-inline: 18px; }
+      .video-layout, .management-layout { grid-template-columns: 1fr; }
+      .control-stack { grid-template-columns: repeat(3, 1fr); }
+      .control-stack .stat-block { grid-column: span 1; }
+      .flow-strip { grid-template-columns: repeat(3, 1fr); }
+    }
+
+    @media (max-width: 720px) {
+      .status-cluster { display: none; }
+      .grid.cols-2, .grid.cols-3, .grid.cols-4, .form-grid { grid-template-columns: 1fr; }
+      .span-2, .span-3 { grid-column: span 1; }
+      .page-head { display: block; }
+      .page-head > .action-row { margin-bottom: 12px; }
+      .camera-grid, .camera-status-grid { grid-template-columns: repeat(3, 1fr); }
+      .source-grid { grid-template-columns: 1fr; }
+      .mode-choice { grid-template-columns: 1fr; }
+      .session-card { grid-template-columns: 1fr; }
+      .session-actions { justify-content: flex-start; max-width: none; }
+      .flow-strip { grid-template-columns: repeat(2, 1fr); }
+      .video-stage { min-height: 330px; }
+      .control-stack { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="主导航">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">◇</div>
+        <div><strong>冰刃智训</strong><span>iSkating Coach · Flow Preview</span></div>
+      </div>
+      <div class="nav-scroll">
+        <div class="nav-group">
+          <p class="nav-label">开始</p>
+          <button class="nav-button active" data-page-target="home" aria-current="page"><span class="nav-icon">⌂</span><span>今日工作台</span></button>
+          <button class="nav-button" data-page-target="prepare"><span class="nav-icon">✓</span><span>训练准备</span><span class="nav-count">4/4</span></button>
+        </div>
+        <div class="nav-group">
+          <p class="nav-label">执行</p>
+          <button class="nav-button" data-page-target="live"><span class="nav-icon">◉</span><span>实时训练</span></button>
+          <button class="nav-button" data-page-target="video"><span class="nav-icon">▷</span><span>视频分析</span></button>
+          <button class="nav-button" data-page-target="tasks"><span class="nav-icon">≋</span><span>任务中心</span><span class="nav-count">2</span></button>
+        </div>
+        <div class="nav-group">
+          <p class="nav-label">结果</p>
+          <button class="nav-button" data-page-target="history"><span class="nav-icon">↶</span><span>历史复盘</span></button>
+          <button class="nav-button" data-page-target="reports"><span class="nav-icon">↗</span><span>报告建议</span></button>
+        </div>
+        <div class="nav-group">
+          <p class="nav-label">管理</p>
+          <button class="nav-button" data-page-target="data"><span class="nav-icon">♙</span><span>资料管理</span></button>
+          <button class="nav-button" data-page-target="settings"><span class="nav-icon">⚙</span><span>系统设置</span><span class="nav-count">1</span></button>
+        </div>
+      </div>
+      <div class="sidebar-note"><strong>流程原型</strong><br>示例数据仅用于验证导航、职责和状态，不连接真实摄像头、模型或训练服务。</div>
+    </aside>
+
+    <div class="content-shell">
+      <header class="topbar">
+        <button class="button ghost mobile-nav" id="mobileNav" aria-label="打开导航" aria-expanded="false">☰</button>
+        <div class="top-title"><strong id="topPageTitle">今日工作台</strong><span id="topPageHint">先看就绪状态，再选择工作模式</span></div>
+        <div class="status-cluster" aria-label="系统就绪状态">
+          <span class="status-chip ok"><i class="dot"></i>训练服务在线</span>
+          <span class="status-chip ok"><i class="dot"></i>YOLO + ReID 就绪</span>
+          <span class="status-chip warn"><i class="dot"></i>相机 10/12</span>
+          <span class="status-chip info"><i class="dot"></i>存储 68% 可用</span>
+        </div>
+      </header>
+
+      <main id="main" tabindex="-1">
+        <section class="page" data-page="home">
+          <div class="page-head">
+            <div><p class="eyebrow">Today / Overview</p><h1>今天要完成哪项工作？</h1><p class="lead">首页只展示可行动的就绪状态和三条真实能力路径。准备不足时先修复；准备完成后直接进入实时训练、单视频或 12 路完整分析。</p></div>
+            <div class="action-row"><button class="button" data-route="prepare">检查训练准备</button><button class="button primary" data-route="live">开始实时训练</button></div>
+          </div>
+
+          <div class="notice"><span aria-hidden="true">ⓘ</span><div><strong>能力边界：</strong>Windows 实时与单视频是低帧率 person + ReID；12 路完整分析是远端逐解码帧 person + ReID。新链路均不自动生成姿态关键点、3D 骨架、动作计数或技术评分。</div></div>
+
+          <div class="grid cols-4">
+            <div class="card metric-card"><span class="metric-label">训练服务</span><div class="metric-value ok">在线</div><span class="metric-note">PostgreSQL · JWT 已认证</span></div>
+            <div class="card metric-card"><span class="metric-label">AI 模型</span><div class="metric-value ok">2 / 2</div><span class="metric-note">YOLO26x · PersonViT</span></div>
+            <div class="card metric-card"><span class="metric-label">摄像头</span><div class="metric-value warn">10 / 12</div><span class="metric-note">8 路已四点标定</span></div>
+            <div class="card metric-card"><span class="metric-label">后台任务</span><div class="metric-value info">2</div><span class="metric-note">1 运行 · 1 等待激活</span></div>
+          </div>
+
+          <div class="grid cols-3" style="margin-top:16px">
+            <article class="card mode-card"><div class="mode-index">01</div><h2>实时训练</h2><p>12 路 RTSP 现场预览，实时检测、身份、机位内 track，以及条件式二维轨迹和速度。</p><div class="mode-meta"><span class="tag ok">本机低延迟</span><span class="tag info">最多 4 人</span></div><button class="button primary" data-route="live">进入实时训练</button></article>
+            <article class="card mode-card"><div class="mode-index">02</div><h2>单视频工作台</h2><p>先探测并登记本地视频，再选择仅播放，或跟随播放做本机低帧率检测。</p><div class="mode-meta"><span class="tag violet">本地文件</span><span class="tag warn">非逐帧完整</span></div><button class="button" data-route="video" data-open-tab="single">分析单个视频</button></article>
+            <article class="card mode-card"><div class="mode-index">03</div><h2>12 路完整分析</h2><p>把 NAS 同步录像交给 Ubuntu DeepStream worker，按逐解码帧处理并显式激活结果版本。</p><div class="mode-meta"><span class="tag info">远端 worker</span><span class="tag warn">可慢于视频</span></div><button class="button" data-route="video" data-open-tab="batch">创建完整分析</button></article>
+          </div>
+
+          <div class="flow-strip" aria-label="推荐工作流程">
+            <div class="flow-step"><strong>1 · 就绪</strong>服务 / 模型 / 相机</div><div class="flow-step"><strong>2 · 准备</strong>人员 / 标准 / 场次</div><div class="flow-step"><strong>3 · 执行</strong>三种模式分流</div><div class="flow-step"><strong>4 · 任务</strong>进度 / 错误 / 激活</div><div class="flow-step"><strong>5 · 复盘</strong>视频 / 身份 / 轨迹</div><div class="flow-step"><strong>6 · 输出</strong>批注 / 报告 / 建议</div>
+          </div>
+
+          <div class="grid cols-2" style="margin-top:16px">
+            <div class="card card-body"><div class="card-head"><h2>进行中的工作</h2><button class="button small" data-route="tasks">查看全部</button></div><div class="list"><div class="list-row"><span class="tag info">完整分析</span><div class="list-row-main"><strong>7 月 20 日 · 12 路专项训练</strong><span>8 / 12 路运行中 · 236.4 FPS</span><div class="progress" style="margin-top:8px"><span style="width:68%"></span></div></div><strong>68%</strong></div><div class="list-row"><span class="tag warn">待激活</span><div class="list-row-main"><strong>7 月 19 日 · 比赛模拟</strong><span>12 路已完成 · 结果版本 v3</span></div><button class="button small" data-route="video" data-open-tab="batch">去激活</button></div></div></div>
+            <div class="card card-body"><div class="card-head"><h2>最近训练</h2><button class="button small" data-route="history">进入历史</button></div><div class="list"><div class="list-row"><div class="avatar">林</div><div class="list-row-main"><strong>林雪 · 自由滑专项</strong><span>今天 09:42 · Windows 实时 · 18 分 24 秒</span></div><span class="tag warn">客户端轨迹 · 入库待验</span></div><div class="list-row"><div class="avatar">周</div><div class="list-row-main"><strong>周宁 · 弯道技术</strong><span>昨天 16:10 · 旧评分兼容 · 已复核</span></div><span class="tag violet">82 分</span></div></div></div>
+          </div>
+        </section>
+
+        <section class="page" data-page="prepare" hidden>
+          <div class="page-head"><div><p class="eyebrow">Prepare / Context</p><h1>训练准备</h1><p class="lead">这里仅选择本次训练所需资料；新增、编辑和归档统一放在“资料管理”，减少现场操作负担。</p></div><div class="action-row"><button class="button" data-route="data">维护基础资料</button><button class="button primary" data-route="live">确认并进入实时训练</button></div></div>
+          <div class="grid cols-3">
+            <div class="card card-body span-2">
+              <div class="card-head"><h2>本次训练上下文</h2><span class="tag ok"><i class="dot"></i>必填项已齐</span></div>
+              <div class="form-grid">
+                <div class="field"><label for="athlete">主运动员 *</label><select id="athlete"><option>林雪 · ATH-021</option><option>周宁 · ATH-014</option></select></div>
+                <div class="field"><label for="coach">教练</label><select id="coach"><option>陈教练 · 基础滑行</option><option>未指定</option></select></div>
+                <div class="field"><label for="action">动作标准 *</label><select id="action"><option>自由滑 · 弯道压步 v4</option><option>基础滑行 · 直线加速 v2</option></select></div>
+                <div class="field"><label for="phase">训练阶段</label><select id="phase"><option>专项训练</option><option>热身</option><option>基础训练</option><option>复盘测试</option></select></div>
+                <div class="field"><label for="competition">比赛 / 场次</label><select id="competition"><option>冬季邀请赛 · 女子成年组预赛</option><option>普通训练（不关联比赛）</option></select></div>
+                <div class="field"><label for="site">场地</label><input id="site" value="北区标准冰场"></div>
+                <div class="field full"><label>参与者（最多 4 人）</label><div class="participant-list"><div class="participant">林雪<small>主运动员 · 样本 6</small></div><div class="participant">周宁<small>参与 2 · 样本 4</small></div><button class="button small" data-demo="已打开参与者选择，最多可加入 4 人。">+ 添加参与者</button></div></div>
+                <div class="field"><label for="target">本次目标</label><input id="target" value="弯道出弯速度保持 8 m/s 以上"></div>
+                <div class="field"><label for="counts">次数 / 目标分 / 组数 / 休息</label><input id="counts" value="12 次 · 80 分 · 3 组 · 60 秒"></div>
+                <div class="field full"><label for="notes">训练备注</label><textarea id="notes">右膝恢复期，避免过度内扣；重点观察第二组后的速度衰减。</textarea></div>
+              </div>
+            </div>
+            <div class="grid">
+              <div class="card card-body"><div class="card-head"><h2>进入条件</h2><span class="tag ok">4 / 4</span></div><div class="check-list"><div class="check-item"><span class="check-mark">✓</span><div>训练服务已连接<small style="display:block;color:var(--muted)">保存、人员和历史可用</small></div></div><div class="check-item"><span class="check-mark">✓</span><div>已选择主运动员<small style="display:block;color:var(--muted)">最多再加 3 人</small></div></div><div class="check-item"><span class="check-mark">✓</span><div>已选择动作标准<small style="display:block;color:var(--muted)">当前只作上下文/旧复盘标准</small></div></div><div class="check-item"><span class="check-mark">✓</span><div>至少一路摄像头已配置<small style="display:block;color:var(--muted)">10 路在线，8 路四点标定</small></div></div></div></div>
+              <div class="card card-body"><div class="card-head"><h2>标准摘要</h2><span class="tag violet">v4</span></div><p style="color:var(--muted);line-height:1.65">目标 12 次 / 80 分，3 组，组间休息 60 秒。新实时链路不会自动计次或评分；这些字段用于训练目标和旧记录复核。</p><button class="button small" data-route="data" data-open-tab="standards">查看标准与参考视频</button></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="page" data-page="live" hidden>
+          <div class="page-head"><div><p class="eyebrow">Execute / Live</p><h1>实时训练</h1><p class="lead">现场页只保留执行所需信息。训练资料以摘要显示，详细维护不再打断视频和训练控制。</p></div><div class="action-row"><span class="status-chip" id="liveState"><i class="dot"></i>空闲 · 等待开始</span><button class="button" data-route="prepare">返回准备</button></div></div>
+          <div class="notice warning"><span>!</span><div>只有 <strong>已识别运动员 + 有效四点标定机位</strong> 产生二维轨迹和速度。unknown 人体框仍会保存检测时间线，但不会伪造场地轨迹。</div></div>
+          <div class="card card-body">
+            <div class="card-head"><div><h2 id="mainCameraTitle">主视图 · CAM 01</h2><span style="color:var(--muted);font-size:11px">林雪 + 周宁 · 弯道压步 v4 · 专项训练</span></div><div class="mode-meta"><span class="tag ok">主码流</span><span class="tag info">本机 5 FPS AI</span><span class="tag ok">已标定</span></div></div>
+            <div class="video-layout">
+              <div class="video-stage" aria-label="示意视频画面"><span class="tag ok video-label">CAM 01 · UDP · 1920×1080</span><span class="tag video-time" id="liveTimer">00:00</span><div class="person-box"><span>林雪 · track 14 · 0.86</span></div><div class="person-box unknown"><span>unknown · track 21</span></div><div class="route-line"></div><div class="video-overlay-note">YOLO person · ReID · 轨迹来源：四点标定</div></div>
+              <div class="control-stack">
+                <button class="button primary" id="startLive">▶ 开始实时训练</button><button class="button" id="pauseLive" disabled>Ⅱ 暂停</button><button class="button danger" id="stopLive" disabled>■ 停止</button><button class="button success" id="saveLive" disabled>保存 session</button>
+                <div class="stat-block"><span>训练时长</span><strong id="durationStat">00:00</strong></div><div class="stat-block"><span>当前检测</span><strong>2 人</strong></div><div class="stat-block"><span>身份状态</span><strong style="font-size:14px">1 已识别 · 1 未知</strong></div><div class="stat-block"><span>平滑速度</span><strong>7.84 m/s</strong></div><div class="stat-block"><span>轨迹点</span><strong>128</strong></div>
+                <button class="button" data-demo="已打开当前机位人工身份绑定。">人工绑定身份</button>
+              </div>
+            </div>
+            <div class="camera-grid" aria-label="摄像头机位">
+              <button class="camera-tile active" data-camera="01">CAM 01<span class="ok">在线 · 已标定</span></button><button class="camera-tile" data-camera="02">CAM 02<span class="ok">在线 · 已标定</span></button><button class="camera-tile" data-camera="03">CAM 03<span class="ok">在线 · 已标定</span></button><button class="camera-tile" data-camera="04">CAM 04<span class="warn">TCP fallback</span></button><button class="camera-tile" data-camera="05">CAM 05<span class="ok">在线 · 已标定</span></button><button class="camera-tile" data-camera="06">CAM 06<span class="ok">在线 · 已标定</span></button><button class="camera-tile" data-camera="07">CAM 07<span class="ok">在线</span></button><button class="camera-tile" data-camera="08">CAM 08<span class="ok">在线</span></button><button class="camera-tile" data-camera="09">CAM 09<span class="ok">在线 · 已标定</span></button><button class="camera-tile" data-camera="10">CAM 10<span class="ok">在线 · 已标定</span></button><button class="camera-tile" data-camera="11">CAM 11<span class="bad">未配置</span></button><button class="camera-tile" data-camera="12">CAM 12<span class="bad">未配置</span></button>
+            </div>
+          </div>
+        </section>
+
+        <section class="page" data-page="video" hidden>
+          <div class="page-head"><div><p class="eyebrow">Execute / Video</p><h1>视频分析</h1><p class="lead">把本机低帧率单视频和远端 12 路逐帧分析分成两个明确模式，不再共用“开始采集”这一含混动作。</p></div><button class="button" data-route="tasks">查看任务中心</button></div>
+          <div class="tabs" role="tablist" aria-label="视频分析模式"><button class="tab" role="tab" aria-selected="true" data-tab="single">单视频工作台 · Windows</button><button class="tab" role="tab" aria-selected="false" data-tab="batch">12 路完整分析 · DeepStream</button></div>
+          <div class="tab-panel" data-tab-panel="single">
+            <div class="notice"><span>ⓘ</span><div><strong>这里的任务完成 = 文件探测与登记完成。</strong>本机 AI 只能跟随播放做低帧率 latest-frame 检测，不代表全视频逐帧分析完成。</div></div>
+            <div class="grid cols-3">
+              <div class="card card-body span-2"><div class="card-head"><h2>1 · 选择并检查视频</h2><span class="tag ok" id="singleProbeTag">探测已通过</span></div><div class="drop-zone"><div><strong>2026-07-20_cam03_training.mp4</strong><p>1920×1080 · H.264 · 60 FPS · 18:24 · 1.82 GB</p><button class="button" data-demo="已模拟重新选择文件并进入后台探测队列。">重新选择文件</button></div></div><div class="grid cols-4" style="margin-top:12px"><div class="stat-block"><span>视频轨</span><strong style="font-size:14px">有效</strong></div><div class="stat-block"><span>Seek</span><strong style="font-size:14px">可用</strong></div><div class="stat-block"><span>D3D11VA</span><strong style="font-size:14px">首帧通过</strong></div><div class="stat-block"><span>任务</span><strong style="font-size:14px">已登记</strong></div></div></div>
+              <div class="card card-body"><div class="card-head"><h2>2 · 选择模式与回放</h2></div><div class="mode-choice" role="radiogroup" aria-label="单视频工作模式"><div class="choice selected" data-analysis-mode="review" role="radio" aria-checked="true" tabindex="0"><strong>仅播放复盘</strong><span>不启动本机 AI，可使用底层 seek、倍率和逐帧。</span></div><div class="choice" data-analysis-mode="local" role="radio" aria-checked="false" tabindex="0"><strong>本机低帧率分析</strong><span>跟随播放运行 YOLO/ReID，可保存检测 session。</span></div></div><div class="action-row"><button class="button primary" id="startLocal">开始播放复盘</button><button class="button" id="pauseLocal">暂停</button><button class="button danger" id="stopLocal">停止</button><button class="button success" id="saveLocal" disabled>保存检测 session</button></div><div class="stat-block" style="margin-top:14px"><span>回放时间轴 · 06:48 / 18:24</span><input type="range" min="0" max="1104" value="408" aria-label="单视频回放位置"></div><div class="action-row"><button class="button small" data-demo="已请求定位到目标时间之前的关键帧。">定位时间</button><button class="button small" data-demo="回放倍率已切换为 0.5 倍。">0.5×</button><button class="button small" data-demo="回放倍率已切换为 1 倍。">1×</button><button class="button small" data-demo="已向前步进一帧。">逐帧 +1</button></div><p id="localModeHint" style="margin-top:14px;color:var(--muted);line-height:1.55">当前模式不会运行 AI；如需检测，请选择“本机低帧率分析”。定位落在目标时间之前的关键帧，不承诺逐帧精确 seek。</p></div>
+            </div>
+          </div>
+          <div class="tab-panel" data-tab-panel="batch" hidden>
+            <div class="notice warning"><span>!</span><div>需要 FastAPI、PostgreSQL、Ubuntu DeepStream 9 worker 和双方可访问的同一 NAS。模型/gallery 字段不是冻结快照，完成校验只覆盖现有代码合同；结果只有 bbox/track/ReID，不生成场地轨迹、速度、姿态、动作或评分。</div></div>
+            <div class="card card-body"><div class="card-head"><div><h2>12 路来源清单</h2><span style="color:var(--muted);font-size:11px">NAS 根映射：Z:\iskating · 源时间 2026-07-20 09:00:00</span></div><div class="action-row"><button class="button small" data-demo="已模拟导入 12 路 manifest。">导入 manifest</button><button class="button primary small" id="submitBatch">创建批次并提交</button></div></div><div class="source-grid">
+              <div class="source-item"><strong>CAM 01</strong><span>nas://videos/camera01.mp4</span><i class="dot ok"></i></div><div class="source-item"><strong>CAM 02</strong><span>nas://videos/camera02.mp4</span><i class="dot ok"></i></div><div class="source-item"><strong>CAM 03</strong><span>nas://videos/camera03.mp4</span><i class="dot ok"></i></div><div class="source-item"><strong>CAM 04</strong><span>nas://videos/camera04.mp4 · +12ms</span><i class="dot warn"></i></div><div class="source-item"><strong>CAM 05</strong><span>nas://videos/camera05.mp4</span><i class="dot ok"></i></div><div class="source-item"><strong>CAM 06</strong><span>nas://videos/camera06.mp4</span><i class="dot ok"></i></div><div class="source-item"><strong>CAM 07</strong><span>nas://videos/camera07.mp4</span><i class="dot ok"></i></div><div class="source-item"><strong>CAM 08</strong><span>nas://videos/camera08.mp4 · -8ms</span><i class="dot warn"></i></div><div class="source-item"><strong>CAM 09</strong><span>nas://videos/camera09.mp4</span><i class="dot ok"></i></div><div class="source-item"><strong>CAM 10</strong><span>nas://videos/camera10.mp4</span><i class="dot ok"></i></div><div class="source-item"><strong>CAM 11</strong><span>nas://videos/camera11.mp4</span><i class="dot ok"></i></div><div class="source-item"><strong>CAM 12</strong><span>nas://videos/camera12.mp4</span><i class="dot ok"></i></div>
+            </div><div class="grid cols-4" style="margin-top:14px"><div class="stat-block"><span>媒体规格</span><strong style="font-size:14px">1080p60 × 12</strong></div><div class="stat-block"><span>统一时长</span><strong style="font-size:14px">01:00:00</strong></div><div class="stat-block"><span>参与 gallery</span><strong style="font-size:14px">2 人 · 10 样本</strong></div><div class="stat-block"><span>运行状态</span><strong style="font-size:14px" id="batchStatus">待提交</strong></div></div></div>
+            <div class="grid cols-2" style="margin-top:15px"><div class="card card-body"><div class="card-head"><div><h2>3 · 校验并激活结果</h2><span style="color:var(--muted);font-size:11px">completed run · 19be… · 当前尚未激活</span></div><span class="tag warn">待激活</span></div><p style="color:var(--muted);line-height:1.6">确认 12 路完成状态与当前代码已实现的完整性检查。激活只切换批次读取版本，不会冻结模型/gallery，也不会自动生成训练记录。</p><div class="action-row"><button class="button" data-demo="已打开完成区间、分块校验和缺口摘要。">查看校验摘要</button><button class="button primary" data-demo="已模拟将该 run 设为批次激活版本并清空客户端结果缓存。">激活此 run</button></div></div><div class="card card-body"><div class="card-head"><div><h2>4 · 关联并保存 session</h2><span style="color:var(--muted);font-size:11px">必须显式选择参与者与训练上下文</span></div><span class="tag info">独立步骤</span></div><div class="form-grid"><div class="field"><label>主运动员</label><select><option>林雪 · ATH-021</option></select></div><div class="field"><label>训练上下文</label><select><option>弯道压步 v4 · 专项训练</option></select></div></div><div class="action-row"><button class="button primary" data-demo="已模拟保存与激活 run 显式关联的训练 session。">关联并保存 session</button><button class="button" data-route="history">进入历史复盘</button></div></div></div>
+          </div>
+        </section>
+
+        <section class="page" data-page="tasks" hidden>
+          <div class="page-head"><div><p class="eyebrow">Execute / Queue</p><h1>任务中心</h1><p class="lead">统一查看导入和完整分析任务。暂停、继续和取消只在真实支持的状态下出现，并明确本地队列与远端运行的区别。</p></div><button class="button" data-demo="任务列表已刷新。">刷新</button></div>
+          <div class="notice warning"><span>!</span><div><strong>重启限制：</strong>应用重启后可把遗留任务显示为 paused，但当前不能重建执行参数并直接继续；请重新发起相应导入或完整分析。远端完整分析的“暂停”只停止客户端轮询。</div></div>
+          <div class="card card-body table-wrap"><table><thead><tr><th>任务</th><th>类型</th><th>状态</th><th>进度</th><th>输入 / 输出</th><th>错误</th><th>操作</th></tr></thead><tbody>
+            <tr><td><strong>7 月 20 日 · 12 路专项</strong><br><small>09:18 创建</small></td><td><span class="tag info">full_rate_batch</span></td><td><span class="status-chip info"><i class="dot"></i>running</span></td><td style="min-width:130px"><div class="progress"><span style="width:68%"></span></div><small>68 · 服务端比例需统一</small></td><td>batch 84ad…<br><small>尚无 session</small></td><td>—</td><td><div class="action-row" style="margin:0"><button class="button small" data-task-action="pause">暂停轮询</button><button class="button small danger" data-task-action="cancel">取消</button></div></td></tr>
+            <tr><td><strong>比赛模拟 · 结果 v3</strong><br><small>昨天 16:12</small></td><td><span class="tag info">full_rate_batch</span></td><td><span class="status-chip warn"><i class="dot"></i>completed / 待激活</span></td><td>100%</td><td>batch 19be…<br><small>尚无 session</small></td><td>—</td><td><button class="button small" data-route="video" data-open-tab="batch">打开激活区</button></td></tr>
+            <tr><td><strong>cam03_training.mp4</strong><br><small>今天 08:46</small></td><td><span class="tag violet">offline_import</span></td><td><span class="status-chip ok"><i class="dot"></i>completed</span></td><td>100%</td><td>探测与登记完成<br><small>非逐帧 AI 进度</small></td><td>—</td><td><button class="button small" data-route="video" data-open-tab="single">打开视频</button></td></tr>
+            <tr><td><strong>7 月 18 日 · 12 路测试</strong><br><small>重启前创建</small></td><td><span class="tag info">full_rate_batch</span></td><td><span class="status-chip warn"><i class="dot"></i>paused</span></td><td>31%</td><td>恢复展示<br><small>job 参数未重建</small></td><td>不可直接继续</td><td><button class="button small" disabled>继续</button></td></tr>
+          </tbody></table></div>
+        </section>
+
+        <section class="page" data-page="history" hidden>
+          <div class="page-head"><div><p class="eyebrow">Review / Evidence</p><h1>历史与证据复盘</h1><p class="lead">先按 session 找到训练，再选择视频、检测身份时间线、二维轨迹速度或旧姿态动作。数据源标签始终可见。</p></div><button class="button" data-route="reports">打开报告建议</button></div>
+          <div class="card card-body" style="margin-bottom:15px"><div class="form-grid"><div class="field"><label>运动员 / 教练</label><select><option>全部人员</option><option>林雪</option><option>周宁</option></select></div><div class="field"><label>来源 / 数据类型</label><select><option>全部来源</option><option>Windows 实时</option><option>单视频</option><option>完整帧率</option><option>旧评分兼容</option></select></div><div class="field"><label>比赛 / 场次 / 关键词</label><input placeholder="场地、阶段、目标、备注"></div><div class="field"><label>日期 / 分数 / 排序</label><select><option>近 30 天 · 保存时间新到旧</option><option>旧评分最高</option><option>训练时长最长</option></select></div></div><div class="action-row"><button class="button primary" data-demo="已按当前条件查询，找到 18 条 session。">查询</button><button class="button" data-demo="已模拟清空筛选条件。">重置</button><button class="button" data-demo="已打开跨 session 动作检索。">动作检索</button></div></div>
+          <div class="session-card"><div><div class="session-title"><h3>林雪 · 自由滑专项</h3><span class="tag info">Windows 实时</span><span class="tag warn">检测 + 客户端轨迹</span><span class="tag warn">入库待验</span><span class="tag warn">无自动评分</span></div><div class="session-meta"><span>今天 09:42</span><span>18:24</span><span>陈教练</span><span>2 名参与者</span><span>CAM 01 主视图</span></div><p style="margin:0;color:var(--muted)">检测摘要 1,842 帧 · 内存轨迹 128 点 · 内存有效速度 119 点 · 教练批注 1 条</p></div><div class="session-actions"><button class="button small" data-demo="已打开本地/NVR/RTSP 回放来源选择。">回看视频</button><button class="button small" data-demo="已打开检测与身份时间线（拟新增入口）。">身份时间线</button><button class="button small" data-demo="已打开二维轨迹和速度复盘。">轨迹速度</button><button class="button small" data-demo="已打开教练批注。">教练批注</button><button class="button small" data-route="reports">导出报告</button></div></div>
+          <div class="session-card"><div><div class="session-title"><h3>周宁 · 弯道压步</h3><span class="tag violet">旧姿态兼容</span><span class="tag violet">人工已复核</span><span class="tag">82 分</span></div><div class="session-meta"><span>昨天 16:10</span><span>12:08</span><span>陈教练</span><span>8/10 有效动作</span><span>本地视频可 seek</span></div><p style="margin:0;color:var(--muted)">旧动作 10 条 · 人工调整 2 条 · 参考视频 v3 · 个人基线已重算</p></div><div class="session-actions"><button class="button small" data-demo="已请求定位到目标时间前的关键帧，不承诺逐帧精确。">回看视频</button><button class="button small" data-demo="已打开旧动作人工复核。">复盘校准</button><button class="button small" data-demo="已打开标准参考视频。">参考对比</button><button class="button small" data-demo="已准备 CSV/XLSX 动作导出。">导出动作</button><button class="button small" data-route="reports">报告与建议</button></div></div>
+          <div class="notice" style="margin-top:15px"><span>ⓘ</span><div>本地文件缺失时保留 session 摘要，并尝试 NVR/RTSP 回退；网络流只显示片段时间窗口，不伪装为精确 seek。完整分析 gap 会清空上一帧检测框。</div></div>
+        </section>
+
+        <section class="page" data-page="reports" hidden>
+          <div class="page-head"><div><p class="eyebrow">Result / Report</p><h1>报告与训练建议</h1><p class="lead">当前检测 session 以身份、轨迹和速度为核心；旧评分或人工动作才显示技术分、动作完成度和纠正建议。</p></div><div class="action-row"><button class="button" data-demo="已准备 Markdown 报告。">导出 MD</button><button class="button" data-demo="已准备 CSV/XLSX 明细。">导出 CSV/XLSX</button><button class="button primary" data-demo="已准备 PDF 复盘报告。">导出 PDF</button></div></div>
+          <div class="tabs" role="tablist" aria-label="报告数据类型"><button class="tab" role="tab" aria-selected="true" data-report-view="current">当前检测结果</button><button class="tab" role="tab" aria-selected="false" data-report-view="legacy">旧评分兼容</button></div>
+          <div data-report-panel="current" role="tabpanel">
+          <div class="grid cols-4"><div class="card metric-card"><span class="metric-label">检测摘要</span><div class="metric-value">1,842</div><span class="metric-note">bbox + track + identity</span></div><div class="card metric-card"><span class="metric-label">已识别占比</span><div class="metric-value ok">87%</div><span class="metric-note">其余为 unknown / ambiguous</span></div><div class="card metric-card"><span class="metric-label">平滑最高速度</span><div class="metric-value info">8.42</div><span class="metric-note">m/s · trajectory_speed_v1</span></div><div class="card metric-card"><span class="metric-label">有效轨迹点</span><div class="metric-value">119</div><span class="metric-note">主运动员持久化需校验 UUID 映射</span></div></div>
+          <div class="grid cols-3" style="margin-top:16px"><div class="card card-body span-2"><div class="card-head"><h2>7 / 30 天训练趋势</h2><span class="tag warn">当前为全局统计</span></div><div class="bar-chart"><div class="bar-item"><div class="bar" style="height:42%"></div>07/14</div><div class="bar-item"><div class="bar" style="height:70%"></div>07/15</div><div class="bar-item"><div class="bar" style="height:34%"></div>07/16</div><div class="bar-item"><div class="bar" style="height:88%"></div>07/17</div><div class="bar-item"><div class="bar" style="height:57%"></div>07/18</div><div class="bar-item"><div class="bar" style="height:76%"></div>07/19</div><div class="bar-item"><div class="bar" style="height:64%"></div>今天</div></div><p style="margin:8px 0 0;color:var(--muted)">建议后续把全局趋势扩展为按运动员/教练过滤，并区分当前检测指标与旧评分指标。</p></div><div class="card card-body"><div class="card-head"><h2>可导出专项指标</h2></div><div class="check-list"><div class="check-item"><span class="check-mark">✓</span>二维轨迹 · 有数据</div><div class="check-item"><span class="check-mark">✓</span>瞬时/平滑速度 · 有数据</div><div class="check-item"><span class="check-mark" style="color:var(--amber);background:rgba(255,201,107,.1)">—</span>关节角 · 当前无新数据</div><div class="check-item"><span class="check-mark" style="color:var(--amber);background:rgba(255,201,107,.1)">—</span>角速度 · 当前无新数据</div></div><button class="button" style="margin-top:16px" data-demo="已打开专项指标日期、参与者和训练内时间筛选。">配置专项报告</button></div></div>
+          <div class="notice warning" style="margin-top:15px"><span>!</span><div>旧建议页仍会用零分为新 session 生成无意义建议。重构后只在存在旧评分或人工复核数据时展示“重点纠正、个人基线和动作完成度”。</div></div>
+          </div>
+          <div data-report-panel="legacy" role="tabpanel" hidden>
+            <div class="grid cols-4"><div class="card metric-card"><span class="metric-label">人工有效总分</span><div class="metric-value violet">82</div><span class="metric-note">旧动作兼容数据</span></div><div class="card metric-card"><span class="metric-label">有效动作</span><div class="metric-value">8 / 10</div><span class="metric-note">复核后汇总</span></div><div class="card metric-card"><span class="metric-label">最佳动作</span><div class="metric-value ok">89</div><span class="metric-note">可定位回看</span></div><div class="card metric-card"><span class="metric-label">个人基线</span><div class="metric-value info">79</div><span class="metric-note">旧评分统计</span></div></div>
+            <div class="card card-body" style="margin-top:16px"><div class="card-head"><h2>旧动作复核结论</h2><span class="tag violet">旧姿态 / 人工</span></div><p style="color:var(--muted);line-height:1.65">只有存在旧评分或教练人工动作时，才展示技术分、弱项、个人基线和下次纠正建议。当前 person/ReID session 的零分不会被当作技术判定。</p></div>
+          </div>
+        </section>
+
+        <section class="page" data-page="data" hidden>
+          <div class="page-head"><div><p class="eyebrow">Manage / Library</p><h1>人员与训练资料</h1><p class="lead">集中维护可复用主数据；训练准备页只负责选择，避免现场训练时进入复杂编辑。</p></div><button class="button primary" id="newDataRecord" data-demo="已进入新建资料状态。">+ 新建</button></div>
+          <div class="tabs" role="tablist" aria-label="资料类型"><button class="tab" role="tab" aria-selected="true" data-data-tab="athletes">运动员</button><button class="tab" role="tab" aria-selected="false" data-data-tab="identity">身份样本</button><button class="tab" role="tab" aria-selected="false" data-data-tab="coaches">教练关系</button><button class="tab" role="tab" aria-selected="false" data-data-tab="standards">动作标准</button><button class="tab" role="tab" aria-selected="false" data-data-tab="competitions">比赛资料</button></div>
+          <div data-data-panel="athletes"><div class="management-layout"><div class="card card-body"><div class="card-head"><h2>运动员档案</h2><span class="tag">12 人</span></div><div class="person-row active"><div class="avatar">林</div><div><strong>林雪</strong><small style="display:block;color:var(--muted)">ATH-021 · 成年组 · 进阶</small></div></div><div class="person-row"><div class="avatar">周</div><div><strong>周宁</strong><small style="display:block;color:var(--muted)">ATH-014 · 青年组 · 专项</small></div></div><div class="person-row"><div class="avatar">韩</div><div><strong>韩冰</strong><small style="display:block;color:var(--muted)">ATH-008 · 少年组 · 基础</small></div></div></div><div class="card card-body"><div class="card-head"><h2>编辑运动员</h2><span class="tag ok">在用</span></div><div class="form-grid"><div class="field"><label>姓名 / 编号</label><input value="林雪 · ATH-021"></div><div class="field"><label>年龄组 / 等级</label><input value="成年组 · 进阶"></div><div class="field"><label>身高 / 体重</label><input value="168 cm · 55 kg"></div><div class="field"><label>项目</label><input value="速度滑冰"></div><div class="field"><label>惯用旋转 / 起跳脚</label><input value="逆时针 · 左脚"></div><div class="field"><label>伤病限制</label><input value="右膝恢复期"></div><div class="field full"><label>训练目标</label><textarea>提升弯道稳定性与出弯速度。</textarea></div></div><div class="action-row"><button class="button primary" data-demo="运动员档案已模拟保存。">保存</button><button class="button danger" data-demo="归档会从选择列表隐藏，但保留历史引用。">归档</button></div></div></div></div>
+          <div data-data-panel="identity" hidden><div class="grid cols-3"><div class="card card-body"><h2>样本状态</h2><div class="metric-value">6 张</div><p style="color:var(--muted)">personvit-msmt17-vit-base-v1<br>768 维 · 预处理版本一致</p><button class="button primary" data-demo="已模拟选择图片、生成 embedding 并上传。">添加样本</button></div><div class="card card-body span-2"><div class="card-head"><h2>林雪 · ReID 样本</h2><button class="button small danger" data-demo="已显示删除样本二次确认。">删除选中</button></div><div class="source-grid"><div class="source-item"><strong>01</strong><span>front_20260718.jpg · 768</span><i class="dot ok"></i></div><div class="source-item"><strong>02</strong><span>left_20260718.jpg · 768</span><i class="dot ok"></i></div><div class="source-item"><strong>03</strong><span>right_20260718.jpg · 768</span><i class="dot ok"></i></div><div class="source-item"><strong>04</strong><span>helmet_20260719.png · 768</span><i class="dot ok"></i></div></div></div></div></div>
+          <div data-data-panel="coaches" hidden><div class="grid cols-2"><div class="card card-body"><h2>教练档案</h2><div class="person-row active"><div class="avatar">陈</div><div><strong>陈教练</strong><small style="display:block;color:var(--muted)">基础滑行 · 6 名运动员</small></div></div><div class="person-row"><div class="avatar">李</div><div><strong>李教练</strong><small style="display:block;color:var(--muted)">专项复盘 · 4 名运动员</small></div></div></div><div class="card card-body"><h2>带训关系</h2><div class="check-list"><label class="check-item"><input type="checkbox" checked style="width:auto;min-height:auto">林雪 · ATH-021</label><label class="check-item"><input type="checkbox" checked style="width:auto;min-height:auto">周宁 · ATH-014</label><label class="check-item"><input type="checkbox" style="width:auto;min-height:auto">韩冰 · ATH-008</label></div><button class="button primary" style="margin-top:16px" data-demo="教练与运动员关系已模拟保存。">保存关系</button></div></div></div>
+          <div data-data-panel="standards" hidden><div class="card card-body"><div class="card-head"><div><h2>弯道压步 · v4</h2><span style="color:var(--muted);font-size:11px">仅可编辑已有标准；保存递增版本，不保留不可变旧快照</span></div><button class="button" data-demo="已模拟选择标准参考视频。">参考视频</button></div><div class="grid cols-4"><div class="stat-block"><span>目标</span><strong style="font-size:14px">12 次 / 80 分</strong></div><div class="stat-block"><span>训练结构</span><strong style="font-size:14px">3 组 / 60 秒</strong></div><div class="stat-block"><span>问题重点</span><strong style="font-size:14px">膝内扣</strong></div><div class="stat-block"><span>优先级</span><strong style="font-size:14px">P1</strong></div></div><div class="notice warning" style="margin-top:15px;margin-bottom:0"><span>!</span><div>动作标准目前用于训练上下文和旧数据复核；当前 YOLO/ReID 不会按这些阈值自动识别、计数或评分。</div></div></div></div>
+          <div data-data-panel="competitions" hidden><div class="grid cols-3"><div class="card card-body"><h2>比赛</h2><div class="list"><div class="list-row"><div class="list-row-main"><strong>冬季邀请赛</strong><span>国家冰上中心 · 2026-07-28</span></div><span class="tag ok">在用</span></div></div></div><div class="card card-body"><h2>场次 / 分组</h2><div class="list"><div class="list-row"><div class="list-row-main"><strong>女子成年组预赛</strong><span>第 2 组 · 09:30</span></div></div></div></div><div class="card card-body"><h2>参赛运动员</h2><div class="list"><div class="list-row"><div class="list-row-main"><strong>林雪 · #021</strong><span>道次 3 · 成绩待录入</span></div></div></div></div></div></div>
+        </section>
+
+        <section class="page" data-page="settings" hidden>
+          <div class="page-head"><div><p class="eyebrow">Manage / System</p><h1>系统设置与诊断</h1><p class="lead">按“摄像头 → 标定 → AI → 存储/NAS”分组，并让每个不就绪状态都有直接修复入口。</p></div><div class="action-row"><button class="button" data-demo="摄像头 JSON 模板已模拟导出。">导出模板</button><button class="button primary" id="connectivityTest">批量连通测试</button></div></div>
+          <div class="grid cols-3"><div class="card card-body span-2"><div class="card-head"><h2>12 路相机状态</h2><span class="tag warn" id="cameraSummary">10 在线 · 8 已四点标定</span></div><div class="camera-status-grid" id="cameraStatusGrid"><div class="camera-status"><strong>CAM 01</strong><span class="ok">UDP · 18 ms</span></div><div class="camera-status"><strong>CAM 02</strong><span class="ok">UDP · 22 ms</span></div><div class="camera-status"><strong>CAM 03</strong><span class="ok">UDP · 20 ms</span></div><div class="camera-status"><strong>CAM 04</strong><span class="warn">TCP · 63 ms</span></div><div class="camera-status"><strong>CAM 05</strong><span class="ok">UDP · 19 ms</span></div><div class="camera-status"><strong>CAM 06</strong><span class="ok">UDP · 21 ms</span></div><div class="camera-status"><strong>CAM 07</strong><span class="ok">UDP · 25 ms</span></div><div class="camera-status"><strong>CAM 08</strong><span class="ok">UDP · 20 ms</span></div><div class="camera-status"><strong>CAM 09</strong><span class="ok">UDP · 24 ms</span></div><div class="camera-status"><strong>CAM 10</strong><span class="ok">UDP · 20 ms</span></div><div class="camera-status"><strong>CAM 11</strong><span class="bad">未配置</span></div><div class="camera-status"><strong>CAM 12</strong><span class="bad">未配置</span></div></div><div class="action-row"><button class="button" data-demo="已打开公共 RTSP 账号、端口和预览/主码流路径。">公共 RTSP 参数</button><button class="button" data-demo="已打开 12 路 IP 和机位用途配置。">机位配置</button><button class="button" data-demo="已进入 CAM 01 像素点到场地点四点标定。">四点标定</button><button class="button" data-demo="已模拟导入摄像头 JSON 模板，保存前仍需确认。">导入模板</button></div></div>
+            <div class="card card-body"><div class="card-head"><h2>AI 分析策略</h2><span class="tag ok">已保存</span></div><div class="field"><label>模型档位</label><select><option>平衡 Balanced</option><option>快速 Fast</option><option>高精度 High</option></select></div><div class="field" style="margin-top:11px"><label>分析流来源</label><select><option>预览流</option><option>主视图流</option></select></div><div class="field" style="margin-top:11px"><label>目标 FPS / 最大路数</label><input value="5 FPS · 12 路"></div><label class="check-item" style="margin-top:13px"><input type="checkbox" checked style="width:auto;min-height:auto">超载时降低非主机位频率</label><div class="notice" style="margin-top:14px;margin-bottom:0"><span>ⓘ</span><div>PersonViT 不可用时自动降级为 person 框 + unknown，不停止视频。</div></div></div>
+          </div>
+          <div class="grid cols-2" style="margin-top:16px"><div class="card card-body"><div class="card-head"><h2>视频资产与清理</h2><span class="tag info">68% 可用</span></div><div class="form-grid"><div class="field"><label>根目录</label><input value="D:\iSkating\recordings"></div><div class="field"><label>阈值 / 保留</label><input value="500 GB · 60 天"></div></div><div class="grid cols-3" style="margin-top:12px"><div class="stat-block"><span>已登记本机文件</span><strong style="font-size:14px">182.4 GB</strong></div><div class="stat-block"><span>清理候选</span><strong style="font-size:14px">6 个</strong></div><div class="stat-block"><span>预计释放</span><strong style="font-size:14px">24.8 GB</strong></div></div><div class="action-row"><button class="button" data-demo="容量状态已重新扫描。">扫描容量</button><button class="button danger" data-demo="已打开逐项勾选和二次确认；只删文件，不删训练记录。">查看清理候选</button></div></div><div class="card card-body"><div class="card-head"><h2>完整分析 NAS</h2><span class="tag ok">映射可用</span></div><div class="field"><label>Windows 根映射</label><input value="Z:\iskating"></div><div class="field" style="margin-top:11px"><label>NVR 回放模板</label><input value="rtsp://{ip}:{port}/playback?start={start}&end={end}"></div><div class="notice warning" style="margin-top:14px;margin-bottom:0"><span>!</span><div>NAS 映射用于 Windows 回放；创建批次时仍保存跨主机 `nas://` URI。当前没有服务地址、账号或 token 的可见设置页。</div></div></div></div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    (() => {
+      const pageCopy = {
+        home: ["今日工作台", "先看就绪状态，再选择工作模式"],
+        prepare: ["训练准备", "选择本次参与者、标准和训练上下文"],
+        live: ["实时训练", "12 路现场预览与本机低帧率 AI"],
+        video: ["视频分析", "单视频与 12 路完整分析明确分流"],
+        tasks: ["任务中心", "查看队列、远端运行与错误恢复"],
+        history: ["历史复盘", "按证据类型回看并人工修正"],
+        reports: ["报告建议", "当前检测指标与旧评分兼容分开"],
+        data: ["资料管理", "维护人员、样本、标准和比赛资料"],
+        settings: ["系统设置", "摄像头、标定、AI、存储与诊断"]
+      };
+
+      const pages = [...document.querySelectorAll("[data-page]")];
+      const navButtons = [...document.querySelectorAll("[data-page-target]")];
+      const title = document.getElementById("topPageTitle");
+      const hint = document.getElementById("topPageHint");
+      const toast = document.getElementById("toast");
+      let toastTimer;
+
+      function showToast(message) {
+        toast.textContent = message;
+        toast.classList.add("show");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove("show"), 2600);
+      }
+
+      function openTab(name) {
+        const tab = document.querySelector(`[data-tab="${name}"], [data-data-tab="${name}"]`);
+        if (tab) tab.click();
+      }
+
+      function showPage(name, tabName) {
+        if (!pageCopy[name]) return;
+        pages.forEach(page => { page.hidden = page.dataset.page !== name; });
+        navButtons.forEach(button => {
+          const active = button.dataset.pageTarget === name;
+          button.classList.toggle("active", active);
+          if (active) button.setAttribute("aria-current", "page");
+          else button.removeAttribute("aria-current");
+        });
+        title.textContent = pageCopy[name][0];
+        hint.textContent = pageCopy[name][1];
+        document.title = `${pageCopy[name][0]} · iSkating Coach 流程原型`;
+        document.body.classList.remove("nav-open");
+        document.getElementById("mobileNav").setAttribute("aria-expanded", "false");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        if (tabName) requestAnimationFrame(() => openTab(tabName));
+      }
+
+      navButtons.forEach(button => button.addEventListener("click", () => showPage(button.dataset.pageTarget)));
+      document.querySelectorAll("[data-route]").forEach(button => button.addEventListener("click", () => showPage(button.dataset.route, button.dataset.openTab)));
+      document.querySelectorAll("[data-demo]").forEach(button => button.addEventListener("click", () => showToast(button.dataset.demo)));
+
+      document.getElementById("mobileNav").addEventListener("click", event => {
+        const open = document.body.classList.toggle("nav-open");
+        event.currentTarget.setAttribute("aria-expanded", String(open));
+        event.currentTarget.setAttribute("aria-label", open ? "关闭导航" : "打开导航");
+      });
+
+      document.querySelectorAll("[data-tab]").forEach(tab => tab.addEventListener("click", () => {
+        document.querySelectorAll("[data-tab]").forEach(item => item.setAttribute("aria-selected", String(item === tab)));
+        document.querySelectorAll("[data-tab-panel]").forEach(panel => { panel.hidden = panel.dataset.tabPanel !== tab.dataset.tab; });
+      }));
+
+      document.querySelectorAll("[data-data-tab]").forEach(tab => tab.addEventListener("click", () => {
+        document.querySelectorAll("[data-data-tab]").forEach(item => item.setAttribute("aria-selected", String(item === tab)));
+        document.querySelectorAll("[data-data-panel]").forEach(panel => { panel.hidden = panel.dataset.dataPanel !== tab.dataset.dataTab; });
+        const newButton = document.getElementById("newDataRecord");
+        newButton.hidden = tab.dataset.dataTab === "standards";
+      }));
+
+      document.querySelectorAll("[data-report-view]").forEach(tab => tab.addEventListener("click", () => {
+        document.querySelectorAll("[data-report-view]").forEach(item => item.setAttribute("aria-selected", String(item === tab)));
+        document.querySelectorAll("[data-report-panel]").forEach(panel => { panel.hidden = panel.dataset.reportPanel !== tab.dataset.reportView; });
+      }));
+
+      document.querySelectorAll("[data-analysis-mode]").forEach(choice => {
+        const selectMode = () => {
+          document.querySelectorAll("[data-analysis-mode]").forEach(item => {
+            const selected = item === choice;
+            item.classList.toggle("selected", selected);
+            item.setAttribute("aria-checked", String(selected));
+          });
+          const local = choice.dataset.analysisMode === "local";
+          localAnalysisStarted = false;
+          document.getElementById("startLocal").textContent = local ? "开始本机分析" : "开始播放复盘";
+          document.getElementById("saveLocal").disabled = true;
+          document.getElementById("localModeHint").textContent = local
+            ? "将跟随播放运行低帧率 YOLO/ReID；停止后可保存检测 session，这不是后台逐帧完整分析。"
+            : "当前模式不会运行 AI；如需检测，请选择“本机低帧率分析”。定位落在目标时间之前的关键帧，不承诺逐帧精确 seek。";
+        };
+        choice.addEventListener("click", selectMode);
+        choice.addEventListener("keydown", event => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          selectMode();
+        });
+      });
+
+      const startLocal = document.getElementById("startLocal");
+      const pauseLocal = document.getElementById("pauseLocal");
+      const stopLocal = document.getElementById("stopLocal");
+      const saveLocal = document.getElementById("saveLocal");
+      let localAnalysisStarted = false;
+
+      startLocal.addEventListener("click", event => {
+        localAnalysisStarted = event.currentTarget.textContent.includes("本机");
+        saveLocal.disabled = true;
+        showToast(localAnalysisStarted ? "本机低帧率分析已开始（原型演示）。" : "本地视频播放已开始（原型演示）。");
+      });
+      pauseLocal.addEventListener("click", () => showToast("单视频播放已暂停（原型演示）。"));
+      stopLocal.addEventListener("click", () => {
+        saveLocal.disabled = !localAnalysisStarted;
+        showToast(localAnalysisStarted ? "本机分析已停止，可以保存检测 session。" : "单视频播放已停止。仅播放模式不会生成检测 session。");
+      });
+      saveLocal.addEventListener("click", () => {
+        showToast("检测 session 已模拟保存，可进入历史复盘。");
+        saveLocal.disabled = true;
+        localAnalysisStarted = false;
+      });
+
+      document.getElementById("submitBatch").addEventListener("click", () => {
+        document.getElementById("batchStatus").textContent = "已入队 · queued";
+        showToast("12 路批次已模拟提交，请到任务中心查看进度。");
+      });
+
+      document.querySelectorAll(".camera-tile").forEach(tile => tile.addEventListener("click", () => {
+        document.querySelectorAll(".camera-tile").forEach(item => item.classList.remove("active"));
+        tile.classList.add("active");
+        document.getElementById("mainCameraTitle").textContent = `主视图 · CAM ${tile.dataset.camera}`;
+      }));
+
+      let liveSeconds = 0;
+      let liveRunning = false;
+      let liveInterval;
+      const startLive = document.getElementById("startLive");
+      const pauseLive = document.getElementById("pauseLive");
+      const stopLive = document.getElementById("stopLive");
+      const saveLive = document.getElementById("saveLive");
+      const liveState = document.getElementById("liveState");
+
+      function formatTime(seconds) {
+        return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+      }
+
+      function updateLiveTime() {
+        const value = formatTime(liveSeconds);
+        document.getElementById("liveTimer").textContent = value;
+        document.getElementById("durationStat").textContent = value;
+      }
+
+      function runTimer() {
+        clearInterval(liveInterval);
+        liveInterval = setInterval(() => { if (liveRunning) { liveSeconds += 1; updateLiveTime(); } }, 1000);
+      }
+
+      startLive.addEventListener("click", () => {
+        liveRunning = true;
+        startLive.disabled = true;
+        pauseLive.disabled = false;
+        stopLive.disabled = false;
+        saveLive.disabled = true;
+        liveState.className = "status-chip ok";
+        liveState.innerHTML = '<i class="dot"></i>运行中 · Windows 实时';
+        pauseLive.textContent = "Ⅱ 暂停";
+        runTimer();
+        showToast("实时训练已开始：视频、检测、身份与条件式轨迹同步运行。");
+      });
+
+      pauseLive.addEventListener("click", () => {
+        liveRunning = !liveRunning;
+        pauseLive.textContent = liveRunning ? "Ⅱ 暂停" : "▶ 继续";
+        liveState.className = liveRunning ? "status-chip ok" : "status-chip warn";
+        liveState.innerHTML = liveRunning ? '<i class="dot"></i>运行中 · Windows 实时' : '<i class="dot"></i>已暂停 · 检测框已清空';
+      });
+
+      stopLive.addEventListener("click", () => {
+        liveRunning = false;
+        clearInterval(liveInterval);
+        startLive.disabled = false;
+        pauseLive.disabled = true;
+        stopLive.disabled = true;
+        saveLive.disabled = liveSeconds === 0;
+        liveState.className = "status-chip warn";
+        liveState.innerHTML = '<i class="dot"></i>已停止 · 等待保存';
+        showToast("训练已停止，内存结果仍保留，可保存 session。");
+      });
+
+      saveLive.addEventListener("click", () => {
+        saveLive.disabled = true;
+        liveState.className = "status-chip ok";
+        liveState.innerHTML = '<i class="dot"></i>已保存 · 可进入复盘';
+        showToast("session 已模拟保存：检测时间线、轨迹、速度和视频引用已列入摘要。");
+      });
+
+      document.querySelectorAll("[data-task-action]").forEach(button => button.addEventListener("click", () => {
+        showToast(button.dataset.taskAction === "pause" ? "已暂停客户端轮询；远端 worker 仍继续运行。" : "已发送远端取消请求；最终状态可能为 failed/partial。");
+      }));
+
+      document.getElementById("connectivityTest").addEventListener("click", () => {
+        const summary = document.getElementById("cameraSummary");
+        summary.textContent = "测试中 0/12";
+        showToast("正在模拟后台批量连通测试，不会保存结果或影响当前播放。");
+        setTimeout(() => { summary.textContent = "测试完成 · 10 成功 · 2 跳过"; }, 900);
+      });
+
+      showPage("home");
+    })();
+  </script>
+</body>
+</html>

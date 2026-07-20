@@ -6,6 +6,8 @@
 
 `speed_metrics` 以 `track_point_id` 一对一关联轨迹点，保存算法输出的瞬时速度、平滑速度、平滑窗口、单位、算法版本和有效标记；速度单位固定为 `m/s`。桌面端以约 200ms 的相邻场地坐标生成 `trajectory_speed_v1` 结果，并对同机位同运动员最近 1000ms 的有效瞬时速度取均值。首点、时间倒退、超过 2 秒的间隔或无效检测置信度均保存为无效结果。旧记录不回填伪造速度。
 
+已知持久化缺口：客户端预生成的主 participant UUID 与服务端重建 UUID 可能不一致，服务端因而静默跳过主运动员 `track_points`/`speed_metrics`。表结构和查询已存在，但 F-24/F-25 仍需修复该映射并做真实 PostgreSQL 集成验证。
+
 上级入口：[[00-index|AI 知识库索引]]、[[references/README|Reference 地图]]
 相关模块：[[modules/persistence|本地持久化]]、[[modules/core|应用核心]]
 相关流程：[[flows/training-record-flow|训练记录流程]]、[[flows/main-user-flow|主用户流程]]
@@ -92,7 +94,7 @@ PostgreSQL schema 在开发期由 `server/app/schema.py` 集中维护，使用 `
 - `qualityNote`
 - `compatibilityNote`
 
-旧版本 P1 轨迹拼接默认把 12 路相机按 5m 一段初始化；当前实时主流程不再刷新轨迹，这些机位字段仅为历史设置和兼容数据保留。
+当前实时主链路使用每路四点像素/场地对做单应性投影；场地起止距离等 P1 线性段字段仍保留在配置和模板中，但不能代替有效四点标定。`trajectoryEnabled` 还会决定 RTSP 机位是否进入当前 AI 流。
 
 ### 摄像头 JSON 模板
 
@@ -227,17 +229,17 @@ ReID 向量：`sample_id`, `athlete_id`, `embedding`, `embedding_dimension`, `mo
 
 #### `analysis_tasks`
 
-通用分析主任务，首批类型为单视频导入 `offline_import` 和 12 路完整帧率批次 `full_rate_batch`。保存 `status`（`queued/running/paused/completed/failed/cancelled`）、`progress`（0-100）、JSONB `input`、可空 `output_session_id`、`error` 与审计时间。`offline_analysis_tasks.analysis_task_id` 和 `offline_analysis_batches.analysis_task_id` 指向该表；保存最终训练 session 后主任务回填输出 session 并标记完成。F-29 的桌面 `AnalysisTaskManager` 以此表持久化单并发队列状态，应用启动时会把 `running`/`paused` 恢复为 `paused`。
+通用分析主任务，首批类型为单视频导入 `offline_import` 和 12 路完整帧率批次 `full_rate_batch`。保存 `status`（`queued/running/paused/completed/failed/cancelled`）、`progress`（0-100）、JSONB `input`、可空 `output_session_id`、`error` 与审计时间。`offline_analysis_tasks.analysis_task_id` 和 `offline_analysis_batches.analysis_task_id` 指向该表；保存最终训练 session 后主任务回填输出 session 并标记完成。F-29 的桌面 `AnalysisTaskManager` 以此表持久化单并发队列状态，应用启动时会把 `running`/`paused` 恢复为 `paused`，但没有重建本地 job 参数，当前不能直接继续。完整 run 进度使用 0–1，任务中心尚未完成 0–100 换算。
 
 #### 完整帧率分析表
 
 - `offline_analysis_batches`: 12 路源的批次状态、当前激活运行和审计时间；兼容旧任务的 `batch_id/camera_id/time_offset_ms` 数据。
-- `offline_analysis_batch_sources`: 每个机位的可移植 `nas://` URI、媒体信息、源开始偏移和人工校正。批次内 cameraId 唯一，完整批次必须为 1-12。
-- `offline_analysis_runs`: 不可覆盖的分析版本，保存模型/预处理/同步版本、gallery 快照哈希、配置、状态、总帧数、进度、失败原因、worker 租约与开始/完成时间。
+- `offline_analysis_tasks`: 既承载旧单视频导入任务，也作为完整批次的每机位源记录，保存 `nas://` URI、媒体信息、cameraId 和人工时间偏移。不存在 `offline_analysis_batch_sources` 表。
+- `offline_analysis_runs`: 分析 run 记录，保存模型/预处理/同步标签、`gallery_snapshot_hash` 字段、配置、状态、总帧数、进度、失败原因、worker 租约与开始/完成时间。retry 会就地重置同一 run；当前模型/gallery 字段不是真实冻结快照。
 - `offline_analysis_run_sources`: 每路运行状态、帧计数、最后提交 frameIndex/PTS、重试次数、错误和已完成时间范围。单路失败不会删除其他源的已提交结果。
 - `offline_analysis_result_chunks`: gzip JSONL 分块索引，保存源、帧范围、批次时间范围、artifact URI、大小、SHA256 和 schema 版本；`run_source + start/end` 唯一，支持幂等覆盖。
 
-状态枚举为 `queued/running/partial/completed/failed/cancelled/archived`。只有 12 路全部完成完整性校验的运行才能完成并激活。逐帧内容只位于 NAS，不进入数据库；范围查询读取并校验已提交分块并返回缺口。
+状态枚举为 `queued/running/partial/completed/failed/cancelled/archived`。只有 12 路 source 都完成，且通过当前已实现的分块 SHA256、块内范围/不重叠和已登记帧数检查的 run 才能激活。尚未强制全局 frameIndex 无 gap、PTS 跨块单调和 JSONL 内容/登记元数据一致。逐帧内容只位于 NAS，不进入数据库；范围查询读取已提交分块并返回缺口。
 
 #### `training_session_participants`
 
@@ -305,7 +307,7 @@ ReID 向量：`sample_id`, `athlete_id`, `embedding`, `embedding_dimension`, `mo
 
 #### `participant_pose_frames`
 
-保存同一 session 下每名参与者的连续姿态/轨迹时间线，支撑按人回放轨迹和姿态摘要。
+保存同一 session 下每名参与者的兼容时间线。旧记录可含姿态/场地摘要；当前 Windows 新记录只保存 bbox、锚点、cameraId、trackId 和身份字段，权威二维轨迹改用 `track_points`。完整 run 激活后派生的也只是约 200ms bbox/track/身份摘要。
 
 - `session_id`: 关联 `training_sessions.id`。
 - `participant_id`: 可空，关联 `training_session_participants.id`；未知身份或旧数据可为空。
@@ -318,7 +320,7 @@ ReID 向量：`sample_id`, `athlete_id`, `embedding`, `embedding_dimension`, `mo
 - `anchor_x`, `anchor_y`: 用于轨迹映射的图像锚点，优先为左右髋部中点。
 - `field_x`, `field_y`, `has_field_point`: 按相机场地段线性映射得到的场地点。
 - `pose_confidence`: 姿态实例置信度。
-- `pose_summary`: JSONB，保存 Body17 关键点子集、关键点相对锚点偏移和可用 3D 坐标摘要；不保存完整原始视频帧或全量推理输出。
+- `pose_summary`: JSONB 兼容字段；旧记录可保存 Body17/3D 摘要，新 YOLO/ReID 记录不填充伪造关键点。该表不保存完整原始视频帧或完整帧率全量输出。
 
 旧 SQLite/旧单人记录不会回填连续姿态帧；这些记录打开姿态轨迹复盘时返回空时间线，但动作复盘和报告继续可用。
 

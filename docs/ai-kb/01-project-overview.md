@@ -7,13 +7,17 @@
 
 ## 项目是什么
 
-`iskating` 是一个 Windows 桌面端 iSkating Coach 应用，面向冰上训练场景做多路摄像头预览、主视图采集、人体姿态识别、3D 骨架/轨迹展示、实时评分、训练历史和纠正建议。
+`iskating` 是面向冰上训练的多端系统：Windows Qt 客户端负责训练准备、多路视频、本机 AI、复盘与报告；FastAPI/PostgreSQL 负责训练业务和分析协议；Ubuntu DeepStream worker 负责 12 路 NAS 视频的完整帧率离线分析。
+
+当前 Windows 实时主链路是 YOLO26x person 检测、PersonViT ReID、机位内 track，以及条件式二维轨迹/速度。新训练不生成姿态关键点、3D 骨架、自动动作或技术评分；旧姿态、动作和评分仅保留历史兼容。
 
 相关文件：
 
 - `main.cpp`: Qt 应用入口，设置运行库/插件搜索路径并启动 `MainWindow`。
-- `mainwindow.cpp`: 主窗口、导航、训练采集、评分、历史和建议页的核心逻辑。
+- `mainwindow.cpp`: 主窗口、导航、训练准备、实时/单视频、历史、报告和建议的核心编排。
 - `mainwindow.ui`: Qt Designer UI，包含主视频、12 路摄像头、历史页和建议页。
+- `server/app/main.py`: FastAPI 路由、认证、PostgreSQL 读写与完整分析协议。
+- `analysis_worker/`: Ubuntu/DeepStream 完整帧率 worker。
 
 ## 主要用户
 
@@ -28,19 +32,22 @@ TODO: 当前代码中无法确认实际用户角色、权限边界和使用场�
 
 ## 核心业务目标
 
-- 接入最多 12 路 RTSP 摄像头预览，并把选中机位主码流显示到主视图。
-- 对活动视频流做 TensorRT YOLO26x person 检测和 PersonViT/MSMT17 ReID。
-- 在当前 session 参与者 gallery 中匹配 athleteId，并维护 per-camera trackId。
-- 保存检测框、身份状态和置信度；旧姿态、评分和动作记录保留读取兼容。
+- 管理运动员、ReID 样本、教练关系、动作标准、比赛/场次和本次训练上下文。
+- 接入最多 12 路 RTSP 预览和主码流，在 Windows 上做低延迟 person/ReID/机位内 track。
+- 对已识别运动员和已四点标定机位计算场地米制二维轨迹与速度。
+- 提供本地单视频探测/跟随播放分析，以及 12 路 NAS 视频的远端完整帧率 person/ReID 分析。
+- 保存 session、视频引用、参与者、检测/身份摘要和条件式轨迹/速度，并提供历史检索、兼容复核、报告和趋势。
 
 相关文件：
 
 - `videoopenglwidget.cpp`
 - `rtspstream.cpp`
-- `handanalysismanager.cpp`
+- `athleteanalysismanager.cpp`
 - `tensortrtathletebackend.cpp`
-- `tensortrtathletebackend.cpp`
-- `posestandardnessscorer.cpp`
+- `trajectorywidget.cpp`
+- `trainingrepository.cpp`
+- `server/app/main.py`
+- `analysis_worker/worker.py`
 
 ## 主要技术栈
 
@@ -50,8 +57,11 @@ TODO: 当前代码中无法确认实际用户角色、权限边界和使用场�
 - FFmpeg/libav + D3D11VA：`rtspstream.cpp`, `d3d11videodevice.cpp`
 - Direct3D 11/DXGI/D3DCompiler：`d3dvideosurface.cpp`
 - TensorRT 10.1 + CUDA 11.8：`tensorrtrunner.cpp`, `mainwindow.pro`
-- ONNX 模型：`models/athlete/`, `models/hand/`
-- QSettings 本地配置与训练历史：`mainwindow.cpp`
+- ONNX 模型：`models/athlete/`；`models/hand/` 是未接入的旧资产
+- QtNetwork + FastAPI + PostgreSQL：`trainingrepository.cpp`, `server/requirements.txt`
+- Ubuntu 24.04 + DeepStream 9 + Docker Compose：`analysis_worker/`
+- NAS gzip JSONL 分块 + PostgreSQL 索引：`server/app/analysis_artifacts.py`, `server/app/schema.py`
+- QSettings 只保存本机摄像头、分析、存储和服务连接等配置；训练业务数据位于 PostgreSQL
 
 ## 主要入口文件
 
@@ -68,11 +78,14 @@ TODO: 当前代码中无法确认实际用户角色、权限边界和使用场�
 - `images/`: Qt 资源中引用的装饰图片。
 - `styles/`: QSS 样式。
 - `tools/`: 模型下载、转换、校验和数据维护脚本。
+- `server/`: FastAPI、PostgreSQL schema 和 Python 单元测试。
+- `analysis_worker/`: DeepStream worker、原生管线、容器与配置。
+- `docs/`: 功能盘点、用户指南、原型和 AI 知识库。
 - `x64/`: 本地构建输出，已在 `.gitignore` 中忽略，不应作为源码事实来源。
 
 ## 当前不确定信息
 
-- TODO: 缺少 `README.md`，无法确认产品正式名称、发布流程和目标环境说明。
-- TODO: 缺少测试目录，无法确认既有测试策略。
-- TODO: 缺少 CI/CD 配置，无法确认自动构建或发布流程。
+- TODO: 没有 CI/CD、安装器或自动发布流程。
+- TODO: 已有 `server/tests` 的协议/纯逻辑测试，但缺少真实 PostgreSQL/API、Qt UI、GPU/DeepStream 和 12 路压测 E2E。
+- TODO: 正式用户角色、角色授权、产品验收标准和生产发布流程待确认。
 - TODO: `.vscode/` 中配置偏向 GCC/GDB，但 `mainwindow.pro` 强制 Qt MSVC 2022 x64；当前应以 `mainwindow.pro` 为准。

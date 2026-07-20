@@ -15,11 +15,11 @@ uv run --python 3.12 --with-requirements server/requirements.txt python -m unitt
 
 ## 集成测试
 
-当前自动测试覆盖 NAS URI 约束、gzip JSONL/SHA256、范围读取、原子提交和 worker 参数编排。数据库状态机需要在临时 PostgreSQL 上验证；DeepStream 原生 parser/管线需要在 Ubuntu + NVIDIA 环境构建和运行。
+当前自动测试主要通过纯函数和源码/schema 合同检查覆盖 NAS URI 约束、gzip JSONL/SHA256、范围读取、分块原子提交和 worker 参数编排。数据库状态机与外键闭环需要在临时 PostgreSQL 上验证；QtNetwork/FastAPI 真实调用与 DeepStream 原生 parser/管线也不在现有单元测试覆盖内。
 
-## E2E 测试
+## 计划中的 E2E/上线验收
 
-完整帧率 E2E 使用带已知帧号的 12 路视频，要求解码帧数等于结果帧数、`frameIndex` 从 0 连续、PTS 不倒退且无未声明缺口。随后进行 12 路 1080p60 一小时压力测试，并分别中断 worker、FastAPI 和 NAS，验证恢复后无重复/缺帧。
+以下是目标验收，仓库内尚无自动 E2E 实现：完整帧率 E2E 使用带已知帧号的 12 路视频，要求解码帧数等于结果帧数、`frameIndex` 从 0 连续、PTS 不倒退且无未声明缺口。随后进行 12 路 1080p60 一小时压力测试，并分别中断 worker、FastAPI 和 NAS，验证恢复后无重复/缺帧。
 
 ## 如何只跑某个测试
 
@@ -42,20 +42,22 @@ cmd /c "call ""C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxili
 
 ## 建议的人工验证清单
 
-在没有自动化测试前，修改后建议至少手动验证：
+现有自动测试不覆盖 Qt UI、真实 PostgreSQL/API 和 GPU/DeepStream，相关修改后建议至少手动验证：
 
 - 应用能启动到最大化主窗口。
 - 系统设置可打开、保存和重新加载。
 - 至少一路 RTSP 或本地视频源可播放。
 - 开始、暂停、停止采集状态正确。
 - 模型状态栏能显示初始化/运行状态。
-- 姿态覆盖、骨架视图和轨迹视图不会崩溃。
-- 保存训练记录后历史页和建议页刷新，并确认 PostgreSQL 中生成对应 session 和动作实例。
+- 主视频 bbox/身份/trackId 覆盖不会崩溃；已识别且四点标定的机位能绘制二维轨迹，未标定或 unknown 不生成场地点。
+- 保存新训练后历史页和建议页刷新，并确认 PostgreSQL 中生成 session、参与者和检测/身份摘要；新 person/ReID 记录不应生成姿态、自动动作或评分。
+- 使用真实 PostgreSQL 专门验证主运动员 participant UUID 与 `track_points`/`speed_metrics` 外键一致；当前已知映射缺口未修复，预期可复现静默漏存。
 - 用旧 SQLite 样本库执行 `tools/import_sqlite_to_postgres.py`，确认导入数量、历史记录、旧动作复盘和关键帧姿态 JSON 兼容。
 - 打开“人员管理”，新增/编辑/删除运动员和教练，确认删除后训练下拉不再显示该人员但历史记录仍可展示。
 - 打开系统设置，点击“连通测试”：未配置 IP 应显示跳过；不可达 IP 应显示失败原因；可用 RTSP 应显示成功、UDP/TCP、分辨率和帧率；测试后表单内容不应被自动保存或改写。
-- 导入本地视频训练并保存记录，打开“复盘校准”验证动作列表、片段定位、慢放、逐帧、关键帧定位和姿态叠加开关。
+- 对含旧动作/姿态数据的本地视频记录打开“复盘校准”，验证动作列表、片段定位、慢放、逐帧、关键帧定位和姿态叠加开关；这是历史兼容路径。
 - 导入单视频和创建 12 路完整帧率批次后，查询 `/analysis-tasks`，确认分别生成 `offline_import` 与 `full_rate_batch` 主任务；保存关联训练 session 后确认任务关联输出 session、进度为 100 且状态完成。
+- 在当前进程暂停/继续任务，确认完整分析暂停只停轮询；重启后的 `paused` 任务应显示“需重新发起”，不能伪装可继续。同时检查 run 的 0–1 进度不被直接当成 0–100 百分比。
 - 在复盘中手动新增动作、修正起止时间/有效性/分数/错误项/反馈，确认历史卡片、建议页趋势、报告和个体基线使用人工优先数据。
 - 在动作标准编辑入口维护阈值、权重、目标次数/分数、提示文案和参考视频路径，确认重启后不被 seed 覆盖。
 - 导出 Markdown、CSV 明细和 PDF 复盘报告，确认包含训练摘要、动作明细、AI 原始分、人工修正、教练备注和视频引用。
@@ -64,7 +66,7 @@ cmd /c "call ""C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxili
 - RTSP 断流验证：正常播放后临时断开摄像头网络或关闭 RTSP 服务，确认 UI 显示断流重连；30 秒后显示长时间断流；恢复网络后自动回到播放状态，日志包含 `stream interrupted`、`reconnect scheduled` 和 `stream recovered`，且 URL 密码脱敏。
 - 导入 12 路完整分析 manifest，确认媒体信息、人工时间校正、Windows NAS 根映射、每路进度/错误、取消、重试和版本号正确。
 - 完成区间边分析边回放，随机 seek 到未完成和人为缺口区间，确认明确提示且不沿用上一帧检测框。
-- 创建新模型运行，完成前仍显示旧激活版本；激活后缓存清空并读取新版本；清理视频后结果文件删除但审计状态保留。
+- 创建新 run，激活前仍显示旧激活结果；激活后缓存清空并读取新 run；清理视频后结果文件删除但审计状态保留。该用例只验证 run 版本激活，不代表模型/gallery 已冻结可复现快照。
 
 相关文件：
 
