@@ -8,6 +8,7 @@ BUSINESS_TABLES = [
     "athlete_identity_embeddings",
     "athlete_identity_samples",
     "athlete_action_baselines",
+    "joint_metrics",
     "speed_metrics",
     "track_points",
     "participant_pose_frames",

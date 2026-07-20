@@ -111,6 +111,10 @@ F-10 的 `action_repetitions.video_file_id/video_index` 只是把动作片段时
 
 当前仍处于空库开发阶段，PostgreSQL schema 不使用 Alembic 增量迁移；每次结构变化都更新 `server/app/schema.py`，再用 `tools/reset_postgres_schema.py --yes` 手动重建开发库。该脚本会删除业务表，不能对需要保留数据的库执行。
 
+新增业务表时，必须同时加入 `BUSINESS_TABLES`；该列表决定重建脚本的删除范围，遗漏会使下一次建表因已有表而失败。
+
+`passlib[bcrypt]==1.7.4` 与较新的 `bcrypt` 不兼容，会在默认管理员 seed 阶段失败或打印后端版本异常；服务端依赖固定为 `bcrypt==4.0.1`。
+
 桌面端 `TrainingRepository::open()` 不建表、不补列。新增字段必须同步当前 schema、FastAPI 读写、Qt JSON 映射和导入工具。
 
 旧 SQLite 数据不会在桌面端启动时自动导入；需要先重建空库 schema，再执行 `tools/import_sqlite_to_postgres.py` 并核对导入数量。

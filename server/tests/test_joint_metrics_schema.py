@@ -10,6 +10,7 @@ class JointMetricsSchemaTests(unittest.TestCase):
         schema = (root / "app" / "schema.py").read_text(encoding="utf-8")
         api = (root / "app" / "main.py").read_text(encoding="utf-8")
         self.assertIn("CREATE TABLE joint_metrics", schema)
+        self.assertIn('    "joint_metrics",', schema)
         for column in ("participant_id", "t_ms", "joint", "side", "angle_deg", "angular_velocity_deg_per_sec", "algorithm_version"):
             self.assertIn(column, schema)
         self.assertIn("UNIQUE (participant_id, t_ms, camera_id, joint, side)", schema)
