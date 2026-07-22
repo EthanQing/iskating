@@ -1,5 +1,11 @@
 # iSkating Coach
 
+## Git 协作约定
+
+代码仓库位于 [EthanQing/iskating](https://github.com/EthanQing/iskating)，`main` 是受保护的默认分支。所有改动都应在其他分支完成，再通过 Pull Request 合并到 `main`；不要直接推送、强制推送或删除 `main`。
+
+本地开发分支完成验证后，使用 `git push -u origin <branch>` 推送，并创建目标为 `main` 的 Pull Request。版本或重要基线使用带注释的 tag 标记，具体命令见 [本地开发 Runbook](docs/ai-kb/runbooks/local-development.md)。
+
 项目全量功能、已知边界和重编后的客户端流程见 [全量功能盘点与客户端流程重构](docs/feature-inventory.md)；单文件交互示意见 [HTML 原型](docs/client-flow-prototype.html)。
 
 ## F-24 二维滑行轨迹
