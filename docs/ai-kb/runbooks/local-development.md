@@ -87,3 +87,36 @@ python ..\tools\reset_postgres_schema.py --yes
 - 输出目录缺少 Qt platforms 插件或 FFmpeg/TensorRT/CUDA DLL。
 - GPU/驱动不支持当前 TensorRT/CUDA 或 D3D11VA 路径。
 - 任一模型缺失时，视频播放仍可用；YOLO26x 缺失会停用 AI，PersonViT 缺失会停用身份匹配。
+
+## GitHub 协作
+
+GitHub 远端为 `https://github.com/EthanQing/iskating.git`，`main` 是受保护的默认分支。所有改动都在非 `main` 分支完成，并通过 Pull Request 合并；不要直接向 `main` 推送。
+
+首次迁移或重新配置本地远端：
+
+```powershell
+git remote set-url origin https://github.com/EthanQing/iskating.git
+git fetch origin
+```
+
+开始一个改动：
+
+```powershell
+git switch main
+git pull --ff-only origin main
+git switch -c codex/<change>
+```
+
+完成验证后推送并创建 Pull Request：
+
+```powershell
+git push -u origin codex/<change>
+gh pr create --base main --head codex/<change>
+```
+
+创建版本或重要基线 tag 时使用带注释 tag，并推送 tag：
+
+```powershell
+git tag -a v0.1.0 -m "Baseline release v0.1.0"
+git push origin v0.1.0
+```

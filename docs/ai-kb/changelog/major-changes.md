@@ -5,6 +5,10 @@
 - 完成 Qt/C++ 客户端目录重组：源码按 `src/app`、`ui`、`domain`、`application` 和 `infrastructure` 分层，资源归档到 `resources/`，qmake 公共配置、依赖和部署规则归档到 `build/qmake/`。
 - 根目录不再保留客户端业务源码；各模块通过 `.pri` 汇总，新增 `tests/client/` 作为不依赖 GPU/网络的纯逻辑合同测试入口。
 - 删除旧客户端姿态推理后端、骨架/关键点覆盖层和姿态结果类型；PostgreSQL 历史姿态表与服务端接口保留，不影响历史数据存储边界。
+## 2026-07-22
+
+- 将仓库远端迁移到 `EthanQing/iskating`，以受保护的 `main` 作为默认主分支；后续改动必须在其他分支完成并通过 Pull Request 合并。
+- 为首次 GitHub 基线准备带注释的 `v0.1.0` tag。
 
 ## 2026-07-21
 

@@ -2,6 +2,12 @@
 
 项目结构、运行方式和当前边界见 [项目概览](docs/ai-kb/01-project-overview.md) 与 [本地开发 Runbook](docs/ai-kb/runbooks/local-development.md)。
 
+## Git 协作约定
+
+代码仓库位于 [EthanQing/iskating](https://github.com/EthanQing/iskating)，`main` 是受保护的默认分支。所有改动都应在其他分支完成，再通过 Pull Request 合并到 `main`；不要直接推送、强制推送或删除 `main`。
+
+本地开发分支完成验证后，使用 `git push -u origin <branch>` 推送，并创建目标为 `main` 的 Pull Request。版本或重要基线使用带注释的 tag 标记，具体命令见 [本地开发 Runbook](docs/ai-kb/runbooks/local-development.md)。
+
 ## F-24 二维滑行轨迹
 
 完成每路相机的四点冰面标定后，应用将检测框底边投影到统一场地米制坐标，实时绘制并在保存训练时提交 `track_points`。坐标原点位于场地起点冰面，`+x` 指向滑行方向，`+y` 为预先约定的横向正方向，`z=0`。在系统设置的场地表双击“四点标定”单元格，输入四个像素点及其对应的场地 `(x,y)`；未标定的机位不会产生轨迹点。历史卡片的轨迹入口打开二维轨迹/速度面板，可导出 CSV/XLSX。
