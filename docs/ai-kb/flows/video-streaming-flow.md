@@ -60,13 +60,13 @@
 
 ## 涉及文件
 
-- `mainwindow.cpp`
-- `videoopenglwidget.cpp`
-- `streamregistry.cpp`
-- `rtspstream.cpp`
-- `d3d11videodevice.cpp`
-- `d3dframe.h`
-- `d3dvideosurface.cpp`
+- `src/ui/mainwindow.cpp`
+- `src/ui/videoopenglwidget.cpp`
+- `src/infrastructure/video/streamregistry.cpp`
+- `src/infrastructure/video/rtspstream.cpp`
+- `src/infrastructure/video/d3d11videodevice.cpp`
+- `src/infrastructure/video/d3dframe.h`
+- `src/infrastructure/video/d3dvideosurface.cpp`
 
 ## 涉及数据
 
@@ -74,7 +74,7 @@
 - `RtspStream::State`
 - `D3DFrame`
 - `AthleteAnalysisResult`，用于视频叠加 person bbox、身份和 trackId
-- `PoseFrameResult` 只用于旧姿态复盘兼容
+- 服务端历史姿态数据只作为兼容边界保留，当前客户端不再加载关键点覆盖层
 
 ## 错误处理
 

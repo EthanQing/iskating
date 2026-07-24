@@ -11,22 +11,22 @@
 
 ## 关键文件
 
-- `mainwindow.ui`: 主界面布局，包含 `pages`, `mainImageLabel`, `cameraButton01` 到 `cameraButton12`。
-- `styles/iskating.qss`: 全局 QSS，按对象名和动态属性控制视觉。
-- `iskating.qrc`: 把 QSS、图片、SVG 图标加入 Qt 资源。
-- `iconutils.cpp`: SVG 图标着色和尺寸归一化。
-- `framelessdialog.cpp`: 自定义无边框对话框。
-- `systemsettingsdialog.cpp`: 系统设置对话框，包含公共 RTSP、12 路 IP、场地段标定、机位用途和采集偏好。
-- `videoopenglwidget.cpp`: 视频控件占位状态和浮层按钮。
-- `trainingreviewdialog.cpp`: 历史复盘校准对话框，包含主视频回放、动作列表、人工修正表单和标准参考视频。
-- `personmanagementdialog.cpp`: 人员管理对话框，维护运动员档案、教练档案和教练-运动员绑定关系。
-- `videoopenglwidget.cpp`: 视频检测框和身份标签覆盖层。
+- `src/ui/mainwindow.ui`: 主界面布局，包含 `pages`, `mainImageLabel`, `cameraButton01` 到 `cameraButton12`。
+- `resources/styles/iskating.qss`: 全局 QSS，按对象名和动态属性控制视觉。
+- `resources/iskating.qrc`: 把 QSS、图片、SVG 图标加入 Qt 资源。
+- `src/ui/iconutils.cpp`: SVG 图标着色和尺寸归一化。
+- `src/ui/framelessdialog.cpp`: 自定义无边框对话框。
+- `src/ui/systemsettingsdialog.cpp`: 系统设置对话框，包含公共 RTSP、12 路 IP、场地段标定、机位用途和采集偏好。
+- `src/ui/videoopenglwidget.cpp`: 视频控件占位状态和浮层按钮。
+- `src/ui/trainingreviewdialog.cpp`: 历史复盘校准对话框，包含主视频回放、动作列表、人工修正表单和标准参考视频。
+- `src/ui/personmanagementdialog.cpp`: 人员管理对话框，维护运动员档案、教练档案和教练-运动员绑定关系。
+- `src/ui/videoopenglwidget.cpp`: 视频检测框和身份标签覆盖层。
 
 ## 当前设计
 
-界面基础来自 `mainwindow.ui`，但多个区域在运行时动态装配：
+界面基础来自 `src/ui/mainwindow.ui`，但多个区域在运行时动态装配：
 
-- 实时采集页隐藏旧姿态和评分卡，保留当前二维轨迹卡；历史旧记录入口仍可读取兼容数据。轨迹卡的展开/收起按钮目前尚未接线。
+- 实时采集页保留当前二维轨迹卡；服务端历史动作/评分记录仍可进入支持范围内的复盘，旧姿态关键点覆盖层已经从客户端移除。轨迹卡的展开/收起按钮目前尚未接线。
 - `installMetricBars()` 动态插入分项评分进度条。
 - 历史记录和建议卡片在 `refreshHistory()` / `refreshSuggestions()` 中动态生成。
 - 历史卡片保留摘要、教练批注和导出入口；动作级复盘进入独立 `TrainingReviewDialog`，避免继续膨胀历史卡片。
@@ -68,15 +68,15 @@
 
 ### 新增资源
 
-1. 把文件放入 `icons/` 或 `images/`。
-2. 更新 `iskating.qrc`。
+1. 把文件放入 `resources/icons/` 或 `resources/images/`。
+2. 更新 `resources/iskating.qrc`。
 3. 在代码中用 `:/icons/...` 或 `:/images/...` 引用。
 
 ### 修改系统设置字段
 
 1. 更新 `systemsettingsdialog.h` 的 settings struct。
 2. 更新 `systemsettingsdialog.cpp` 的 UI、getter、setter 和校验。
-3. 更新 `mainwindow.cpp` 的加载/保存逻辑。
+3. 更新 `src/ui/mainwindow.cpp` 的加载/保存逻辑。
 4. 如果新增 QSettings key，同步更新 `references/database-schema.md`。
 
 ### 修改系统设置连通测试
@@ -87,21 +87,21 @@
 
 ### 修改复盘校准界面
 
-1. 优先修改 `trainingreviewdialog.cpp/.h`，保持历史卡片只作为入口和摘要。
+1. 优先修改 `src/ui/trainingreviewdialog.cpp/.h`，保持历史卡片只作为入口和摘要。
 2. 人工复核保存必须通过 `TrainingRepository::saveRepetitionReview()` 或 `createManualRepetition()`，不要绕过仓储直接写 SQL。
 3. 新增标准参考信息时通过 `TrainingRepository::saveActionStandard()` 保存，注意该方法会递增动作标准版本。
 4. 回放控制应先判断 `VideoOpenGLWidget::isSeekable()`；RTSP/网络源需要保留清晰提示，不应假装支持精确定位。
 
 ### 修改人员管理界面
 
-1. 优先修改 `personmanagementdialog.cpp/.h`。
+1. 优先修改 `src/ui/personmanagementdialog.cpp/.h`。
 2. 人员档案必须通过 `TrainingRepository::saveAthleteProfile()` / `saveCoachProfile()` 保存，不要绕过仓储直接写 SQL。
 3. 删除人员应走 `archiveAthlete()` / `archiveCoach()` 归档，保持历史训练记录可回看。
-4. 新增源码文件后同步维护 `mainwindow.pro`。
+4. 新增源码文件后同步维护对应层的 `.pri`，并确认 `mainwindow.pro` 已包含该层。
 
 ## 注意事项
 
-- 不要直接编辑生成的 `ui_mainwindow.h`；应改 `mainwindow.ui` 或运行时装配代码。
+- 不要直接编辑生成的 `ui_mainwindow.h`；应改 `src/ui/mainwindow.ui` 或运行时装配代码。
 - 修改 objectName 会影响 QSS 和 `MainWindow` 中的 `ui->xxx` 访问。
 - 左侧栏折叠逻辑应操作 `ui->sidebar`，不要用 `ui->sidebarLayout->parentWidget()` 猜父控件。
 - `VideoOpenGLWidget` 不是普通 QLabel，主视频和小窗都依赖其播放/状态逻辑。

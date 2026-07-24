@@ -9,7 +9,7 @@
 
 当前观察：
 
-- 项目已有 `README.md`、`docs/feature-inventory.md` 和完整分析用户指南。
+- 项目已有 `README.md` 和 AI 知识库 Runbook；独立的旧功能盘点/完整分析用户指南已从工作区移除，当前以这些文档为准。
 - FastAPI 用户记录带 role，但业务路由没有基于 role 授权，客户端也没有可见登录/权限管理。
 
 为什么不确定：
@@ -54,16 +54,16 @@
 - 先补真实 PostgreSQL/API 集成测试，特别是主 participant UUID 与 `track_points`/`speed_metrics` 外键。
 - 按测试 Runbook 实施 Qt、GPU 和 12 路已知帧号视频 E2E。
 
-## 手部姿态后端是否仍计划接入主流程
+## 手部姿态能力是否恢复
 
 当前观察：
 
-- `TensorRtHandPoseBackend`、`handposeadapter.cpp` 和 `models/hand/` 存在。
-- 当前实时主流程使用 `AthleteAnalysisManager` 和 `TensorRtAthleteBackend`；旧姿态后端仅作为历史兼容代码保留。
+- 当前客户端不再包含手部姿态后端或适配器实现，只保留 `models/hand/` 历史模型资产。
+- 当前实时主流程使用 `AthleteAnalysisManager` 和 `TensorRtAthleteBackend`；服务端旧姿态表仍是历史数据边界。
 
 为什么不确定：
 
-- 类名和实现存在历史演进痕迹，无法确认手部模块是否暂停、废弃或待接入。
+- 未来若重新接入，需要重新定义模型、结果类型、UI 展示和数据契约，不能直接恢复已删除的旧类名。
 
 建议后续确认：
 

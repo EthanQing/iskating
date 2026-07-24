@@ -31,7 +31,7 @@ nmake debug
 
 ## 依赖安装
 
-TODO: 仓库未提供自动安装脚本。根据 `mainwindow.pro`，本机需要：
+TODO: 仓库未提供自动安装脚本。根据 `mainwindow.pro` 和 `build/qmake/dependencies.pri`，本机需要：
 
 - Qt 6.7.3 MSVC 2022 x64
 - Visual Studio 2022 MSVC x64
@@ -70,8 +70,8 @@ python ..\tools\reset_postgres_schema.py --yes
 
 相关文件：
 
-- `mainwindow.cpp`
-- `main.cpp`
+- `src/ui/mainwindow.cpp`
+- `src/app/main.cpp`
 
 ## 模型准备
 

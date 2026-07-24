@@ -1,5 +1,11 @@
 # Major Changes
 
+## 2026-07-23
+
+- 完成 Qt/C++ 客户端目录重组：源码按 `src/app`、`ui`、`domain`、`application` 和 `infrastructure` 分层，资源归档到 `resources/`，qmake 公共配置、依赖和部署规则归档到 `build/qmake/`。
+- 根目录不再保留客户端业务源码；各模块通过 `.pri` 汇总，新增 `tests/client/` 作为不依赖 GPU/网络的纯逻辑合同测试入口。
+- 删除旧客户端姿态推理后端、骨架/关键点覆盖层和姿态结果类型；PostgreSQL 历史姿态表与服务端接口保留，不影响历史数据存储边界。
+
 ## 2026-07-21
 
 - 重做 `docs/client-flow-prototype.html` 的视觉系统：由深色监控后台调整为浅色“冰面编辑台”风格，统一导航、页头、卡片、表单、视频区、状态、表格与移动端布局；九区流程、能力边界和交互逻辑保持不变。

@@ -12,11 +12,11 @@
 - Qt 6.7.3 MSVC 2022 x64，默认路径见 `mainwindow.pro`，需要 QtNetwork。
 - Python 3.11+、PostgreSQL 14+，用于 FastAPI 训练服务。
 - Visual Studio 2022 MSVC x64 工具链，线索见 `.qmake.stash`。
-- FFmpeg shared MSVC x64 开发包，默认路径见 `mainwindow.pro`。
-- TensorRT 10.1.0.27，默认路径见 `mainwindow.pro`。
-- CUDA 11.8，默认路径见 `mainwindow.pro`。
+- FFmpeg shared MSVC x64 开发包，默认路径见 `build/qmake/dependencies.pri`。
+- TensorRT 10.1.0.27，默认路径见 `build/qmake/dependencies.pri`。
+- CUDA 11.8，默认路径见 `build/qmake/dependencies.pri`。
 
-服务端、worker 和桌面端的安装/运行示例见根目录 `README.md` 和 `docs/full-rate-analysis-guide.md`。
+服务端、worker 和桌面端的安装/运行示例见根目录 `README.md`、[[runbooks/local-development|本地开发 Runbook]] 和 [[runbooks/deployment|部署 Runbook]]。
 
 ## 本地开发
 
@@ -30,7 +30,9 @@ nmake release
 相关文件：
 
 - `mainwindow.pro`
-- `common.pri`
+- `build/qmake/common.pri`
+- `build/qmake/dependencies.pri`
+- `build/qmake/deployment.pri`
 
 ## 构建
 
@@ -67,6 +69,16 @@ Debug 构建产物：
 运行时依赖 DLL、`models/` 和 `plugins/platforms/qwindows(d).dll` 会由 `mainwindow.pro` 的 post-link 规则复制到输出目录。训练业务数据依赖外部 FastAPI/PostgreSQL 服务。
 
 ## 测试
+
+客户端纯逻辑合同测试：
+
+```powershell
+& "C:/Qt/6.7.3/msvc2022_64/bin/qmake.exe" tests/client/client-tests.pro "CONFIG+=release"
+nmake release
+.\x64\Release\tests\client-tests.exe
+```
+
+服务端和 worker 测试：
 
 ```powershell
 uv run --python 3.12 --with-requirements server/requirements.txt python -m unittest discover -s server/tests -p "test_*.py"
@@ -154,7 +166,7 @@ docker compose -f analysis_worker/compose.yml up -d --build
 
 ## 部署相关命令
 
-Release 构建后，`mainwindow.pro` 会调用：
+Release 构建后，`build/qmake/deployment.pri` 会调用：
 
 - `windeployqt.exe --release --no-translations`
 - 复制 FFmpeg DLL

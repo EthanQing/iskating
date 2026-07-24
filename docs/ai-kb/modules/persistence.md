@@ -17,21 +17,21 @@
 
 ## 关键文件
 
-- `main.cpp`: 设置 `QApplication` applicationName 和 organizationName。
-- `mainwindow.cpp`: 读写摄像头配置、训练上下文、训练历史/复盘卡、动作标准编辑、训练报告导出和采集偏好。
-- `trainingdomain.h`: 训练领域结构，包括运动员、教练、动作标准、训练 session、动作明细和训练趋势窗口。
-- `trainingrepository.cpp`: QtNetwork API 客户端，保留原同步仓储接口，负责连接训练服务、登录、人员档案保存/归档、教练-运动员关系维护、训练记录保存、人工复核、手动动作、动作标准保存和趋势统计查询。
+- `src/app/main.cpp`: 设置 `QApplication` applicationName 和 organizationName。
+- `src/ui/mainwindow.cpp`: 读写摄像头配置、训练上下文、训练历史/复盘卡、动作标准编辑、训练报告导出和采集偏好。
+- `src/domain/trainingdomain.h`: 训练领域结构，包括运动员、教练、动作标准、训练 session、动作明细和训练趋势窗口。
+- `src/infrastructure/persistence/trainingrepository.cpp`: QtNetwork API 客户端，保留原同步仓储接口，负责连接训练服务、登录、人员档案保存/归档、教练-运动员关系维护、训练记录保存、人工复核、手动动作、动作标准保存和趋势统计查询。
 - `server/app/main.py`: FastAPI 训练服务，负责认证、seed、PostgreSQL 读写和 session 汇总/个体基线刷新。
 - `server/app/schema.py`: 当前开发期 PostgreSQL 完整 schema。
 - `tools/reset_postgres_schema.py`: 开发期空库重建工具。
 - `tools/import_sqlite_to_postgres.py`: 旧 SQLite 到 PostgreSQL 的一次性导入工具。
 - `tools/backfill_video_indexes.py`: 为已有 PostgreSQL 开发库幂等补齐视频索引、离线分析任务字段、多人 participant 结果和旧记录关联。
-- `personmanagementdialog.cpp`: 人员管理对话框，读写运动员/教练档案并维护教练可带训运动员关系。
-- `personmanagementdialog.cpp`: 运动员 ReID 样本添加、删除和 PersonViT embedding 生成。
-- `trainingreviewdialog.cpp`: 复盘校准对话框，读写动作复核字段和动作标准参考视频。
-- `systemsettingsdialog.h`: `SharedCameraSettings`, `CameraSlotSettings`, `CapturePreferenceSettings`。
-- `systemsettingsdialog.cpp`: 系统设置对话框读写 settings struct。
-- `cameraconfigtemplate.h/.cpp`: 摄像头配置 JSON 模板导入/导出、校验和摘要。
+- `src/ui/personmanagementdialog.cpp`: 人员管理对话框，读写运动员/教练档案并维护教练可带训运动员关系。
+- `src/ui/personmanagementdialog.cpp`: 运动员 ReID 样本添加、删除和 PersonViT embedding 生成。
+- `src/ui/trainingreviewdialog.cpp`: 复盘校准对话框，读写动作复核字段和动作标准参考视频。
+- `src/ui/systemsettingsdialog.h`: `SharedCameraSettings`, `CameraSlotSettings`, `CapturePreferenceSettings`。
+- `src/ui/systemsettingsdialog.cpp`: 系统设置对话框读写 settings struct。
+- `src/infrastructure/configuration/cameraconfigtemplate.h/.cpp`: 摄像头配置 JSON 模板导入/导出、校验和摘要。
 
 ## 当前设计
 
@@ -119,7 +119,7 @@ PostgreSQL 主要表：
 
 `searchRepetitions(filters, page)` 是跨 session 动作实例检索入口，优先查询 `participant_repetitions` 并在旧记录缺失新表结果时回退 `action_repetitions`，支持按 session、人员、比赛/场次、动作、来源、有效性、复核状态、分数区间、训练时间、动作片段时间和错误项关键词检索。人员筛选优先匹配 participant 结果的 `athlete_id`，旧记录没有动作级身份时回退到 session 主运动员。筛选和展示默认使用“人工优先”的有效值；历史页动作明细检索对话框可将当前筛选结果导出为 CSV 或 XLSX。
 
-`poseFramesForSession(sessionId, participantId, athleteId, fromMs, toMs, limit)` 查询 `participant_pose_frames`，可供 `openParticipantPoseReview()` 按参与者/未知身份、时间轴、机位和 trackId 查看 bbox/身份兼容摘要；该面板当前没有主界面入口。历史卡片“姿态轨迹”按钮实际调用 `openTrackPointReview()`，读取 `trackPointsForSession()` 和 `speedMetricsForSession()`，按 participant 绘制二维路线/速度曲线并导出 CSV/XLSX。旧 session 没有速度时序时保持空值。
+`TrainingRepository` 不再向桌面端暴露 `participant_pose_frames` 查询或姿态覆盖层接口。历史卡片的轨迹入口调用 `openTrackPointReview()`，读取 `trackPointsForSession()` 和 `speedMetricsForSession()`，按 participant 绘制二维路线/速度曲线并导出 CSV/XLSX。服务端旧姿态表仍保留，旧 session 没有速度时序时保持空值。
 
 `videoFiles(status, withLocalPathOnly, modifiedBefore)` 查询 `training_video_files` 并联查 session、运动员和动作引用数量，供系统设置生成本机视频清理候选列表。桌面端只会把“已登记、路径在配置根目录下、文件实际存在”的视频列为可删除候选；删除本机文件后调用 `markVideoFileCleaned(videoFileId, reason)` 在视频资产 metadata 写入 `cleanupDeletedAt/cleanupReason/cleanupMissing`，不删除训练记录、动作实例或视频资产行，也不扩展 `status` 枚举。
 
@@ -133,23 +133,23 @@ PostgreSQL 主要表：
 
 ### 增加训练记录字段
 
-1. 修改 `trainingdomain.h` 中对应 session 或 repetition struct。
-2. 在 `server/app/schema.py`、`server/app/main.py` 的读写逻辑、`trainingrepository.cpp` 的 JSON 映射和导入工具中同步字段。
-3. 更新 `mainwindow.cpp` 的保存、历史和建议页展示。
-4. 如果字段影响复盘校准，更新 `trainingreviewdialog.cpp` 和报告导出。
+1. 修改 `src/domain/trainingdomain.h` 中对应 session 或 repetition struct。
+2. 在 `server/app/schema.py`、`server/app/main.py` 的读写逻辑、`src/infrastructure/persistence/trainingrepository.cpp` 的 JSON 映射和导入工具中同步字段。
+3. 更新 `src/ui/mainwindow.cpp` 的保存、历史和建议页展示。
+4. 如果字段影响复盘校准，更新 `src/ui/trainingreviewdialog.cpp` 和报告导出。
 
 ### 增加人员档案字段
 
-1. 修改 `trainingdomain.h` 的 `AthleteProfile` 或 `CoachProfile`。
-2. 修改 `server/app/schema.py`、FastAPI 读写、`trainingrepository.cpp` JSON 映射和导入工具。
-3. 修改 `personmanagementdialog.cpp` 的表格、表单和保存映射。
-4. 如果字段会出现在训练记录、报告或建议页，同步更新 `mainwindow.cpp` 的展示逻辑。
+1. 修改 `src/domain/trainingdomain.h` 的 `AthleteProfile` 或 `CoachProfile`。
+2. 修改 `server/app/schema.py`、FastAPI 读写、`src/infrastructure/persistence/trainingrepository.cpp` JSON 映射和导入工具。
+3. 修改 `src/ui/personmanagementdialog.cpp` 的表格、表单和保存映射。
+4. 如果字段会出现在训练记录、报告或建议页，同步更新 `src/ui/mainwindow.cpp` 的展示逻辑。
 
 ### 增加摄像头或分析配置字段
 
 1. 修改 `SharedCameraSettings`、`CameraSlotSettings` 或 `CapturePreferenceSettings`。
 2. 修改 `SystemSettingsDialog` UI 和校验。
-3. 修改 `cameraconfigtemplate.cpp` 的 JSON 导入/导出映射和校验。
+3. 修改 `src/infrastructure/configuration/cameraconfigtemplate.cpp` 的 JSON 导入/导出映射和校验。
 4. 修改 `persistSystemSettings()` 和 `loadCameraSettings()`。
 5. 兼容已有 QSettings。
 
@@ -162,7 +162,7 @@ PostgreSQL 主要表：
 - 删除或重命名 key 会影响旧用户配置；应保留兼容读取。
 - 摄像头配置模板会包含 RTSP 密码，导入确认摘要和日志不得展示明文完整 RTSP URL。
 - 不再向 `trainingHistory` 写入新训练记录。
-- 复盘校准保存的是主码流/回退码流引用、离线分析任务、session 级视频资产、动作片段到视频资产的索引、动作片段时间窗口、关键帧姿态 JSON 和连续姿态/轨迹摘要。`training_video_files` 当前只登记规范化录像路径和元数据，不会录制、剪辑或复制视频文件；离线回看依赖原文件仍在本机，NVR 回看依赖 `cameraDefaults/nvrPlaybackTemplate` 能按机位和时间生成可访问 RTSP 回放 URL。
+- 复盘校准保存的是主码流/回退码流引用、离线分析任务、session 级视频资产、动作片段到视频资产的索引和动作片段时间窗口。旧关键帧姿态 JSON/摘要仍由服务端历史边界承载，但当前客户端不再显示姿态关键点覆盖层。`training_video_files` 当前只登记规范化录像路径和元数据，不会录制、剪辑或复制视频文件；离线回看依赖原文件仍在本机，NVR 回看依赖 `cameraDefaults/nvrPlaybackTemplate` 能按机位和时间生成可访问 RTSP 回放 URL。
 - 离线导入现在依赖训练服务先创建 `offline_analysis_tasks`；服务不可用或任务保存失败时不会切换到离线分析源，避免只有本机播放状态、没有数据库任务记录。
 - 视频存储清理只删除用户确认勾选的本机文件，并在视频资产 metadata 记录清理信息；训练记录和动作片段索引继续保留，历史回看会提示文件已清理或移动并回退 NVR/RTSP。
 - 默认动作标准 seed 只插入缺失项，不应覆盖用户本地编辑的阈值、权重、提示文案或参考视频。

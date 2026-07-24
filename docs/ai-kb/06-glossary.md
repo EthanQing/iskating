@@ -10,8 +10,8 @@
 
 相关文件：
 
-- `main.cpp`
-- `mainwindow.cpp`
+- `src/app/main.cpp`
+- `src/ui/mainwindow.cpp`
 
 ## MainWindow
 
@@ -19,8 +19,8 @@
 
 相关文件：
 
-- `mainwindow.h`
-- `mainwindow.cpp`
+- `src/ui/mainwindow.h`
+- `src/ui/mainwindow.cpp`
 
 ## CAM 01-12
 
@@ -28,9 +28,9 @@
 
 相关文件：
 
-- `mainwindow.ui`
-- `mainwindow.cpp`
-- `systemsettingsdialog.cpp`
+- `src/ui/mainwindow.ui`
+- `src/ui/mainwindow.cpp`
+- `src/ui/systemsettingsdialog.cpp`
 
 ## Preview Stream / 预览子码流
 
@@ -38,9 +38,9 @@
 
 相关文件：
 
-- `systemsettingsdialog.h`
-- `mainwindow.cpp`
-- `videoopenglwidget.cpp`
+- `src/ui/systemsettingsdialog.h`
+- `src/ui/mainwindow.cpp`
+- `src/ui/videoopenglwidget.cpp`
 
 ## Main Stream / 主码流
 
@@ -48,8 +48,8 @@
 
 相关文件：
 
-- `videoopenglwidget.cpp`
-- `mainwindow.cpp`
+- `src/ui/videoopenglwidget.cpp`
+- `src/ui/mainwindow.cpp`
 
 ## RtspStream
 
@@ -57,8 +57,8 @@
 
 相关文件：
 
-- `rtspstream.h`
-- `rtspstream.cpp`
+- `src/infrastructure/video/rtspstream.h`
+- `src/infrastructure/video/rtspstream.cpp`
 
 ## D3DFrame
 
@@ -66,7 +66,7 @@
 
 相关文件：
 
-- `d3dframe.h`
+- `src/infrastructure/video/d3dframe.h`
 
 ## D3DVideoSurface
 
@@ -74,8 +74,8 @@
 
 相关文件：
 
-- `d3dvideosurface.h`
-- `d3dvideosurface.cpp`
+- `src/infrastructure/video/d3dvideosurface.h`
+- `src/infrastructure/video/d3dvideosurface.cpp`
 
 ## TensorRtRunner
 
@@ -83,8 +83,8 @@ TensorRT 通用推理封装，负责从 ONNX 构建/加载 `.fp16.engine`、分�
 
 相关文件：
 
-- `tensorrtrunner.h`
-- `tensorrtrunner.cpp`
+- `src/infrastructure/inference/tensorrtrunner.h`
+- `src/infrastructure/inference/tensorrtrunner.cpp`
 
 ## AthleteAnalysisManager
 
@@ -92,8 +92,8 @@ TensorRT 通用推理封装，负责从 ONNX 构建/加载 `.fp16.engine`、分�
 
 相关文件：
 
-- `athleteanalysismanager.h`
-- `athleteanalysismanager.cpp`
+- `src/application/athleteanalysismanager.h`
+- `src/application/athleteanalysismanager.cpp`
 
 ## PersonViT ReID
 
@@ -101,7 +101,7 @@ TensorRT 通用推理封装，负责从 ONNX 构建/加载 `.fp16.engine`、分�
 
 相关文件：
 
-- `tensortrtathletebackend.cpp`
+- `src/infrastructure/inference/tensortrtathletebackend.cpp`
 - `models/athlete/athlete_models.json`
 - `tools/convert_personvit_msmt17.py`
 
@@ -111,24 +111,7 @@ TensorRT 通用推理封装，负责从 ONNX 构建/加载 `.fp16.engine`、分�
 
 相关文件：
 
-- `athleteanalysisresult.h`
-
-## PoseFrameResult
-
-旧实时姿态结果结构，仅用于读取历史记录和兼容旧复盘。
-
-相关文件：
-
-- `poseresult.h`
-
-## PoseStandardnessScorer
-
-旧姿态评分器，不再由新实时采集流程调用；保留源码和历史字段以支持旧数据读取。
-
-相关文件：
-
-- `posestandardnessscorer.h`
-- `posestandardnessscorer.cpp`
+- `src/domain/athleteanalysisresult.h`
 
 ## QSettings
 
@@ -136,5 +119,5 @@ TensorRT 通用推理封装，负责从 ONNX 构建/加载 `.fp16.engine`、分�
 
 相关文件：
 
-- `mainwindow.cpp`
-- `main.cpp`
+- `src/ui/mainwindow.cpp`
+- `src/app/main.cpp`

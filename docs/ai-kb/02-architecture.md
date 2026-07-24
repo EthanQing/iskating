@@ -7,16 +7,16 @@
 
 ## 前端架构
 
-项目是 Qt Widgets 桌面应用，不是 Web 前端。UI 由 `mainwindow.ui` 定义基础布局，`mainwindow.cpp` 在运行时替换或动态装配部分组件。
+项目是 Qt Widgets 桌面应用，不是 Web 前端。UI 由 `src/ui/mainwindow.ui` 定义基础布局，`src/ui/mainwindow.cpp` 在运行时替换或动态装配部分组件。
 
 关键文件：
 
-- `mainwindow.ui`: 主窗口页面、12 路摄像头、历史页和建议页的 Designer 布局。
-- `mainwindow.cpp`: 页面切换、按钮行为、全屏/侧栏/轨迹三态、动态训练记录卡片。
-- `styles/iskating.qss`: 暗色训练仪表盘 QSS。
-- `iskating.qrc`: 注册 `styles/`, `images/`, `icons/` 到 Qt 资源系统。
-- `videoopenglwidget.cpp`: 视频控件、占位状态、播放控制浮层。
-- `d3dvideosurface.cpp`, `videoopenglwidget.cpp`: 运动员检测框和身份标签覆盖层。
+- `src/ui/mainwindow.ui`: 主窗口页面、12 路摄像头、历史页和建议页的 Designer 布局。
+- `src/ui/mainwindow.cpp`: 页面切换、按钮行为、全屏/侧栏/轨迹三态、动态训练记录卡片。
+- `resources/styles/iskating.qss`: 暗色训练仪表盘 QSS。
+- `resources/iskating.qrc`: 注册 `resources/styles/`, `resources/images/`, `resources/icons/` 到 Qt 资源系统。
+- `src/ui/videoopenglwidget.cpp`: 视频控件、占位状态、播放控制浮层。
+- `src/infrastructure/video/d3dvideosurface.cpp`, `src/ui/videoopenglwidget.cpp`: 运动员检测框和身份标签覆盖层。
 
 ## 后端架构
 
@@ -28,10 +28,10 @@
 
 相关文件：
 
-- `rtspstream.cpp`
-- `athleteanalysismanager.cpp`
-- `analysistaskmanager.cpp`
-- `tensorrtrunner.cpp`
+- `src/infrastructure/video/rtspstream.cpp`
+- `src/application/athleteanalysismanager.cpp`
+- `src/application/analysistaskmanager.cpp`
+- `src/infrastructure/inference/tensorrtrunner.cpp`
 - `server/app/main.py`
 - `analysis_worker/worker.py`
 
@@ -47,12 +47,12 @@
 
 相关文件：
 
-- `trainingdomain.h`
-- `trainingrepository.cpp`
-- `personmanagementdialog.cpp`
-- `mainwindow.cpp`
-- `systemsettingsdialog.cpp`
-- `main.cpp`
+- `src/domain/trainingdomain.h`
+- `src/infrastructure/persistence/trainingrepository.cpp`
+- `src/ui/personmanagementdialog.cpp`
+- `src/ui/mainwindow.cpp`
+- `src/ui/systemsettingsdialog.cpp`
+- `src/app/main.cpp`
 
 ## 认证/权限架构
 
@@ -62,17 +62,17 @@ RTSP 摄像头认证仍来自 URL 中的用户名/密码，本机配置保存在
 
 相关文件：
 
-- `trainingrepository.cpp`: 登录、bearer token 与 API 调用
+- `src/infrastructure/persistence/trainingrepository.cpp`: 登录、bearer token 与 API 调用
 - `server/app/main.py`: JWT 与 worker token 验证
-- `systemsettingsdialog.h`: `SharedCameraSettings.username/password`
-- `mainwindow.cpp`, `videoopenglwidget.cpp`, `rtspstream.cpp`: `safeUrlForLog()`
+- `src/ui/systemsettingsdialog.h`: `SharedCameraSettings.username/password`
+- `src/ui/mainwindow.cpp`, `src/ui/videoopenglwidget.cpp`, `src/infrastructure/video/rtspstream.cpp`: `safeUrlForLog()`
 
 ## 外部服务依赖
 
-- RTSP 摄像头/视频源：`videoopenglwidget.cpp`, `rtspstream.cpp`
-- FFmpeg 动态库和开发包：`mainwindow.pro`
+- RTSP 摄像头/视频源：`src/ui/videoopenglwidget.cpp`, `src/infrastructure/video/rtspstream.cpp`
+- FFmpeg 动态库和开发包：`build/qmake/dependencies.pri`
 - Qt 6.7.3 MSVC 2022 x64 SDK：`mainwindow.pro`
-- TensorRT 10.1、CUDA 11.8：`mainwindow.pro`, `tensorrtrunner.cpp`
+- TensorRT 10.1、CUDA 11.8：`build/qmake/dependencies.pri`, `src/infrastructure/inference/tensorrtrunner.cpp`
 - YOLO26x 和 TransReID 模型下载/转换：`tools/download_athlete_models.ps1`, `tools/convert_personvit_msmt17.py`
 - FastAPI 训练服务与 PostgreSQL：`server/`
 - NAS `nas://` 源、视频和结果分块：`server/app/analysis_artifacts.py`, `analysis_worker/`
@@ -91,18 +91,18 @@ RTSP 摄像头认证仍来自 URL 中的用户名/密码，本机配置保存在
 9. 保存训练后，桌面端通过 FastAPI 提交 session、参与者、检测/身份摘要、视频引用和轨迹/速度。当前主运动员 participant UUID 在客户端与服务端可能不一致，轨迹/速度存在静默漏存风险。
 10. 单视频导入先在后台做媒体/D3D11VA 探测和任务登记；导入完成不等于全视频 AI 逐帧分析完成。
 11. 12 路完整分析把 `nas://` 批次提交给 DeepStream worker，结果写 NAS 分块并显式激活；完成本身不会自动创建历史 session。
-12. 历史页读取当前检测/轨迹与旧动作/评分/姿态兼容数据，并提供复核、报告与趋势。
+12. 历史页读取当前检测/轨迹与旧动作/评分兼容数据，并提供复核、报告与趋势；服务端旧姿态表仍保留，但当前客户端不再加载或绘制姿态关键点覆盖层。
 
 相关文件：
 
-- `systemsettingsdialog.cpp`
-- `mainwindow.cpp`
-- `videoopenglwidget.cpp`
-- `streamregistry.cpp`
-- `rtspstream.cpp`
-- `d3dvideosurface.cpp`
-- `athleteanalysismanager.cpp`
-- `tensortrtathletebackend.cpp`
+- `src/ui/systemsettingsdialog.cpp`
+- `src/ui/mainwindow.cpp`
+- `src/ui/videoopenglwidget.cpp`
+- `src/infrastructure/video/streamregistry.cpp`
+- `src/infrastructure/video/rtspstream.cpp`
+- `src/infrastructure/video/d3dvideosurface.cpp`
+- `src/application/athleteanalysismanager.cpp`
+- `src/infrastructure/inference/tensortrtathletebackend.cpp`
 
 ## 模块关系
 
@@ -114,10 +114,10 @@ RTSP 摄像头认证仍来自 URL 中的用户名/密码，本机配置保存在
 
 ## 架构关键点
 
-- `main.cpp` 必须在 `QApplication` 构造前设置本地 Qt 插件和运行库搜索路径。
+- `src/app/main.cpp` 必须在 `QApplication` 构造前设置本地 Qt 插件和运行库搜索路径。
 - `mainwindow.pro` 强制使用 `C:/Qt/6.7.3/msvc2022_64` 下的 qmake，否则直接报错。
 - 视频解码强依赖 D3D11VA；如果解码器不支持 D3D11VA，`RtspStream` 会进入致命错误。
 - TensorRT engine 会按 ONNX 文件名生成到同目录的 `.fp16.engine`，首次启动可能很慢。
-- 旧姿态文件仍可用于历史数据兼容，但不属于当前实时主流程。
+- 服务端旧姿态表和接口仍作为历史数据边界保留；客户端已移除旧姿态结果类型、姿态覆盖层和对应查询接口。
 - 任务中心只能恢复展示重启前的未完成任务，不会重建 job 参数，不能直接继续。
 - 完整分析的模型/gallery 字段不是冻结快照；激活前校验也尚未覆盖全局 frameIndex 无 gap、PTS 跨块单调和内容/元数据逐项一致。

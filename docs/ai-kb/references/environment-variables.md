@@ -22,12 +22,12 @@
 | `ISKATING_ANALYSIS_WORKER_TOKEN` | 离线分析必需 | worker 专用 API 令牌；FastAPI 与 worker 值必须一致 | 无 | `server/app/main.py`, `analysis_worker/worker.py` |
 | `ISKATING_ANALYSIS_WORKER_ID` | 否 | worker 租约和诊断标识 | 主机名或 `deepstream-01` | `analysis_worker/worker.py`, `analysis_worker/compose.yml` |
 | `ISKATING_ANALYSIS_POLL_SECONDS` | 否 | 无任务时领取轮询间隔 | `5` | `analysis_worker/worker.py` |
-| `ISKATING_API_BASE_URL` | 否 | 桌面端训练服务地址覆盖 | `http://127.0.0.1:8000` | `trainingrepository.cpp` |
-| `ISKATING_API_TOKEN` | 否 | 桌面端访问令牌覆盖 | 无 | `trainingrepository.cpp` |
-| `ISKATING_API_USERNAME` | 否 | 桌面端自动登录用户名 | `admin` | `trainingrepository.cpp` |
-| `ISKATING_API_PASSWORD` | 否 | 桌面端自动登录密码 | `admin123` | `trainingrepository.cpp` |
-| `QT_PLUGIN_PATH` | 否 | 运行时 Qt 插件搜索路径；程序会在启动时设置 | 程序目录和 `plugins` 子目录 | `main.cpp` |
-| `PATH` | 否 | 运行时 DLL 搜索路径；程序会把本地目录前置 | 保留系统原值 | `main.cpp` |
+| `ISKATING_API_BASE_URL` | 否 | 桌面端训练服务地址覆盖 | `http://127.0.0.1:8000` | `src/infrastructure/persistence/trainingrepository.cpp` |
+| `ISKATING_API_TOKEN` | 否 | 桌面端访问令牌覆盖 | 无 | `src/infrastructure/persistence/trainingrepository.cpp` |
+| `ISKATING_API_USERNAME` | 否 | 桌面端自动登录用户名 | `admin` | `src/infrastructure/persistence/trainingrepository.cpp` |
+| `ISKATING_API_PASSWORD` | 否 | 桌面端自动登录密码 | `admin123` | `src/infrastructure/persistence/trainingrepository.cpp` |
+| `QT_PLUGIN_PATH` | 否 | 运行时 Qt 插件搜索路径；程序会在启动时设置 | 程序目录和 `plugins` 子目录 | `src/app/main.cpp` |
+| `PATH` | 否 | 运行时 DLL 搜索路径；程序会把本地目录前置 | 保留系统原值 | `src/app/main.cpp` |
 
 ## 不是环境变量但很重要的路径
 

@@ -10,10 +10,10 @@
 - [[frontend|Qt Widgets 前端]]: Qt Widgets、QSS、资源和动态 UI。
 - [[video-streaming|视频流]]: RTSP、FFmpeg、D3D11VA 和视频显示。
 - [[ai-inference|AI 推理]]: 当前主链路是 TensorRT YOLO26x person + PersonViT ReID；旧 3D/手部后端未进入活跃构建。
-- [[pose-analysis|旧姿态数据兼容]]: 旧姿态、评分、骨架和轨迹数据的读取边界。
+- [[pose-analysis|姿态历史数据边界]]: 服务端旧姿态、评分数据与当前客户端能力的边界。
 - [[persistence|持久化与训练服务]]: QSettings 本机配置、QtNetwork/FastAPI 和 PostgreSQL 训练业务数据。
 - [[background-workers|后台线程]]: 视频与 AI 分析后台线程。
-- DeepStream 完整帧率 worker 尚未拆成独立模块文档，当前由 [[../02-architecture|架构说明]] 和 `docs/full-rate-analysis-guide.md` 承接。
+- DeepStream 完整帧率 worker 尚未拆成独立模块文档，当前由 [[../02-architecture|架构说明]]、[[../runbooks/deployment|部署 Runbook]] 和 [[../runbooks/testing|测试 Runbook]] 承接。
 
 ## 常用组合
 
