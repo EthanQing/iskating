@@ -9,10 +9,10 @@
 
 先按模块缩小范围：
 
-- 启动失败：看 `main.cpp`, `mainwindow.pro`, 输出目录 DLL/插件。
-- 视频不播放：看 `videoopenglwidget.cpp`, `streamregistry.cpp`, `rtspstream.cpp`。
-- AI 无结果：看 `athleteanalysismanager.cpp`, `d3dframeextractor.cpp`, `tensortrtathletebackend.cpp`。
-- 身份异常：看 `tensortrtathletebackend.cpp` 的 gallery、阈值、人工绑定和 track 逻辑。
+- 启动失败：看 `src/app/main.cpp`, `mainwindow.pro`, 输出目录 DLL/插件。
+- 视频不播放：看 `src/ui/videoopenglwidget.cpp`, `src/infrastructure/video/streamregistry.cpp`, `src/infrastructure/video/rtspstream.cpp`。
+- AI 无结果：看 `src/application/athleteanalysismanager.cpp`, `src/infrastructure/video/d3dframeextractor.cpp`, `src/infrastructure/inference/tensortrtathletebackend.cpp`。
+- 身份异常：看 `src/infrastructure/inference/tensortrtathletebackend.cpp` 的 gallery、阈值、人工绑定和 track 逻辑。
 - 配置丢失：看 `MainWindow::loadCameraSettings()` 和 `persistSystemSettings()`。
 
 ## 日志位置
@@ -32,9 +32,9 @@ TODO: 未确认发布包中日志如何收集。`x64/Release` 中曾出现 `uia-
 
 相关文件：
 
-- `mainwindow.cpp`
-- `videoopenglwidget.cpp`
-- `rtspstream.cpp`
+- `src/ui/mainwindow.cpp`
+- `src/ui/videoopenglwidget.cpp`
+- `src/infrastructure/video/rtspstream.cpp`
 
 ## 数据库排查
 
@@ -46,8 +46,8 @@ TODO: 未确认发布包中日志如何收集。`x64/Release` 中曾出现 `uia-
 
 相关文件：
 
-- `main.cpp`
-- `mainwindow.cpp`
+- `src/app/main.cpp`
+- `src/ui/mainwindow.cpp`
 
 ## 认证问题排查
 
@@ -60,8 +60,8 @@ TODO: 未确认发布包中日志如何收集。`x64/Release` 中曾出现 `uia-
 
 相关文件：
 
-- `systemsettingsdialog.cpp`
-- `mainwindow.cpp`
+- `src/ui/systemsettingsdialog.cpp`
+- `src/ui/mainwindow.cpp`
 
 ## 模型问题排查
 
@@ -72,6 +72,6 @@ TODO: 未确认发布包中日志如何收集。`x64/Release` 中曾出现 `uia-
 
 相关文件：
 
-- `tensorrtrunner.cpp`
-- `tensortrtathletebackend.cpp`
+- `src/infrastructure/inference/tensorrtrunner.cpp`
+- `src/infrastructure/inference/tensortrtathletebackend.cpp`
 - `models/athlete/athlete_models.json`

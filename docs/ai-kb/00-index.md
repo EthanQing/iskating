@@ -19,10 +19,10 @@
 - [[06-glossary|术语表]]
 - [[07-open-questions|未确认问题]]
 
-## 产品功能盘点
+## 项目结构与功能边界
 
-- [[../feature-inventory|当前功能全量清单]]：供产品、界面和使用流程重新编排使用。
-- [客户端九区流程 HTML 原型](../client-flow-prototype.html)：单文件交互示意，不代表 Qt 客户端已完成导航重构。
+- [[01-project-overview|项目概览]]：当前功能边界、代码结构和主要入口。
+- [[02-architecture|架构说明]]：客户端、服务端和 worker 的分层关系。
 
 ## 模块入口
 
@@ -31,7 +31,7 @@
 - [[modules/frontend|Qt Widgets 界面]]
 - [[modules/video-streaming|RTSP/D3D 视频链路]]
 - [[modules/ai-inference|TensorRT 推理]]
-- [[modules/pose-analysis|旧姿态数据兼容模块]]
+- [[modules/pose-analysis|姿态历史数据边界]]
 - [[modules/persistence|持久化与训练服务]]
 - [[modules/background-workers|后台线程]]
 
@@ -62,7 +62,7 @@
 - 视频/RTSP/D3D 问题：[[modules/video-streaming]] -> [[flows/video-streaming-flow]] -> [[runbooks/debugging]]
 - AI/TensorRT/模型问题：[[modules/ai-inference]] -> [[flows/pose-analysis-flow]] -> [[references/third-party-services]]
 - UI/QSS/窗口交互：[[modules/frontend]] -> [[modules/core]] -> [[04-conventions]]
-- 产品功能/UX 流程：[[../feature-inventory|全量功能盘点]] -> [HTML 原型](../client-flow-prototype.html) -> [[flows/main-user-flow]]
+- 产品功能/UX 流程：[[01-project-overview|项目概览]] -> [[flows/main-user-flow]]
 - 训练记录/配置问题：[[modules/persistence]] -> [[flows/training-record-flow]] -> [[references/database-schema]]
 - 构建/部署问题：[[03-commands]] -> [[runbooks/local-development]] 或 [[runbooks/deployment]] -> [[references/environment-variables]]
 

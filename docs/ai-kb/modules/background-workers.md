@@ -14,7 +14,7 @@
 - `rtspstream.cpp`: 每个视频源使用 `QThread::create()` 后台读取和解码。
 - `athleteanalysismanager.cpp`: `AthleteAnalysisWorker` 后台初始化 TensorRT 并循环分析最新帧。
 - `streamregistry.cpp`: 管理共享 `RtspStream` 生命周期。
-- `mainwindow.cpp`: 创建 `AthleteAnalysisManager` 并设置回调。
+- `src/ui/mainwindow.cpp`: 创建 `AthleteAnalysisManager` 并设置回调。
 
 ## 当前设计
 
@@ -47,9 +47,9 @@
 
 ### 调整结果过期策略
 
-1. 修改 `kResultTtlMs` in `athleteanalysismanager.cpp`。
+1. 修改 `kResultTtlMs` in `src/application/athleteanalysismanager.cpp`。
 2. 确认短暂断帧时检测框是否应该保留。
-3. 验证暂停/停止时 `clearRealtimePose()` 是否清除检测覆盖层；该函数名是旧命名，当前不会清理或生成姿态结果。
+3. 验证暂停/停止时 `clearRealtimeAnalysisFrame()` 是否清除检测覆盖层；该函数只清理当前运动员检测结果。
 
 ## 注意事项
 

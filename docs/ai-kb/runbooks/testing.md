@@ -7,6 +7,14 @@
 
 ## 单元测试
 
+客户端纯逻辑合同测试覆盖摄像头模板 JSON 规范化和视频资产路径规划：
+
+```powershell
+& "C:/Qt/6.7.3/msvc2022_64/bin/qmake.exe" tests/client/client-tests.pro "CONFIG+=release"
+nmake release
+.\x64\Release\tests\client-tests.exe
+```
+
 FastAPI 分块协议和 worker 编排使用 Python `unittest`：
 
 ```powershell
@@ -52,10 +60,10 @@ cmd /c "call ""C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxili
 - 主视频 bbox/身份/trackId 覆盖不会崩溃；已识别且四点标定的机位能绘制二维轨迹，未标定或 unknown 不生成场地点。
 - 保存新训练后历史页和建议页刷新，并确认 PostgreSQL 中生成 session、参与者和检测/身份摘要；新 person/ReID 记录不应生成姿态、自动动作或评分。
 - 使用真实 PostgreSQL 专门验证主运动员 participant UUID 与 `track_points`/`speed_metrics` 外键一致；当前已知映射缺口未修复，预期可复现静默漏存。
-- 用旧 SQLite 样本库执行 `tools/import_sqlite_to_postgres.py`，确认导入数量、历史记录、旧动作复盘和关键帧姿态 JSON 兼容。
+- 用旧 SQLite 样本库执行 `tools/import_sqlite_to_postgres.py`，确认导入数量、历史记录和旧动作复盘兼容；旧姿态 JSON 仅验证服务端迁移/API 数据，不再要求客户端显示关键点覆盖层。
 - 打开“人员管理”，新增/编辑/删除运动员和教练，确认删除后训练下拉不再显示该人员但历史记录仍可展示。
 - 打开系统设置，点击“连通测试”：未配置 IP 应显示跳过；不可达 IP 应显示失败原因；可用 RTSP 应显示成功、UDP/TCP、分辨率和帧率；测试后表单内容不应被自动保存或改写。
-- 对含旧动作/姿态数据的本地视频记录打开“复盘校准”，验证动作列表、片段定位、慢放、逐帧、关键帧定位和姿态叠加开关；这是历史兼容路径。
+- 对含旧动作数据的本地视频记录打开“复盘校准”，验证动作列表、片段定位、慢放、逐帧、关键帧定位和人工修正；客户端已移除旧姿态叠加开关。
 - 导入单视频和创建 12 路完整帧率批次后，查询 `/analysis-tasks`，确认分别生成 `offline_import` 与 `full_rate_batch` 主任务；保存关联训练 session 后确认任务关联输出 session、进度为 100 且状态完成。
 - 在当前进程暂停/继续任务，确认完整分析暂停只停轮询；重启后的 `paused` 任务应显示“需重新发起”，不能伪装可继续。同时检查 run 的 0–1 进度不被直接当成 0–100 百分比。
 - 在复盘中手动新增动作、修正起止时间/有效性/分数/错误项/反馈，确认历史卡片、建议页趋势、报告和个体基线使用人工优先数据。
@@ -70,9 +78,9 @@ cmd /c "call ""C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxili
 
 相关文件：
 
-- `mainwindow.cpp`
-- `videoopenglwidget.cpp`
-- `handanalysismanager.cpp`
+- `src/ui/mainwindow.cpp`
+- `src/ui/videoopenglwidget.cpp`
+- `src/application/analysistaskmanager.cpp`
 
 ## 完整帧率上线门槛
 

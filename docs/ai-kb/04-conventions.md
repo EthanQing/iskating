@@ -14,15 +14,17 @@
 
 ## 目录组织习惯
 
-- 项目源码主要平铺在根目录，`.cpp/.h/.ui/.qrc/.pro` 都在项目根。
-- 资源按类型分目录：`icons/`, `images/`, `styles/`, `models/`。
-- 构建输出在 `x64/Debug` 和 `x64/Release`，不应作为源码修改对象。
+- 根目录只保留 `mainwindow.pro`、项目文档和顶层运行目录；Qt/C++ 业务源码不得平铺在根目录。
+- `src/app/` 放进程入口，`src/ui/` 放 Qt Widgets/UI，`src/domain/` 放领域结构，`src/application/` 放流程编排，`src/infrastructure/` 按视频、推理、持久化和配置继续分层。
+- `resources/` 放 `iskating.qrc`、`icons/`、`images/` 和 `styles/`；`models/` 保持为模型交付目录。
+- `build/qmake/` 放公共配置、第三方依赖和部署规则；各源码层通过同层 `.pri` 汇总到 `mainwindow.pro`。
+- `tests/client/` 放不依赖 GPU/网络的客户端合同测试；构建输出在 `x64/Debug` 和 `x64/Release`，不应作为源码修改对象。
 
 ## 组件写法
 
-- 基础 UI 用 `mainwindow.ui`，复杂动态区域在 `mainwindow.cpp` 里替换或插入控件。
-- 样式通过对象名、动态属性和 QSS 控制，例如 `setRole()`、`repolish()`、`styles/iskating.qss`。
-- 视频控件封装为 `VideoOpenGLWidget`，内部组合 `D3DVideoSurface`。
+- 基础 UI 用 `src/ui/mainwindow.ui`，复杂动态区域在 `src/ui/mainwindow.cpp` 里替换或插入控件。
+- 样式通过对象名、动态属性和 QSS 控制，例如 `setRole()`、`repolish()`、`resources/styles/iskating.qss`。
+- 视频控件封装为 `src/ui/VideoOpenGLWidget`，内部组合 `src/infrastructure/video/D3DVideoSurface`。
 
 ## API 写法
 
@@ -34,9 +36,9 @@
 
 相关文件：
 
-- `tensorrtrunner.h`
-- `trainingrepository.h/.cpp`
-- `athleteanalysismanager.cpp`
+- `src/infrastructure/inference/tensorrtrunner.h`
+- `src/infrastructure/persistence/trainingrepository.h/.cpp`
+- `src/application/athleteanalysismanager.cpp`
 - `server/app/main.py`
 
 ## 错误处理方式
@@ -48,10 +50,10 @@
 
 相关文件：
 
-- `rtspstream.cpp`
-- `systemsettingsdialog.cpp`
-- `videoopenglwidget.cpp`
-- `tensorrtrunner.cpp`
+- `src/infrastructure/video/rtspstream.cpp`
+- `src/ui/systemsettingsdialog.cpp`
+- `src/ui/videoopenglwidget.cpp`
+- `src/infrastructure/inference/tensorrtrunner.cpp`
 
 ## 日志方式
 
@@ -60,9 +62,9 @@
 
 相关文件：
 
-- `mainwindow.cpp`
-- `videoopenglwidget.cpp`
-- `rtspstream.cpp`
+- `src/ui/mainwindow.cpp`
+- `src/ui/videoopenglwidget.cpp`
+- `src/infrastructure/video/rtspstream.cpp`
 
 ## 测试习惯
 
@@ -79,7 +81,7 @@
 
 ## 类型定义习惯
 
-- 简单数据结构用 `struct` 放在头文件，例如 `AthleteAnalysisResult`, `TrainingSession`, `AnalysisTask`, `SharedCameraSettings`；`PoseFrameResult` 等旧姿态类型只用于兼容边界。
+- 简单数据结构用 `struct` 放在头文件，例如 `AthleteAnalysisResult`, `TrainingSession`, `AnalysisTask`, `SharedCameraSettings`；旧姿态结果不再作为客户端 C++ 类型，服务端历史表/接口的兼容边界由持久化模块单独维护。
 - 枚举使用 `enum class`，例如任务、视频或识别状态类型。
 - Qt 容器与类型较多，例如 `QVector`, `QString`, `QImage`, `QPointF`。
 
@@ -87,12 +89,12 @@
 
 - 头文件使用 include guard。
 - `.cpp` 先包含自身头文件，再包含项目头和 Qt/系统头。
-- qmake 的 `SOURCES`/`HEADERS` 需要手动维护，见 `mainwindow.pro`。
+- qmake 的 `SOURCES`/`HEADERS` 在各层 `.pri` 中维护，`mainwindow.pro` 只负责入口、依赖和部署组合。
 
 ## 不应该做的事情
 
 - 不要直接修改 `Makefile*`, `.qmake.stash`, `x64/`, `debug/`, `release/` 等生成文件。
 - 不要绕过 `safeUrlForLog()` 打印带密码的 RTSP URL。
 - 不要在 UI 线程里做长时间 TensorRT 构建或视频解码。
-- 不要新增源码文件后忘记更新 `mainwindow.pro`。
+- 不要把 Qt/C++ 源码重新放到根目录；新增源码后更新对应层 `.pri`，并确认 `mainwindow.pro` 已包含该层清单。
 - 不要假设 `.vscode/` 的 GCC 配置是当前真实构建方式；以 `mainwindow.pro` 为准。

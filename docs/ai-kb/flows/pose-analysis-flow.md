@@ -17,7 +17,7 @@
 5. 对每个检测框 crop 并 resize 到 `128x256`，运行 PersonViT，得到 768 维 L2 embedding。
 6. 在当前 session 最多四名参与者 gallery 中计算余弦相似度；最高分达到 `0.60` 且与第二名差值不小于 `0.05` 时标记 identified。
 7. 使用框 IoU 和 `1200ms` TTL 维护 per-camera trackId；session 或参与者变化时清空旧 track；人工绑定在低置信度和 unknown 结果上覆盖身份。
-8. `MainWindow` 更新主视频检测框和标签，并按约 `200ms` 采样保存 bbox/track/身份兼容字段到 `participant_pose_frames` 内存列表。有效身份和四点标定还会产生 `track_points` 与 `speed_metrics` 待保存数据。
+8. `MainWindow` 更新主视频检测框和标签，并按采样窗口保存 bbox/track/身份摘要。有效身份和四点标定还会产生 `track_points` 与 `speed_metrics` 待保存数据。
 9. 停止采集后保存视频、参与者、检测框、身份状态、机位、trackId、置信度和条件式轨迹/速度；不写入伪造姿态、评分或 repetition。当前主 participant UUID 映射不一致可导致轨迹/速度静默漏存。
 
 ## 样本库流程
@@ -33,7 +33,7 @@
 
 ## 历史兼容
 
-旧姿态字段、旧动作评分和旧姿态复盘入口保留读取兼容，但新训练不会生成这些结果。
+服务端旧姿态字段、旧动作评分和历史接口保留兼容，但当前客户端不再加载或绘制旧姿态关键点；新训练不会生成这些结果。
 
 ## 完整帧率离线流程
 

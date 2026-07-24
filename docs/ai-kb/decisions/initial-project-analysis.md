@@ -12,14 +12,15 @@ Observed
 
 ### Context
 
-项目以 `.pro`, `.ui`, `.qrc` 和 Qt Widgets 源码组织，没有 Web、CMake 或服务端入口。
+项目以 `.pro`、分层 `.pri`、`.ui`、`.qrc` 和 Qt Widgets 源码组织，没有 Web 或 CMake 客户端入口；服务端和 worker 位于独立目录。
 
 ### Evidence
 
 - `mainwindow.pro`
-- `mainwindow.ui`
-- `main.cpp`
-- `mainwindow.cpp`
+- `src/ui/mainwindow.ui`
+- `src/app/main.cpp`
+- `src/ui/mainwindow.cpp`
+- `build/qmake/common.pri`
 
 ### Consequences
 
@@ -113,12 +114,12 @@ Superseded by FastAPI/PostgreSQL and development schema reset
 
 ### Evidence
 
-- `mainwindow.cpp`
-- `mainwindow.h`
-- `trainingrepository.cpp`
-- `trainingdomain.h`
-- `systemsettingsdialog.h`
-- `main.cpp`
+- `src/ui/mainwindow.cpp`
+- `src/ui/mainwindow.h`
+- `src/infrastructure/persistence/trainingrepository.cpp`
+- `src/domain/trainingdomain.h`
+- `src/ui/systemsettingsdialog.h`
+- `src/app/main.cpp`
 
 ### Consequences
 
@@ -136,18 +137,17 @@ Observed
 
 ### Context
 
-仓库保留旧手部/姿态后端源文件，但实时主流程使用 `AthleteAnalysisManager` 初始化 `TensorRtAthleteBackend`，只生成 person 检测、ReID、机位内 track，以及满足条件时由 bbox 派生的二维轨迹和速度。
+早期仓库曾保留旧手部/姿态后端；本次目录重组已删除这些未接入客户端实现。当前实时主流程使用 `AthleteAnalysisManager` 初始化 `TensorRtAthleteBackend`，只生成 person 检测、ReID、机位内 track，以及满足条件时由 bbox 派生的二维轨迹和速度。
 
 ### Evidence
 
-- `handanalysismanager.cpp`
-- `tensortrthandposebackend.cpp`
-- `handposeadapter.cpp`
+- `src/application/athleteanalysismanager.cpp`
+- `src/infrastructure/inference/tensortrtathletebackend.cpp`
 - `models/hand/hand_model.json`
 
 ### Consequences
 
-好处是主流程聚焦 YOLO26x person 检测和 PersonViT ReID；旧姿态类名和文件名仍可能误导维护者，但只作为历史兼容代码保留。
+好处是主流程聚焦 YOLO26x person 检测和 PersonViT ReID；服务端历史姿态表保留，客户端不再编译或展示旧姿态结果。
 
 ### Uncertainty
 

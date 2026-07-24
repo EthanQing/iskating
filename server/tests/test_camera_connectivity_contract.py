@@ -7,8 +7,9 @@ from pathlib import Path
 class CameraConnectivityContractTests(unittest.TestCase):
     def test_diagnostic_fields_and_error_mappings_exist(self) -> None:
         root = Path(__file__).parents[2]
-        header = (root / "cameraconnectivitytester.h").read_text(encoding="utf-8")
-        source = (root / "cameraconnectivitytester.cpp").read_text(encoding="utf-8")
+        configuration = root / "src" / "infrastructure" / "configuration"
+        header = (configuration / "cameraconnectivitytester.h").read_text(encoding="utf-8")
+        source = (configuration / "cameraconnectivitytester.cpp").read_text(encoding="utf-8")
         for field in (
             "addressStatus",
             "openElapsedMs",
@@ -30,7 +31,9 @@ class CameraConnectivityContractTests(unittest.TestCase):
 
     def test_url_composition_keeps_password_out_of_logs(self) -> None:
         root = Path(__file__).parents[2]
-        source = (root / "cameraconnectivitytester.cpp").read_text(encoding="utf-8")
+        source = (
+            root / "src" / "infrastructure" / "configuration" / "cameraconnectivitytester.cpp"
+        ).read_text(encoding="utf-8")
         self.assertIn("composeCameraPreviewTestUrl", source)
         self.assertIn("safeCameraTestUrlForLog", source)
         self.assertIn('url.setPassword(QStringLiteral("***"))', source)

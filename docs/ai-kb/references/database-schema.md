@@ -22,16 +22,16 @@
 
 相关文件：
 
-- `mainwindow.cpp`
-- `personmanagementdialog.cpp`
-- `trainingdomain.h`
-- `trainingrepository.cpp`
+- `src/ui/mainwindow.cpp`
+- `src/ui/personmanagementdialog.cpp`
+- `src/domain/trainingdomain.h`
+- `src/infrastructure/persistence/trainingrepository.cpp`
 - `server/app/main.py`
 - `server/app/schema.py`
 - `tools/reset_postgres_schema.py`
 - `tools/import_sqlite_to_postgres.py`
 - `tools/backfill_video_indexes.py`
-- `main.cpp`
+- `src/app/main.cpp`
 
 ## schema 位置
 
@@ -39,7 +39,7 @@ QSettings schema 仍分散在读写代码中：
 
 - `MainWindow::loadCameraSettings()`
 - `MainWindow::persistSystemSettings()`
-摄像头 JSON 模板 schema 位于 `cameraconfigtemplate.cpp`，作为现场导入/导出交换格式；模板导入后仍写回 QSettings，不新增数据库表或字段。
+摄像头 JSON 模板 schema 位于 `src/infrastructure/configuration/cameraconfigtemplate.cpp`，作为现场导入/导出交换格式；模板导入后仍写回 QSettings，不新增数据库表或字段。
 PostgreSQL schema 在开发期由 `server/app/schema.py` 集中维护，使用 `tools/reset_postgres_schema.py --yes` 对空库/可丢弃开发库执行手动重建。FastAPI 启动时只执行 `seed_defaults()`，不会自动建表或删除表。旧 SQLite 数据通过一次性导入工具导入到已重建的空库，不再由桌面端启动时自动补列或导入。已有 PostgreSQL 开发库如需保留数据，可用 `tools/backfill_video_indexes.py` 幂等补齐 F-10 视频索引字段、F-22 participant 结果和旧记录关联。
 
 ## 主要数据结构
@@ -265,7 +265,7 @@ ReID 向量：`sample_id`, `athlete_id`, `embedding`, `embedding_dimension`, `mo
 - `athlete_id`: 可空，动作级运动员身份；旧记录为空时回退到 session 主运动员。
 - `track_id`: 可空，姿态实例轨迹 ID。当前来自当帧检测顺序，不代表跨帧 ReID。
 - `camera_id`: 可空，动作关键帧来源机位。
-- `frame_time_ms`: 可空，动作关键帧对应 `PoseFrameResult.timestampMs`。
+- `frame_time_ms`: 可空，动作关键帧对应历史姿态/检测时间戳。
 - `identity_status`: `identified` 或 `unknown`；默认 `unknown`。
 - `identity_confidence`: 可空，算法或人工绑定置信度。
 - `identity_source`: 可空，当前为 `manual`、`algorithm` 或空。
@@ -378,11 +378,11 @@ python tools/backfill_full_rate_analysis.py
 
 相关文件：
 
-- `mainwindow.cpp`
+- `src/ui/mainwindow.cpp`
 - `server/app/schema.py`
 - `tools/reset_postgres_schema.py`
 - `tools/import_sqlite_to_postgres.py`
-- `personmanagementdialog.cpp`
+- `src/ui/personmanagementdialog.cpp`
 
 ## seed 方式
 
@@ -410,6 +410,6 @@ FastAPI `seed_defaults()` 内置默认管理员、默认运动员、默认教练
 
 相关文件：
 
-- `mainwindow.h`
-- `mainwindow.cpp`
-- `personmanagementdialog.cpp`
+- `src/ui/mainwindow.h`
+- `src/ui/mainwindow.cpp`
+- `src/ui/personmanagementdialog.cpp`

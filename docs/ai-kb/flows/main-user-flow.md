@@ -4,7 +4,7 @@
 相关模块：[[modules/core|应用核心]]、[[modules/frontend|Qt Widgets 前端]]、[[modules/persistence|持久化与训练服务]]、[[modules/ai-inference|AI 推理]]
 后续流程：[[video-streaming-flow|视频播放流程]]、[[pose-analysis-flow|运动员检测与身份流程]]、[[training-record-flow|训练记录流程]]
 相关 Runbook：[[runbooks/local-development|本地开发]]、[[runbooks/debugging|调试]]
-产品盘点：[全量功能与目标流程](../../feature-inventory.md)、[九区客户端 HTML 原型](../../client-flow-prototype.html)
+结构与边界：[[../01-project-overview|项目概览]]、[[../02-architecture|架构说明]]
 
 ## 简介
 
@@ -19,7 +19,7 @@
 
 ## 流程步骤
 
-1. `main.cpp` 创建 `QApplication`，设置本地插件/运行库路径，显示最大化 `MainWindow`。
+1. `src/app/main.cpp` 创建 `QApplication`，设置本地插件/运行库路径，显示最大化 `MainWindow`。
 2. `MainWindow` 构造时初始化 UI、加载摄像头配置、加载训练历史、创建 AI 分析管理器。
 3. `TrainingRepository` 连接 FastAPI/PostgreSQL，读取已保存 token 或使用环境账号自动登录；客户端没有可见登录页。
 4. 用户维护运动员/教练档案、带训关系、ReID 样本、比赛/场次/参赛关系和已有动作标准。
@@ -29,22 +29,22 @@
 8. 完整分析分支：导入恰好 12 路 `nas://` 源并创建 run，Ubuntu DeepStream worker 逐解码帧生成 bbox/track/ReID 分块，用户查看进度、重试/取消并显式激活。它不生成轨迹、速度、姿态、动作或评分，也不会自动创建 session。
 9. 任务中心统一展示单视频与完整分析任务。当前进程内可控制；重启后只能恢复显示，不能直接继续。
 10. 实时或单视频分析停止后，`saveRecord()` 通过 FastAPI 保存 session、参与者、视频资产、检测/身份摘要和条件式轨迹/速度。当前 participant UUID 映射缺口可导致主运动员轨迹/速度漏存。
-11. 历史页组合检索 session，提供视频回看、二维轨迹/速度、教练批注和旧动作/姿态/评分兼容复核。检测/身份时间线面板已实现但尚无界面入口。
+11. 历史页组合检索 session，提供视频回看、二维轨迹/速度、教练批注和旧动作/评分兼容复核；客户端不再加载旧姿态关键点覆盖层。
 12. 报告页导出 Markdown/CSV/PDF 单次报告和轨迹/速度/关节专项指标；旧评分或人工动作数据才具有技术趋势和纠正建议语义。
 
 ## 涉及文件
 
-- `main.cpp`
-- `mainwindow.cpp`
-- `mainwindow.ui`
-- `personmanagementdialog.cpp`
-- `systemsettingsdialog.cpp`
-- `videoopenglwidget.cpp`
-- `athleteanalysismanager.cpp`
-- `tensortrtathletebackend.cpp`
-- `analysistaskmanager.cpp`
-- `offlineanalysisdialog.cpp`
-- `trainingrepository.cpp`
+- `src/app/main.cpp`
+- `src/ui/mainwindow.cpp`
+- `src/ui/mainwindow.ui`
+- `src/ui/personmanagementdialog.cpp`
+- `src/ui/systemsettingsdialog.cpp`
+- `src/ui/videoopenglwidget.cpp`
+- `src/application/athleteanalysismanager.cpp`
+- `src/infrastructure/inference/tensortrtathletebackend.cpp`
+- `src/application/analysistaskmanager.cpp`
+- `src/ui/offlineanalysisdialog.cpp`
+- `src/infrastructure/persistence/trainingrepository.cpp`
 - `server/app/main.py`
 - `analysis_worker/`
 
@@ -59,7 +59,7 @@
 - `AthleteAnalysisResult`
 - `AnalysisTask`, `OfflineAnalysisBatch`, `OfflineAnalysisRun`
 - `TrainingSession`, `TrainingSessionParticipant`, `TrainingVideoFile`
-- `ActionRepetition`, `ParticipantPoseFrame` 兼容结构
+- `ActionRepetition` 及服务端历史姿态表兼容数据
 - `QSettings` keys: `cameraDefaults/*`, `cameras/cameraXX/*`, `capture/*`
 - PostgreSQL 核心表：`athletes`, `coaches`, `competitions`, `action_standards`, `analysis_tasks`, `offline_analysis_*`, `training_sessions`, `training_session_participants`, `participant_pose_frames`, `track_points`, `speed_metrics`, `joint_metrics`
 

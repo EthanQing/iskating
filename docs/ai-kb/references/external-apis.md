@@ -9,7 +9,7 @@
 
 - 服务名称：RTSP 视频源。
 - 用途：提供 12 路预览和主视图视频流。
-- 调用位置：`videoopenglwidget.cpp`, `rtspstream.cpp`。
+- 调用位置：`src/ui/videoopenglwidget.cpp`, `src/infrastructure/video/rtspstream.cpp`。
 - 认证方式：RTSP URL 中的用户名/密码，由 `SharedCameraSettings` 生成。
 - 风险点：密码需要日志脱敏；UDP/TCP、编码器和 D3D11VA 支持会影响播放。
 

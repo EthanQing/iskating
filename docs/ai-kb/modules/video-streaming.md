@@ -11,19 +11,19 @@
 
 ## 关键文件
 
-- `videoopenglwidget.h`: 视频控件对外接口，包括本地回放 seek、倍率、逐帧和位置查询。
-- `videoopenglwidget.cpp`: 视频源配置、播放/暂停/停止、主码流 fallback、本地回放控制、占位绘制。
-- `streamregistry.h`: 按 URL 复用视频流。
-- `streamregistry.cpp`: 创建并缓存 `RtspStream`。
-- `rtspstream.h`: 视频流状态、帧读取和本地回放控制接口。
-- `rtspstream.cpp`: FFmpeg 打开输入、D3D11VA 解码、UDP/TCP RTSP 重试、断流统计和重连；本地文件按 PTS 控速并支持 seek、倍率和单帧步进。
-- `offlinevideoprobe.h/.cpp`: 离线视频导入前校验文件、视频轨、时长、seek 能力和 D3D11VA 首帧硬解。
-- `d3d11videodevice.cpp`: 全局 D3D11 设备和 FFmpeg hw device。
-- `d3dframe.h`: D3D11 硬件帧封装。
-- `d3dvideosurface.cpp`: D3D11 swap chain、shader、视频渲染和检测框叠加。
-- `d3dframeextractor.cpp`: 将 D3D 帧复制/转换为 RGB，供 AI 推理使用。
-- `nvrplayback.h/.cpp`: 根据系统设置中的 NVR 回放模板、session 开始时间、机位 IP 和动作片段窗口生成 RTSP 回放 URL。
-- `cameraconnectivitytester.h/.cpp`: 系统设置中的批量连通测试，逐路探测地址解析、RTSP open、首帧、协议、分辨率、帧率、阶段和错误码。
+- `src/ui/videoopenglwidget.h`: 视频控件对外接口，包括本地回放 seek、倍率、逐帧和位置查询。
+- `src/ui/videoopenglwidget.cpp`: 视频源配置、播放/暂停/停止、主码流 fallback、本地回放控制、占位绘制。
+- `src/infrastructure/video/streamregistry.h`: 按 URL 复用视频流。
+- `src/infrastructure/video/streamregistry.cpp`: 创建并缓存 `RtspStream`。
+- `src/infrastructure/video/rtspstream.h`: 视频流状态、帧读取和本地回放控制接口。
+- `src/infrastructure/video/rtspstream.cpp`: FFmpeg 打开输入、D3D11VA 解码、UDP/TCP RTSP 重试、断流统计和重连；本地文件按 PTS 控速并支持 seek、倍率和单帧步进。
+- `src/infrastructure/video/offlinevideoprobe.h/.cpp`: 离线视频导入前校验文件、视频轨、时长、seek 能力和 D3D11VA 首帧硬解。
+- `src/infrastructure/video/d3d11videodevice.cpp`: 全局 D3D11 设备和 FFmpeg hw device。
+- `src/infrastructure/video/d3dframe.h`: D3D11 硬件帧封装。
+- `src/infrastructure/video/d3dvideosurface.cpp`: D3D11 swap chain、shader、视频渲染和检测框叠加。
+- `src/infrastructure/video/d3dframeextractor.cpp`: 将 D3D 帧复制/转换为 RGB，供 AI 推理使用。
+- `src/infrastructure/video/nvrplayback.h/.cpp`: 根据系统设置中的 NVR 回放模板、session 开始时间、机位 IP 和动作片段窗口生成 RTSP 回放 URL。
+- `src/infrastructure/configuration/cameraconnectivitytester.h/.cpp`: 系统设置中的批量连通测试，逐路探测地址解析、RTSP open、首帧、协议、分辨率、帧率、阶段和错误码。
 
 ## 当前设计
 
@@ -68,7 +68,7 @@
 
 ### 调整 RTSP 连接参数
 
-1. 阅读 `setRtspOptions()` in `rtspstream.cpp`。
+1. 阅读 `setRtspOptions()` in `src/infrastructure/video/rtspstream.cpp`。
 2. 确认修改是否影响低延迟、重连和 UDP/TCP fallback。
 3. 使用真实摄像头验证连接、断流和恢复。
 
@@ -107,19 +107,19 @@
 
 ### 调整 NVR 回放模板
 
-1. 修改 `nvrplayback.cpp` 中的占位符替换和时间格式；当前 `{start}`/`{end}` 固定为 UTC `yyyyMMddTHHmmssZ`。
+1. 修改 `src/infrastructure/video/nvrplayback.cpp` 中的占位符替换和时间格式；当前 `{start}`/`{end}` 固定为 UTC `yyyyMMddTHHmmssZ`。
 2. 修改 `SystemSettingsDialog` 时保持模板至少包含 `{ip}`、`{start}`、`{end}` 的校验。
 3. 历史页和复盘校准都复用 `buildNvrPlaybackUrl()`，不要在 UI 层重复拼接厂商 URL。
 
 ### 调整摄像头配置模板
 
-1. 修改 `cameraconfigtemplate.cpp` 的 JSON 字段映射、默认值和校验。
+1. 修改 `src/infrastructure/configuration/cameraconfigtemplate.cpp` 的 JSON 字段映射、默认值和校验。
 2. 修改 `SystemSettingsDialog::importCameraTemplate()` / `exportCameraTemplate()` 的交互入口。
 3. 保持模板作为交换格式，应用内部仍通过 `MainWindow::persistSystemSettings()` 写 QSettings。
 
 ### 调整批量连通测试
 
-1. 修改 `cameraconnectivitytester.cpp`，保持 UDP 优先、TCP fallback 和 3 秒探测超时。
+1. 修改 `src/infrastructure/configuration/cameraconnectivitytester.cpp`，保持 UDP 优先、TCP fallback 和 3 秒探测超时。
 2. `SystemSettingsDialog::testCameraConnectivity()` 只负责弹窗、进度和结果表，不直接拼接厂商 URL；结果表应保留地址、Open/首帧耗时、阶段和错误码列。
 3. 结果只用于本次显示，不自动保存到每路质量/兼容备注。
 

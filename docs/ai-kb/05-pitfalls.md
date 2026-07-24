@@ -65,12 +65,12 @@ F-10 的 `action_repetitions.video_file_id/video_index` 只是把动作片段时
 
 相关文件：
 
-- `rtspstream.cpp`
-- `videoopenglwidget.cpp`
-- `offlinevideoprobe.cpp`
-- `mainwindow.cpp`
-- `d3d11videodevice.cpp`
-- `d3dvideosurface.cpp`
+- `src/infrastructure/video/rtspstream.cpp`
+- `src/ui/videoopenglwidget.cpp`
+- `src/infrastructure/video/offlinevideoprobe.cpp`
+- `src/ui/mainwindow.cpp`
+- `src/infrastructure/video/d3d11videodevice.cpp`
+- `src/infrastructure/video/d3dvideosurface.cpp`
 
 ## ⚠️ 任务中心的恢复与暂停语义
 
@@ -84,7 +84,7 @@ F-10 的 `action_repetitions.video_file_id/video_index` 只是把动作片段时
 
 相关文件：
 
-- `tensorrtrunner.cpp`
+- `src/infrastructure/inference/tensorrtrunner.cpp`
 - `.gitignore`
 - `models/athlete/athlete_models.json`
 - `models/hand/hand_model.json`
@@ -99,24 +99,24 @@ F-10 的 `action_repetitions.video_file_id/video_index` 只是把动作片段时
 
 相关文件：
 
-- `systemsettingsdialog.cpp`
-- `mainwindow.cpp`
-- `handanalysismanager.cpp`
-- `trajectorywidget.cpp`
+- `src/ui/systemsettingsdialog.cpp`
+- `src/ui/mainwindow.cpp`
+- `src/application/athleteanalysismanager.cpp`
+- `src/ui/trajectorywidget.cpp`
 
 ## 不要重复实现的工具函数
 
-- RTSP URL 组装和兼容旧配置：`mainwindow.cpp`
-- URL 密码脱敏：`safeUrlForLog()` 在 `mainwindow.cpp`, `videoopenglwidget.cpp`, `rtspstream.cpp` 中已有。
-- 清空动态布局：`clearLayout()` 在 `mainwindow.cpp`。
-- QSS 动态属性刷新：`repolish()` 在 `mainwindow.cpp`。
-- TensorRT 输入转换：`imageToNhwcFloat()`, `imageToNchwFloat()` 在 `tensorrtrunner.cpp`。
+- RTSP URL 组装和兼容旧配置：`src/ui/mainwindow.cpp`
+- URL 密码脱敏：`safeUrlForLog()` 在 `src/ui/mainwindow.cpp`, `src/ui/videoopenglwidget.cpp`, `src/infrastructure/video/rtspstream.cpp` 中已有。
+- 清空动态布局：`clearLayout()` 在 `src/ui/mainwindow.cpp`。
+- QSS 动态属性刷新：`repolish()` 在 `src/ui/mainwindow.cpp`。
+- TensorRT 输入转换：`imageToNhwcFloat()`, `imageToNchwFloat()` 在 `src/infrastructure/inference/tensorrtrunner.cpp`。
 
 ## 环境变量坑点
 
 - `FFMPEG_ROOT`, `TENSORRT_ROOT`, `CUDA_ROOT` 可覆盖默认 SDK 路径。
-- `QT_PLUGIN_PATH` 和 `PATH` 会在 `main.cpp` 中被进程内设置；不要依赖全局环境去修复部署问题。
-- `tensorrtrunner.cpp` 仍硬编码添加 TensorRT/CUDA 默认 DLL 路径，路径变化时需同步评估。
+- `QT_PLUGIN_PATH` 和 `PATH` 会在 `src/app/main.cpp` 中被进程内设置；不要依赖全局环境去修复部署问题。
+- `src/infrastructure/inference/tensorrtrunner.cpp` 仍硬编码添加 TensorRT/CUDA 默认 DLL 路径，路径变化时需同步评估。
 
 ## 数据库/schema 坑点
 
@@ -140,10 +140,10 @@ F-10 的 `action_repetitions.video_file_id/video_index` 只是把动作片段时
 
 相关文件：
 
-- `mainwindow.cpp`
-- `personmanagementdialog.cpp`
-- `trainingrepository.cpp`
-- `trainingdomain.h`
+- `src/ui/mainwindow.cpp`
+- `src/ui/personmanagementdialog.cpp`
+- `src/infrastructure/persistence/trainingrepository.cpp`
+- `src/domain/trainingdomain.h`
 
 ## 认证/权限坑点
 
@@ -151,13 +151,13 @@ F-10 的 `action_repetitions.video_file_id/video_index` 只是把动作片段时
 
 相关文件：
 
-- `systemsettingsdialog.h`
-- `mainwindow.cpp`
+- `src/ui/systemsettingsdialog.h`
+- `src/ui/mainwindow.cpp`
 
 ## 构建或部署坑点
 
 - Release 构建才调用 `windeployqt`，Debug 是否完整部署需要本机验证。
-- `mainwindow.pro` 会复制 FFmpeg/TensorRT/CUDA DLL、`Qt6PrintSupport.dll` 和 `models/` 到输出目录；SQLite driver 已移除，训练业务依赖外部 FastAPI/PostgreSQL 服务。
+- `build/qmake/deployment.pri` 会复制 FFmpeg/TensorRT/CUDA DLL、`Qt6PrintSupport.dll` 和 `models/` 到输出目录；SQLite driver 已移除，训练业务依赖外部 FastAPI/PostgreSQL 服务。
 - 模型二进制被 `.gitignore` 忽略，缺失时视频仍可播放；YOLO26x 缺失会停用 AI，PersonViT 缺失会停用身份匹配。
 - 如果 `x64/Release/iskating.exe` 正在运行，Release 构建复制 FFmpeg DLL 时会失败并提示文件被占用；先关闭该进程再重新构建。
 - 在普通 PowerShell 中可能没有 `nmake`，Release 构建前需要通过 Visual Studio `vcvars64.bat` 初始化 MSVC 环境。
