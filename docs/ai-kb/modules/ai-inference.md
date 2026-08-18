@@ -13,9 +13,12 @@
 
 - `tensorrtrunner.h/cpp`：ONNX 解析、FP16 engine 构建/缓存、CUDA buffer 和推理。
 - `tensortrtathletebackend.h/cpp`：YOLO26x 解码、PersonViT crop、余弦匹配、人工绑定和 per-camera track。
+- `athletedetectionroi.h/cpp`：加载、缩放并验证每路检测 ROI。
+- `athletetracker.h/cpp`：同机位一对一 IoU 关联、track TTL、命中次数与 ReID 节流状态。
 - `athleteanalysismanager.h/cpp`：后台 worker、多路流 round-robin、结果 TTL 和主线程回调。
 - `athleteanalysisresult.h`：`AthleteFrameResult`、`AthleteInstance`、gallery 和人工绑定结构。
 - `models/athlete/athlete_models.json`：模型来源、shape、阈值、版本和运行时要求。
+- `models/athlete/camera_detect_rois.json`：CAM 01–07 的原始画面 ROI 多边形。
 - `tools/download_athlete_models.ps1`：下载、YOLO 导出和 PersonViT 转换。
 - `tools/convert_personvit_msmt17.py`：TransReID checkpoint 到 ONNX 的转换。
 - `tools/check_athlete_models.py`：模型存在性和 SHA256 校验。
@@ -26,7 +29,9 @@
 - PersonViT 输入 `1x3x256x128`，RGB，`(pixel - 0.5) / 0.5`，输出 `1x768` 并再次 L2 归一化。
 - gallery 只加载当前 session 参与者且模型版本、预处理版本匹配的 embedding。
 - 默认阈值为检测 `0.35`、ReID `0.60`、ambiguous margin `0.05`、结果 TTL `350ms`、track TTL `1200ms`，均从 `athlete_models.json` 读取。
-- 使用框 IoU 维护同一机位的 track；不同机位不共享 trackId，但共享 athleteId。
+- 检测后先按 camera ROI 过滤：多边形以原始画面像素保存，随当前帧缩放，并以 bbox 底边中点判定。CAM 08–12 或缺失/无效配置时 fail-open，不丢弃检测，并只记录一次告警。
+- 同一机位使用全帧一对一 IoU 关联维护 track，避免同一旧 track 在一帧内被多个检测框复用；不同机位不共享 trackId，但共享 athleteId。
+- `trackAssistedReid` 默认启用：unknown track 至少稳定 2 次、检测框满足最低置信度和面积后才运行 PersonViT；失败最多重试 3 次、间隔 1000ms。已识别身份沿 track 传播，gallery 切换会清空旧 track，人工绑定仍只覆盖低置信度或 unknown 结果。
 - 缺少 PersonViT 时保留 YOLO26x 检测和视频播放，身份状态为 unknown。
 - 缺少 YOLO26x 时停止 AI 推理，不影响视频播放。
 
@@ -44,7 +49,7 @@
 
 - TensorRT 10.x、CUDA 11.8、FP16 engine、兼容的 NVIDIA 驱动和 GPU。
 - `.fp16.engine` 是机器和 GPU 相关的缓存，不提交 Git。
-- 模型二进制默认忽略，发布规则只复制 `models/athlete` 清单和校验文件；部署时需另行准备模型文件。
+- 模型二进制默认忽略，发布规则会复制 `models/athlete` 清单、校验文件和 `camera_detect_rois.json`；部署时仍需另行准备模型文件。
 
 ## 历史兼容
 

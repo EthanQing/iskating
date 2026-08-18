@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <limits>
 #include <memory>
 #include <thread>
 
@@ -83,6 +84,7 @@ public:
     {
         QMutexLocker locker(&m_mutex);
         m_gallery = gallery;
+        ++m_galleryGeneration;
     }
 
     void setManualBindings(const QVector<AthleteIdentityBinding> &bindings)
@@ -190,6 +192,7 @@ private:
             }
             return;
         }
+        m_appliedGalleryGeneration = std::numeric_limits<quint64>::max();
         publishStatus(m_backend.statusText(), true);
 
         while (!m_stopRequested) {
@@ -264,12 +267,18 @@ private:
 
         QVector<AthleteGalleryEntry> gallery;
         QVector<AthleteIdentityBinding> manualBindings;
+        quint64 galleryGeneration = 0;
         {
             QMutexLocker locker(&m_mutex);
             gallery = m_gallery;
             manualBindings = m_manualBindings;
+            galleryGeneration = m_galleryGeneration;
         }
-        m_backend.setGallery(gallery);
+        if (galleryGeneration != m_appliedGalleryGeneration) {
+            m_backend.setGallery(gallery);
+            m_backend.resetTracking();
+            m_appliedGalleryGeneration = galleryGeneration;
+        }
         m_backend.setManualBindings(manualBindings);
         AthleteFrameResult results = m_backend.infer(rgb, selectedStream.cameraId, frame->receivedMsec);
         results.sourceName = selectedStream.sourceName;
@@ -347,6 +356,8 @@ private:
     QVector<StreamState> m_streams;
     QVector<AthleteGalleryEntry> m_gallery;
     QVector<AthleteIdentityBinding> m_manualBindings;
+    quint64 m_galleryGeneration = 0;
+    quint64 m_appliedGalleryGeneration = std::numeric_limits<quint64>::max();
     int m_nextStreamIndex = 0;
     qint64 m_lastResultMsec = 0;
     qint64 m_lastNoFrameStatusMsec = 0;

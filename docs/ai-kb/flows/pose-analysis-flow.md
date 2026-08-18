@@ -13,10 +13,10 @@
 1. `MainWindow::syncAnalysisStreams()` 按主机位优先和 FPS 策略生成活动流。
 2. `AthleteAnalysisWorker` 在活动流之间 round-robin 选择新帧。
 3. `D3DFrameExtractor` 把 D3D11 帧转换为 RGB `QImage`。
-4. `TensorRtAthleteBackend` 运行 YOLO26x，保留 score 不低于 `0.35` 且 classId 为 0 的检测框。
-5. 对每个检测框 crop 并 resize 到 `128x256`，运行 PersonViT，得到 768 维 L2 embedding。
-6. 在当前 session 最多四名参与者 gallery 中计算余弦相似度；最高分达到 `0.60` 且与第二名差值不小于 `0.05` 时标记 identified。
-7. 使用框 IoU 和 `1200ms` TTL 维护 per-camera trackId；session 或参与者变化时清空旧 track；人工绑定在低置信度和 unknown 结果上覆盖身份。
+4. `TensorRtAthleteBackend` 运行 YOLO26x，保留 score 不低于 `0.35` 且 classId 为 0 的检测框；CAM 01–07 再按 `camera_detect_rois.json` 的缩放 ROI 和 bbox 底边中点过滤场外目标。
+5. 该机位的所有剩余检测框在同一帧进行一对一 IoU 关联，维护 `1200ms` TTL、命中次数和 per-camera trackId；同一旧 track 不会被同帧多个框复用。
+6. unknown track 至少命中 2 次且检测框达到最低置信度、面积时，才运行 PersonViT（最多重试 3 次、间隔 1000ms），得到 768 维 L2 embedding；已识别 track 直接传播既有身份。
+7. 在当前 session 最多四名参与者 gallery 中计算余弦相似度；最高分达到 `0.60` 且与第二名差值不小于 `0.05` 时标记 identified。session 或参与者 gallery 变化时清空旧 track；人工绑定在低置信度和 unknown 结果上覆盖身份。
 8. `MainWindow` 更新主视频检测框和标签，并按采样窗口保存 bbox/track/身份摘要。有效身份和四点标定还会产生 `track_points` 与 `speed_metrics` 待保存数据。
 9. 停止采集后保存视频、参与者、检测框、身份状态、机位、trackId、置信度和条件式轨迹/速度；不写入伪造姿态、评分或 repetition。当前主 participant UUID 映射不一致可导致轨迹/速度静默漏存。
 

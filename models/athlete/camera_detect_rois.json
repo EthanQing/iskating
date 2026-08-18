@@ -1,0 +1,40 @@
+{
+  "description": "Detection ROI in original-frame pixel coordinates. Use bbox bottom-center as foot point.",
+  "cameras": {
+    "cam1": {
+      "frame_width": 1920,
+      "frame_height": 1080,
+      "polygon": [[5, 383], [1908, 451], [1911, 931], [3, 883]]
+    },
+    "cam2": {
+      "frame_width": 1920,
+      "frame_height": 1080,
+      "polygon": [[0, 495], [1910, 527], [1911, 984], [1, 956]]
+    },
+    "cam3": {
+      "frame_width": 1920,
+      "frame_height": 1080,
+      "polygon": [[1, 539], [1915, 477], [1919, 922], [4, 998]]
+    },
+    "cam4": {
+      "frame_width": 1920,
+      "frame_height": 1080,
+      "polygon": [[3, 458], [1919, 521], [1919, 959], [3, 931]]
+    },
+    "cam5": {
+      "frame_width": 1920,
+      "frame_height": 1080,
+      "polygon": [[3, 467], [1917, 449], [1919, 906], [1, 931]]
+    },
+    "cam6": {
+      "frame_width": 1920,
+      "frame_height": 1080,
+      "polygon": [[0, 416], [1915, 361], [1919, 820], [0, 874]]
+    },
+    "cam7": {
+      "frame_width": 1920,
+      "frame_height": 1080,
+      "polygon": [[3, 447], [1919, 516], [1919, 992], [1, 888]]
+    }
+  }
+}

@@ -3,12 +3,12 @@
 #include "tensorrtrunner.h"
 
 #include <QDir>
+#include <QDebug>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QImage>
 #include <QMutexLocker>
-#include <QPainter>
 
 #include <algorithm>
 #include <cmath>
@@ -16,19 +16,16 @@
 
 namespace {
 
-constexpr float kTrackIouThreshold = 0.20f;
-
-float intersectionOverUnion(const QRectF &first, const QRectF &second)
+QImage cropForReid(const QImage &image, const QRectF &box, float paddingRatio)
 {
-    const QRectF intersection = first.intersected(second);
-    const double intersectionArea = std::max(0.0, intersection.width()) * std::max(0.0, intersection.height());
-    const double unionArea = first.width() * first.height() + second.width() * second.height() - intersectionArea;
-    return unionArea > 0.0 ? static_cast<float>(intersectionArea / unionArea) : 0.0f;
-}
-
-QImage cropForReid(const QImage &image, const QRectF &box)
-{
-    const QRect bounds = box.toAlignedRect().intersected(image.rect());
+    const qreal horizontalPadding = box.width() * paddingRatio;
+    const qreal verticalPadding = box.height() * paddingRatio;
+    const QRect bounds = box.adjusted(-horizontalPadding,
+                                      -verticalPadding,
+                                      horizontalPadding,
+                                      verticalPadding)
+                             .toAlignedRect()
+                             .intersected(image.rect());
     if (bounds.isEmpty()) {
         return {};
     }
@@ -82,8 +79,7 @@ void TensorRtAthleteBackend::setManualBindings(const QVector<AthleteIdentityBind
 void TensorRtAthleteBackend::resetTracking()
 {
     QMutexLocker locker(&m_mutex);
-    m_tracks.clear();
-    m_nextTrackId = 1;
+    m_tracker.reset();
 }
 
 bool TensorRtAthleteBackend::initialize(const QString &modelDir, QString *error)
@@ -96,6 +92,14 @@ bool TensorRtAthleteBackend::initialize(const QString &modelDir, QString *error)
     float reidThreshold = 0.60f;
     float ambiguousMargin = 0.05f;
     qint64 trackTtlMs = 1200;
+    float trackIouThreshold = 0.20f;
+    bool detectionRoiEnabled = false;
+    QString detectionRoiFile;
+    bool trackAssistedReid = true;
+    AthleteTrackReidPolicy reidPolicy;
+    float reidMinDetectionConfidence = 0.30f;
+    float reidMinBoxAreaRatio = 0.0004f;
+    float reidCropPaddingRatio = 0.15f;
     QFile metadataFile(dir.absoluteFilePath(QStringLiteral("athlete_models.json")));
     if (metadataFile.open(QIODevice::ReadOnly)) {
         const QJsonDocument document = QJsonDocument::fromJson(metadataFile.readAll());
@@ -104,7 +108,35 @@ bool TensorRtAthleteBackend::initialize(const QString &modelDir, QString *error)
         reidThreshold = static_cast<float>(runtime.value(QStringLiteral("reidThreshold")).toDouble(reidThreshold));
         ambiguousMargin = static_cast<float>(runtime.value(QStringLiteral("ambiguousMargin")).toDouble(ambiguousMargin));
         trackTtlMs = static_cast<qint64>(runtime.value(QStringLiteral("trackTtlMs")).toDouble(trackTtlMs));
+        trackIouThreshold = static_cast<float>(runtime.value(QStringLiteral("trackIouThreshold")).toDouble(trackIouThreshold));
+        detectionRoiEnabled = runtime.value(QStringLiteral("detectionRoiEnabled")).toBool(detectionRoiEnabled);
+        detectionRoiFile = runtime.value(QStringLiteral("detectionRoiFile")).toString().trimmed();
+        trackAssistedReid = runtime.value(QStringLiteral("trackAssistedReid")).toBool(trackAssistedReid);
+        reidPolicy.minTrackHits = std::max(1, runtime.value(QStringLiteral("reidMinTrackHits")).toInt(reidPolicy.minTrackHits));
+        reidPolicy.maxAttempts = std::max(0, runtime.value(QStringLiteral("reidMaxAttempts")).toInt(reidPolicy.maxAttempts));
+        reidPolicy.retryIntervalMs = std::max<qint64>(0,
+                                                      static_cast<qint64>(runtime.value(QStringLiteral("reidRetryMs"))
+                                                                              .toDouble(reidPolicy.retryIntervalMs)));
+        reidMinDetectionConfidence = static_cast<float>(runtime.value(QStringLiteral("reidMinDetectionConfidence"))
+                                                              .toDouble(reidMinDetectionConfidence));
+        reidMinBoxAreaRatio = static_cast<float>(runtime.value(QStringLiteral("reidMinBoxAreaRatio"))
+                                                       .toDouble(reidMinBoxAreaRatio));
+        reidCropPaddingRatio = static_cast<float>(runtime.value(QStringLiteral("reidCropPaddingRatio"))
+                                                        .toDouble(reidCropPaddingRatio));
     }
+
+    AthleteDetectionRoiMap detectionRois;
+    if (detectionRoiEnabled) {
+        QStringList roiWarnings;
+        const QString roiPath = dir.absoluteFilePath(detectionRoiFile.isEmpty()
+                                                          ? QStringLiteral("camera_detect_rois.json")
+                                                          : detectionRoiFile);
+        detectionRois = loadAthleteDetectionRois(roiPath, &roiWarnings);
+        for (const QString &warning : roiWarnings) {
+            qWarning() << "[AthleteAnalysis]" << warning;
+        }
+    }
+    const int detectionRoiCount = detectionRois.size();
 
     auto detector = std::make_unique<TensorRtRunner>();
     if (!detector->initialize(detectorPath, error)) {
@@ -128,12 +160,25 @@ bool TensorRtAthleteBackend::initialize(const QString &modelDir, QString *error)
         m_detectorThreshold = detectorThreshold;
         m_reidThreshold = reidThreshold;
         m_ambiguousMargin = ambiguousMargin;
-        m_trackTtlMs = trackTtlMs;
+        m_detectionRoiEnabled = detectionRoiEnabled;
+        m_detectionRois = std::move(detectionRois);
+        m_missingRoiCameraIds.clear();
+        m_trackAssistedReid = trackAssistedReid;
+        m_reidPolicy = reidPolicy;
+        m_reidMinDetectionConfidence = std::clamp(reidMinDetectionConfidence, 0.0f, 1.0f);
+        m_reidMinBoxAreaRatio = std::max(0.0f, reidMinBoxAreaRatio);
+        m_reidCropPaddingRatio = std::clamp(reidCropPaddingRatio, 0.0f, 0.5f);
+        m_tracker.reset();
+        m_tracker.setTrackTtlMs(trackTtlMs);
+        m_tracker.setIouThreshold(trackIouThreshold);
         m_ready = true;
     }
+    const QString roiStatus = detectionRoiEnabled && detectionRoiCount > 0
+                                  ? QStringLiteral("，已加载 %1 路检测 ROI").arg(detectionRoiCount)
+                                  : QString();
     setStatus(reidReady
-                  ? QStringLiteral("YOLO26x + PersonViT ReID 已就绪")
-                  : QStringLiteral("YOLO26x 已就绪，PersonViT ReID不可用：%1").arg(reidError),
+                  ? QStringLiteral("YOLO26x + PersonViT ReID 已就绪%1").arg(roiStatus)
+                  : QStringLiteral("YOLO26x 已就绪，PersonViT ReID不可用：%1%2").arg(reidError, roiStatus),
               true);
     return true;
 }
@@ -208,6 +253,35 @@ QVector<TensorRtAthleteBackend::Detection> TensorRtAthleteBackend::detect(const 
     return detections;
 }
 
+QVector<TensorRtAthleteBackend::Detection> TensorRtAthleteBackend::filterDetectionsByRoi(
+    const QVector<Detection> &detections,
+    int cameraId,
+    const QSize &frameSize)
+{
+    if (!m_detectionRoiEnabled || cameraId <= 0) {
+        return detections;
+    }
+
+    const auto roi = m_detectionRois.constFind(cameraId);
+    if (roi == m_detectionRois.cend()) {
+        if (!m_missingRoiCameraIds.contains(cameraId)) {
+            m_missingRoiCameraIds.insert(cameraId);
+            qWarning() << "[AthleteAnalysis] camera" << cameraId
+                       << "has no detection ROI; detections remain unfiltered";
+        }
+        return detections;
+    }
+
+    QVector<Detection> filtered;
+    filtered.reserve(detections.size());
+    for (const Detection &detection : detections) {
+        if (isAthleteDetectionInsideRoi(roi.value(), detection.box, frameSize)) {
+            filtered.append(detection);
+        }
+    }
+    return filtered;
+}
+
 QVector<float> TensorRtAthleteBackend::embeddingFor(const QImage &rgbFrame,
                                                      const QRectF &box,
                                                      QString *error)
@@ -215,7 +289,7 @@ QVector<float> TensorRtAthleteBackend::embeddingFor(const QImage &rgbFrame,
     if (!m_reid) {
         return {};
     }
-    const QImage crop = cropForReid(rgbFrame, box);
+    const QImage crop = cropForReid(rgbFrame, box, m_reidCropPaddingRatio);
     if (crop.isNull()) {
         return {};
     }
@@ -251,50 +325,103 @@ QVector<float> TensorRtAthleteBackend::embeddingFor(const QImage &rgbFrame,
     return embedding;
 }
 
-void TensorRtAthleteBackend::updateTrack(AthleteInstance *instance, int cameraId, qint64 timestampMs)
+bool TensorRtAthleteBackend::isReidCandidate(const Detection &detection, const QSize &frameSize) const
 {
-    QVector<TrackState> &tracks = m_tracks[cameraId];
-    for (int index = tracks.size() - 1; index >= 0; --index) {
-        if (timestampMs - tracks.at(index).lastSeenMs > m_trackTtlMs) {
-            tracks.removeAt(index);
-        }
+    if (detection.score < m_reidMinDetectionConfidence || frameSize.width() <= 0 || frameSize.height() <= 0) {
+        return false;
     }
+    const qreal frameArea = static_cast<qreal>(frameSize.width()) * frameSize.height();
+    const qreal boxArea = detection.box.width() * detection.box.height();
+    return frameArea > 0.0 && boxArea / frameArea >= m_reidMinBoxAreaRatio;
+}
 
-    int bestIndex = -1;
-    float bestIou = kTrackIouThreshold;
-    for (int index = 0; index < tracks.size(); ++index) {
-        const float iou = intersectionOverUnion(instance->box, tracks.at(index).box);
-        if (iou > bestIou) {
-            bestIou = iou;
-            bestIndex = index;
-        }
-    }
-    if (bestIndex < 0) {
-        TrackState state;
-        state.trackId = m_nextTrackId++;
-        state.box = instance->box;
-        state.lastSeenMs = timestampMs;
-        state.athleteId = instance->athleteId;
-        state.participantId = instance->participantId;
-        state.label = instance->label;
-        tracks.append(state);
-        instance->trackId = state.trackId;
+void TensorRtAthleteBackend::updateTrackIdentity(const QImage &rgbFrame,
+                                                  const Detection &detection,
+                                                  AthleteTrackState *track,
+                                                  qint64 timestampMs,
+                                                  QString *error)
+{
+    if (!track) {
         return;
     }
 
-    TrackState &state = tracks[bestIndex];
-    state.box = instance->box;
-    state.lastSeenMs = timestampMs;
-    if (!instance->athleteId.isEmpty()) {
-        state.athleteId = instance->athleteId;
-        state.participantId = instance->participantId;
-        state.label = instance->label;
-    } else {
-        instance->athleteId = state.athleteId;
-        instance->participantId = state.participantId;
-        instance->label = state.label;
+    ++track->reidAttempts;
+    track->lastReidAttemptMs = timestampMs;
+    track->athleteId.clear();
+    track->participantId.clear();
+    track->label.clear();
+    track->identityStatus = QStringLiteral("unknown");
+    track->identitySource = QStringLiteral("personvit");
+    track->identityConfidence = 0.0f;
+    track->reidSimilarity = 0.0f;
+
+    const QVector<float> embedding = embeddingFor(rgbFrame, detection.box, error);
+    if (embedding.isEmpty()) {
+        return;
     }
-    instance->trackId = state.trackId;
+
+    float best = -1.0f;
+    float second = -1.0f;
+    const AthleteGalleryEntry *bestEntry = nullptr;
+    for (const AthleteGalleryEntry &entry : m_gallery) {
+        const float similarity = cosineSimilarity(entry.embedding, embedding);
+        if (similarity > best) {
+            second = best;
+            best = similarity;
+            bestEntry = &entry;
+        } else if (similarity > second) {
+            second = similarity;
+        }
+    }
+
+    track->reidSimilarity = std::max(0.0f, best);
+    track->identityConfidence = track->reidSimilarity;
+    if (!bestEntry || best < m_reidThreshold) {
+        return;
+    }
+    if (best - second < m_ambiguousMargin) {
+        track->identityStatus = QStringLiteral("ambiguous");
+        return;
+    }
+
+    track->athleteId = bestEntry->athleteId;
+    track->participantId = bestEntry->participantId;
+    track->label = bestEntry->label;
+    track->identityStatus = QStringLiteral("identified");
+}
+
+void TensorRtAthleteBackend::applyTrackIdentity(const AthleteTrackState &track,
+                                                 AthleteInstance *instance) const
+{
+    if (!instance) {
+        return;
+    }
+    instance->athleteId = track.athleteId;
+    instance->participantId = track.participantId;
+    instance->label = track.label;
+    instance->identityStatus = track.identityStatus;
+    instance->identitySource = track.identitySource;
+    instance->identityConfidence = track.identityConfidence;
+    instance->reidSimilarity = track.reidSimilarity;
+}
+
+void TensorRtAthleteBackend::applyManualBinding(AthleteInstance *instance, int cameraId) const
+{
+    if (!instance || instance->identityStatus == QStringLiteral("identified")) {
+        return;
+    }
+    for (const AthleteIdentityBinding &binding : m_manualBindings) {
+        if (binding.cameraId != cameraId || binding.trackId != instance->trackId) {
+            continue;
+        }
+        instance->athleteId = binding.athleteId;
+        instance->participantId = binding.participantId;
+        instance->label = binding.label;
+        instance->identityStatus = QStringLiteral("identified");
+        instance->identityConfidence = 1.0f;
+        instance->identitySource = QStringLiteral("manual");
+        return;
+    }
 }
 
 AthleteFrameResult TensorRtAthleteBackend::infer(const QImage &rgbFrame, int cameraId, qint64 timestampMs)
@@ -305,66 +432,66 @@ AthleteFrameResult TensorRtAthleteBackend::infer(const QImage &rgbFrame, int cam
     }
 
     QString error;
-    const QVector<Detection> detections = detect(rgbFrame, &error);
+    const QVector<Detection> detected = detect(rgbFrame, &error);
     if (!error.isEmpty()) {
         m_statusText = QStringLiteral("YOLO26x推理失败：%1").arg(error);
         return {};
     }
+    const QVector<Detection> detections = filterDetectionsByRoi(detected, cameraId, rgbFrame.size());
+
+    QVector<QRectF> boxes;
+    boxes.reserve(detections.size());
+    for (const Detection &detection : detections) {
+        boxes.append(detection.box);
+    }
+    const QVector<int> trackIds = m_tracker.update(cameraId, boxes, timestampMs);
 
     AthleteFrameResult frame;
     frame.cameraId = cameraId;
     frame.timestampMs = timestampMs;
     frame.frameSize = rgbFrame.size();
-    for (const Detection &detection : detections) {
+    for (int index = 0; index < detections.size(); ++index) {
+        const Detection &detection = detections.at(index);
+        AthleteTrackState *track = m_tracker.track(cameraId, trackIds.at(index));
+        if (!track) {
+            continue;
+        }
+
         AthleteInstance instance;
+        instance.trackId = track->trackId;
         instance.classId = detection.classId;
         instance.box = detection.box;
         instance.detectionConfidence = detection.score;
 
-        if (m_reidReady && !m_gallery.isEmpty()) {
-            const QVector<float> embedding = embeddingFor(rgbFrame, detection.box, &error);
-            float best = -1.0f;
-            float second = -1.0f;
-            const AthleteGalleryEntry *bestEntry = nullptr;
-            for (const AthleteGalleryEntry &entry : m_gallery) {
-                    const float similarity = cosineSimilarity(entry.embedding, embedding);
-                if (similarity > best) {
-                    second = best;
-                    best = similarity;
-                    bestEntry = &entry;
-                } else if (similarity > second) {
-                    second = similarity;
-                }
-            }
-            instance.reidSimilarity = std::max(0.0f, best);
-            instance.identityConfidence = instance.reidSimilarity;
-            if (bestEntry && best >= m_reidThreshold) {
-                if (best - second < m_ambiguousMargin) {
-                    instance.identityStatus = QStringLiteral("ambiguous");
-                    instance.identitySource = QStringLiteral("personvit");
-                } else {
-                    instance.athleteId = bestEntry->athleteId;
-                    instance.participantId = bestEntry->participantId;
-                    instance.label = bestEntry->label;
-                    instance.identityStatus = QStringLiteral("identified");
-                    instance.identitySource = QStringLiteral("personvit");
-                }
-            }
+        if (m_gallery.isEmpty()) {
+            track->athleteId.clear();
+            track->participantId.clear();
+            track->label.clear();
+            track->identityStatus = QStringLiteral("unknown");
+            track->identitySource.clear();
+            track->identityConfidence = 0.0f;
+            track->reidSimilarity = 0.0f;
+            track->reidAttempts = 0;
+            track->lastReidAttemptMs = 0;
         }
-        updateTrack(&instance, cameraId, timestampMs);
-        if (instance.identityStatus != QStringLiteral("identified")) {
-            for (const AthleteIdentityBinding &binding : m_manualBindings) {
-                if (binding.cameraId != cameraId || binding.trackId != instance.trackId) {
-                    continue;
-                }
-                instance.athleteId = binding.athleteId;
-                instance.participantId = binding.participantId;
-                instance.label = binding.label;
-                instance.identityStatus = QStringLiteral("identified");
-                instance.identityConfidence = 1.0f;
-                instance.identitySource = QStringLiteral("manual");
-                break;
+
+        applyTrackIdentity(*track, &instance);
+        applyManualBinding(&instance, cameraId);
+
+        const bool shouldRunReid = m_reidReady
+                                   && !m_gallery.isEmpty()
+                                   && instance.identityStatus != QStringLiteral("identified")
+                                   && (!m_trackAssistedReid
+                                       || (isReidCandidate(detection, rgbFrame.size())
+                                           && shouldAttemptAthleteTrackReid(*track, m_reidPolicy, timestampMs)));
+        if (shouldRunReid) {
+            QString reidError;
+            updateTrackIdentity(rgbFrame, detection, track, timestampMs, &reidError);
+            if (!reidError.isEmpty()) {
+                qWarning() << "[AthleteAnalysis] PersonViT ReID failed:" << reidError;
             }
+            applyTrackIdentity(*track, &instance);
+            applyManualBinding(&instance, cameraId);
         }
         frame.instances.append(instance);
     }

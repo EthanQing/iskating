@@ -93,6 +93,8 @@ F-10 的 `action_repetitions.video_file_id/video_index` 只是把动作片段时
 
 当前实时主链路会把已识别人体的 bbox 底边中点通过每路四点单应性投影为场地米制坐标，并绘制二维路线/计算速度。这不是旧姿态轨迹，也不提供自动跨机位全局 track；跨机位同人依赖 athleteId。未标定机位、unknown 结果和完整帧率 worker 都不产生场地轨迹。
 
+检测 ROI 与场地四点标定是两套独立配置：ROI 只在 Windows 实时链路的 YOLO 后、track 前过滤检测框，当前只提供 CAM 01–07；CAM 08–12 和缺失 ROI 的机位会 fail-open，不能把未过滤结果误认为已使用冰面区域约束。ROI 不会生成跨机位全局 track，也不会改变 DeepStream 完整帧率 worker 的 NvDCF 行为。
+
 `trajectoryEnabled` 当前同时控制 RTSP 机位是否进入 AI 分析，不能在 UI 中把它表述为仅影响轨迹绘制。
 
 多路 AI 分析由一个 `AthleteAnalysisWorker` 在多路流之间 round-robin 处理，不是每路一个 TensorRT worker。默认最多 12 路、每路目标 5 FPS，并在超载时优先拉长非主机位分析间隔；实际有效 FPS仍会受 GPU、解码、码流分辨率、`capture/modelPrecision` 档位和 TensorRT 推理耗时影响。
