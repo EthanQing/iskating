@@ -1,169 +1,127 @@
 # AGENTS.md
 
-## 项目知识库使用规则
+本文件定义 AI 编码代理在 `iskating` 仓库中的工作协议。目标是：先定位事实，再做小而可验证的修改，并让代码、测试和知识库保持一致。
 
-在进行非简单修改之前，先阅读：
+## 1. 开始任务
 
-1. `docs/ai-kb/00-index.md`
-2. 与当前任务直接相关的模块文档
-3. 与当前任务直接相关的 runbook 或 reference 文档
+### 简单任务
 
-不要默认读取整个知识库，只读取完成当前任务所必需的文档。
+拼写修正、单个常量调整或用户已明确文件与改法的局部修改，可以直接检查目标文件和调用方。
 
-知识库按 Obsidian 图谱维护：
+### 非简单任务
 
-- `docs/ai-kb/00-index.md` 是中心入口。
-- 分类 README 是二级地图。
-- 模块、流程、runbook 和 reference 文档通过相关链接连接。
+开始前依次执行：
 
-执行任务时，应从中心入口或相关模块文档出发，沿链接最小化读取上下文，避免为简单修改消耗过多 token。
+1. 查看 `git status --short --branch`，识别用户已有修改；不得覆盖、还原或顺带提交。
+2. 阅读 [`docs/ai-kb/00-index.md`](docs/ai-kb/00-index.md)。
+3. 按索引只读取与任务直接相关的模块、流程、Runbook 和 Reference。
+4. 检查目标实现、测试、调用方和构建清单，不以知识库代替源码验证。
+5. 检查当前可用 Skills；只加载直接相关的 Skill，并在实施前简要说明用途。没有匹配项时明确说明，不加载无关 Skill。
 
-如果任务非常简单，例如修正拼写、调整单个常量或进行明确的局部修改，可以不读取知识库，但仍应遵守现有代码约定。
+不要默认读取整个知识库，也不要把 `README.md`、历史任务记录或构建产物当成当前实现的唯一事实源。
 
-## 工作规则
+## 2. 事实优先级
 
-- 优先理解现有架构，不要轻易引入新抽象。
-- 优先进行小而可验证、可回滚的修改。
-- 不要新增依赖，除非现有能力无法满足需求，并明确说明原因。
-- 不要重复实现项目中已经存在的能力。
-- 修改前检查相关代码、测试和调用方。
-- 不要修改与当前任务无关的代码。
-- 不要为了顺手清理而扩大任务范围。
-- 如果发现知识库信息过期，应更新相关 Markdown 文件。
-- 如果修改了重要业务逻辑、架构、接口、数据结构或运维流程，应在任务结束前更新对应模块文档。
-- 对不确定的行为，应通过代码、测试或项目文档验证，不要仅凭假设修改。
-- 除非用户明确要求，不要推送到远端、创建 Pull Request 或执行云端发布。
+发生冲突时按以下顺序判断：
 
-## 技能使用规则
+1. 当前源码、测试和运行结果。
+2. 构建/依赖清单与数据契约：`mainwindow.pro`、`build/qmake/*.pri`、`server/app/schema.py`、模型 manifest。
+3. `docs/ai-kb/` 当前有效文档。
+4. 根目录 `README.md` 和 Git 历史。
 
-开始非简单任务前，检查当前可用的 Skills，并选择完成任务所必要且直接相关的 Skills。
+发现知识库过期时，在本次任务范围内同步修正；无法确认的内容写入 `docs/ai-kb/07-open-questions.md`，不要把推测写成事实。
 
-不要为了满足数量而使用无关 Skill，也不要默认加载全部 Skill。
+## 3. 架构边界
 
-只报告实际读取并应用过的 Skill。不要声称使用了未读取或未实际影响实施过程的 Skill。
+系统由三个可独立运行的部分组成：
 
-### FastAPI 后端开发
+- **Windows 桌面端**：Qt 6 / C++20，位于 `src/`，负责 UI、RTSP/D3D11VA、Windows 实时 AI、任务编排和 FastAPI 客户端。
+- **训练服务**：FastAPI + PostgreSQL，位于 `server/`，负责认证、业务数据和完整分析协议。
+- **完整帧率 worker**：Ubuntu / DeepStream 9，位于 `analysis_worker/`，负责 12 路 NAS 视频逐解码帧分析和分块产物。
 
-根据任务需要选择：
+重要边界：
 
-- `fastapi-templates`
-- `async-python-patterns`
-- `api-design-principles`
-- `python-testing-patterns`
+- 桌面端不直连 PostgreSQL；训练业务通过 `TrainingRepository` 调用 FastAPI。
+- QSettings 只保存本机配置和访问参数，不是训练业务主存储。
+- Windows 实时分析与 DeepStream 完整帧率分析是两条不同管线，不得共享“latest frame”语义。
+- 当前新训练只生成 person 检测、ReID、单机位 track，以及满足条件时的二维轨迹/速度；不生成新姿态关键点、3D 骨架、自动动作计数或技术评分。
+- 服务端旧姿态/动作/评分字段是历史兼容边界，不能据此宣称当前实时能力仍存在。
 
-典型选择原则：
+详细关系见 [`docs/ai-kb/02-architecture.md`](docs/ai-kb/02-architecture.md)。
 
-- FastAPI 路由、服务结构或项目组织：`fastapi-templates`
-- 异步 I/O、并发、任务调度：`async-python-patterns`
-- API 资源设计、状态码、分页或错误模型：`api-design-principles`
-- pytest、fixture、mock 或集成测试：`python-testing-patterns`
+## 4. 修改规则
 
-### Qt 和 QML 开发
+### 通用
 
-根据任务需要选择：
+- 优先小改动，不为“顺手优化”扩大范围。
+- 修改前检查调用方；修改后检查错误路径和生命周期。
+- 不新增依赖，除非现有能力无法完成任务，并说明原因。
+- 不复制已有能力；先搜索 helper、repository、配置结构和测试。
+- 不写入或打印凭据、完整 RTSP 密码 URL、JWT、worker token。
 
-- `qt-qml`
-- `qt-ui-design`
-- `qt-qml-review`
-- `qt-qml-test`
-- `qt-cmake-project`
-- `qt-cpp-review`
+### Qt / C++
 
-典型选择原则：
+- 业务源码按 `src/app`、`src/ui`、`src/domain`、`src/application`、`src/infrastructure` 分层；不要放回仓库根目录。
+- 新增/删除 C++ 文件时同步更新所在层 `.pri`；新增资源时更新 `resources/iskating.qrc`。
+- 不编辑生成文件：`Makefile*`、`.qmake.stash`、`x64/`、`ui_*.h`、`moc_*`、`qrc_*`、`*.engine`。
+- QWidget 只能在 UI 线程操作；跨线程结果使用 signal/slot 或 queued invocation。
+- 视频和 TensorRT 工作不得阻塞 UI 线程。
+- 调整 RTSP 日志时继续使用脱敏 URL。
 
-- QML 实现和组件结构：`qt-qml`
-- UI 布局和视觉设计：`qt-ui-design`
-- QML 修改完成后的审查：`qt-qml-review`
-- QML 或 Qt 测试：`qt-qml-test`
-- CMake 构建配置：`qt-cmake-project`
-- C++ 实现或审查：`qt-cpp-review`
+### FastAPI / PostgreSQL
 
-### 网页前端开发
+数据结构或 API 修改必须检查并按需同步：
 
-根据任务需要选择：
+1. `server/app/schema.py` 与 `BUSINESS_TABLES`。
+2. `server/app/main.py` 的读写、校验和认证。
+3. `src/domain/trainingdomain.h`。
+4. `src/infrastructure/persistence/trainingrepository.*` 的 JSON 映射。
+5. 相关 backfill/import 工具与测试。
+6. `docs/ai-kb/references/database-schema.md` 或 `external-apis.md`。
 
-- `frontend-design`
-- `web-design-guidelines`
-- `ui-ux-pro-max`
-- `vercel-react-best-practices`
-- `vercel-composition-patterns`
+当前没有 Alembic。`reset_postgres_schema.py --yes` 会破坏数据，不得在未确认数据库可丢弃时执行。
 
-典型选择原则：
+### AI / 视频 / worker
 
-- 页面视觉设计和前端风格：`frontend-design`
-- 可访问性、响应式和 Web 规范审查：`web-design-guidelines`
-- 设计系统、配色、排版和 UI/UX 方案：`ui-ux-pro-max`
-- React 或 Next.js 性能和实现规范：`vercel-react-best-practices`
-- React 组件 API 和组合模式：`vercel-composition-patterns`
+- 模型输入输出、预处理、阈值和版本以 `models/athlete/athlete_models.json` 及代码为准。
+- 模型二进制和 TensorRT engine 不提交 Git。
+- 不把检测 ROI、四点场地标定、track 或 ReID 身份混为同一概念。
+- 不把单机位 `trackId` 当成跨机位全局 ID；跨机位同人依赖 `athleteId`。
+- 完整帧率管线不得为了吞吐启用丢帧、leaky queue 或 YOLO interval。
+- `nas://` 路径必须受配置根目录约束，禁止路径逃逸。
 
-### 回复要求
+## 5. 验证
 
-对于非简单任务，在开始实施前简要说明：
+修改后先运行最小相关验证，再在环境允许时扩展：
 
-- 本次任务将使用哪些 Skills。
-- 每个 Skill 分别用于哪个阶段。
+- Python 服务/worker：`python -m unittest discover -s server/tests -p "test_*.py"`
+- 客户端合同测试：构建并运行 `tests/client/client-tests.pro`
+- Qt 改动：至少完成对应 qmake/MSVC 构建；UI、RTSP、GPU 行为按任务做人工验证。
+- worker 改动：先跑 Python 测试和 `docker compose ... config`；真实 DeepStream/GPU 行为必须在 Ubuntu NVIDIA 环境验证。
+- 文档改动：检查 Markdown 链接、文件路径、命令和 Git diff。
 
-不要输出冗长的 Skill 内容摘要。
+不要声称未执行的测试通过。受平台、GPU、摄像头、PostgreSQL 或 Docker 限制无法验证时，说明未验证范围与风险。测试失败时不得删除测试、降低断言或无理由修改预期来掩盖问题。
 
-实施完成后：
+## 6. 知识库维护
 
-- 使用相关审查或测试 Skill 检查变更。
-- 简要报告实际使用的 Skills。
-- 不必列出与任务无关或未使用的 Skills。
+出现以下变化时更新相关知识库：
 
-## 测试和验证规则
+- 架构、模块职责或关键流程变化。
+- API、表结构、环境变量、模型契约变化。
+- 构建、测试、部署或排障步骤变化。
+- 新的高风险限制或已确认问题。
 
-- 修改后运行与变更直接相关的最小测试集。
-- 在条件允许时，再运行更完整的测试、静态检查或构建命令。
-- 不要声称测试通过，除非确实执行并获得成功结果。
-- 如果无法运行测试，明确说明原因、未验证的范围和潜在风险。
-- 测试失败时，先判断失败是否由本次变更引起。
-- 不要通过删除测试、降低断言或跳过检查来掩盖问题。
-- 不要无理由修改已有测试预期以迎合错误实现。
+文档只写当前事实、可执行步骤和明确状态；临时计划不写入模块事实文档。知识库维护规则见 [`docs/ai-kb/00-index.md`](docs/ai-kb/00-index.md)。
 
-## Git 提交规则
+## 7. Git 与交付
 
-每次工作完成后，默认将本次变更提交到本地 Git 仓库。
+任务完成后默认创建本地提交，但不得推送远端、创建 PR 或发布，除非用户明确要求。
 
-提交前必须：
+提交前：
 
-1. 查看工作区状态。
-2. 区分本次任务修改与已有未提交修改。
-3. 只暂存本次任务直接相关的文件或代码块。
-4. 排除生成文件、构建输出、缓存、临时文件和无关格式化修改。
-5. 检查暂存区 diff。
-6. 确认提交内容与当前任务一致。
+1. 查看工作区状态，区分本次修改与用户已有修改。
+2. 只暂存本次任务相关文件或代码块。
+3. 检查 `git diff --cached`，排除生成物、缓存和无关格式化。
+4. 关键测试因本次修改失败、存在冲突或无法安全区分修改时，不强行提交，并说明原因。
 
-不要覆盖、还原、暂存或提交用户已有的无关修改。
-
-以下情况不要强行提交，并应在回复中说明原因：
-
-- 无法安全区分本次修改与已有修改。
-- 存在尚未解决的合并冲突。
-- 修改尚未达到可提交状态。
-- 关键测试因本次修改失败。
-- 当前目录不是 Git 仓库。
-- Git 用户信息或仓库状态阻止提交。
-
-提交信息应简洁描述本次任务，不要使用含糊的提交信息，例如 `update`、`fix` 或 `changes`。
-
-除非用户明确要求：
-
-- 不要推送远端。
-- 不要创建或修改远端分支。
-- 不要创建 Pull Request。
-- 不要执行发布或部署。
-
-## 完成任务前检查
-
-结束任务前检查：
-
-- 是否遵守了现有代码和架构约定。
-- 是否避免了不必要的抽象、依赖和任务范围扩张。
-- 是否运行了相关测试、静态检查或构建命令。
-- 是否如实说明了无法运行的验证步骤。
-- 是否更新了相关知识库文档。
-- 是否记录了新的坑点、约定或重要决策。
-- 是否只修改并提交了本次任务相关内容。
-- 是否已完成本地提交，或明确说明无法提交的原因。
-- 是否没有执行未经要求的远端推送、发布或部署。
+最终回复简要列出：修改内容、验证结果、知识库更新、实际使用的 Skills、本地提交 hash（或未提交原因）。

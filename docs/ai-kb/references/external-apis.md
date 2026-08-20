@@ -1,40 +1,103 @@
-# External APIs
+# HTTP API Reference
 
-上级入口：[[00-index|AI 知识库索引]]、[[references/README|Reference 地图]]
-相关模块：[[modules/video-streaming|视频流]]、[[modules/ai-inference|AI 推理]]
-相关流程：[[flows/video-streaming-flow|视频播放流程]]、[[flows/pose-analysis-flow|运动员检测与身份流程]]
-相关服务：[[third-party-services|第三方服务]]
+[Reference 地图](README.md) · [训练服务](../modules/training-service.md) · [完整分析流程](../flows/fullrate-analysis.md)
 
-## RTSP 摄像头/视频源
+> 路由和参数最终以 `server/app/main.py` 为准。本页列出当前路由组和安全边界，不复制完整响应 schema。
 
-- 服务名称：RTSP 视频源。
-- 用途：提供 12 路预览和主视图视频流。
-- 调用位置：`src/ui/videoopenglwidget.cpp`, `src/infrastructure/video/rtspstream.cpp`。
-- 认证方式：RTSP URL 中的用户名/密码，由 `SharedCameraSettings` 生成。
-- 风险点：密码需要日志脱敏；UDP/TCP、编码器和 D3D11VA 支持会影响播放。
+## 基础与认证
 
-## 模型下载与转换
+| 方法 | 路径 | 认证 | 用途 |
+|---|---|---|---|
+| GET | `/health` | 无 | 数据库健康检查 |
+| POST | `/auth/login` | 无 | 用户名/密码换 bearer JWT |
 
-- YOLO26x：从 `https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x.pt` 下载后由 Ultralytics 导出 ONNX。
-- PersonViT：从 TransReID 官方 MSMT17 ViT-Base baseline checkpoint 下载后由 `tools/convert_personvit_msmt17.py` 转换 ONNX。
-- 调用位置：`tools/download_athlete_models.ps1`、`tools/convert_personvit_msmt17.py`。
-- 认证方式：使用公开下载地址，无 token。
-- 风险点：网络不可达、源文件地址变化、模型文件很大、模型许可证和 MSMT17 数据集条款需要遵守。
+普通业务请求使用 `Authorization: Bearer <token>`。当前 token 有效期 12 小时。业务路由验证用户 active，但尚无完整 role 级 RBAC。
 
-## 其他外部 API
+## 人员与 ReID
 
-### FastAPI 训练服务
+- `GET/POST /athletes`
+- `PATCH /athletes/{athlete_id}`
+- `GET/POST /athletes/{athlete_id}/identity-samples`
+- `GET /athletes/{athlete_id}/identity-gallery`
+- `POST /athletes/{athlete_id}/identity-samples/{sample_id}/embedding`
+- `GET .../{sample_id}/file`
+- `DELETE .../{sample_id}`
+- `GET/POST /coaches`
+- `PATCH /coaches/{coach_id}`
+- `GET /coaches/{coach_id}/athletes`
 
-- 默认地址：`http://127.0.0.1:8000`，可用 `ISKATING_API_BASE_URL` 覆盖。
-- 用途：`/health`、登录、人员/ReID、比赛/标准、session/复核/趋势、视频资产、通用任务和完整帧率分析。
-- 桌面端认证：账号密码换取 bearer JWT；客户端可保存 token 或使用环境账号自动登录。
-- worker 认证：`/analysis-worker/*` 使用独立 worker token。
-- 风险：当前只校验有效用户/token，未按 role 做业务路由 RBAC；默认密码和 JWT secret 不能用于生产。
+样本上传使用 base64；文件写 gallery root，embedding/版本写 PostgreSQL。
 
-### NAS 分析资产
+## 比赛、标准与训练任务
 
-- 跨主机视频使用受根目录约束的 `nas://` URI；Windows 和 Ubuntu 分别配置物理根映射。
-- DeepStream worker 将 10 秒 gzip JSONL 分块写入 NAS，再向 FastAPI 登记 SHA256 和范围索引。
-- NAS 是共享文件系统依赖，不是对象存储 API。
+- `GET/POST/PATCH /competitions[/{id}]`
+- `GET/POST/PATCH /competition-events[/{id}]`
+- `GET/POST/PATCH /event-athletes[/{id}]`
+- `GET/POST /action-standards`
+- `POST /training/tasks/ensure-daily`
 
-当前未发现支付、邮件、外部对象存储或监控 API。
+PATCH 归档通常通过 `active` 语义，不应硬删历史引用。
+
+## 通用分析任务
+
+- `POST /analysis-tasks`
+- `GET /analysis-tasks`
+- `POST /offline-analysis/tasks`
+- `GET /offline-analysis/tasks`
+
+通用 task progress 是 0–100。单视频任务完成表示探测/登记，不表示逐帧分析完成。
+
+## 完整帧率分析（用户端）
+
+- `POST /offline-analysis/batches`
+- `GET /offline-analysis/batches/{batch_id}`
+- `POST /offline-analysis/batches/{batch_id}/runs`
+- `GET /offline-analysis/runs/{run_id}`
+- `POST /offline-analysis/runs/{run_id}/cancel`
+- `POST /offline-analysis/runs/{run_id}/retry`
+- `POST /offline-analysis/runs/{run_id}/activate`
+- `GET /offline-analysis/runs/{run_id}/frames`
+
+这些接口使用普通 bearer JWT。frames 范围查询可能返回 gaps；消费者必须在 gap 清空陈旧结果。
+
+## Worker API
+
+请求头：`X-Analysis-Worker-Token`。
+
+- `POST /analysis-worker/runs/claim`
+- `POST /analysis-worker/runs/{run_id}/heartbeat`
+- `GET /analysis-worker/runs/{run_id}/gallery`
+- `POST /analysis-worker/sources/{source_id}/chunks`
+- `POST /analysis-worker/sources/{source_id}/finish`
+
+服务端未配置 token 时返回 503；不匹配返回 401。worker token 与用户 JWT 不可混用。
+
+## Session、视频与历史
+
+- `POST /training/sessions`
+- `GET /training/sessions`
+- `GET /training/repetitions`
+- `GET /training/sessions/{session_id}/repetitions`
+- `GET /training/sessions/{session_id}/pose-frames`
+- `GET /training/sessions/{session_id}/track-points`
+- `GET /training/sessions/{session_id}/speed-metrics`
+- `GET /training/sessions/{session_id}/joint-metrics`
+- `POST /training/repetitions/{repetition_id}/review`
+- `POST /training/sessions/{session_id}/manual-repetitions`
+- `POST /training/sessions/{session_id}/coach-comment`
+- `GET /training/trends`
+- `GET /training/baselines`
+- `GET /training/video-files`
+- `POST /training/video-files/{video_file_id}/cleanup`
+
+Session 保存 payload 可包含 session、repetitions、participantRepetitions、participantPoseFrames、trackPoints、speedMetrics、jointMetrics。修改字段时同步 C++ Repository 映射和 schema。
+
+## 非 HTTP 外部接口
+
+### RTSP
+
+客户端从 QSettings 组装 URL，优先 UDP 后 TCP。凭据位于 URL，日志必须脱敏。
+
+### NAS
+
+`nas://` 是共享文件系统逻辑 URI，不是对象存储 API。API/worker/Windows 各自映射到物理根，并必须防路径逃逸。

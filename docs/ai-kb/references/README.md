@@ -1,16 +1,10 @@
-# References
+# Reference 地图
 
-上级入口：[[../00-index|AI 知识库索引]]
+[返回知识库索引](../00-index.md)
 
-本目录记录面向维护的参考信息。
+- [环境变量与本机配置](environment-variables.md)：环境变量、QSettings namespace、固定路径。
+- [数据模型](database-schema.md)：持久化边界、表组、关键不变量。
+- [HTTP API](external-apis.md)：路由分组、认证和主要语义。
+- [第三方依赖与模型](third-party-services.md)：SDK、运行时、模型 shape/版本/许可证。
 
-- [[environment-variables|环境变量]]: 环境变量、本机路径和运行时环境。
-- [[database-schema|数据结构]]: 当前 QSettings 持久化结构。
-- [[external-apis|外部 API]]: 外部 API/网络服务。
-- [[third-party-services|第三方服务]]: 第三方 SDK、模型和运行时服务。
-
-## 常用入口
-
-- 构建和部署：[[environment-variables]] + [[third-party-services]] + [[../runbooks/deployment]]
-- 数据配置：[[database-schema]] + [[../modules/persistence]]
-- 网络/模型外部依赖：[[external-apis]] + [[third-party-services]]
+Reference 是清单与契约，不替代源码。字段级最终事实以 `server/app/schema.py`、`server/app/main.py` 和 `models/athlete/athlete_models.json` 为准。

@@ -1,92 +1,102 @@
-# Local Development Runbook
+# 本地开发 Runbook
 
-上级入口：[[00-index|AI 知识库索引]]、[[runbooks/README|Runbook 地图]]
-相关命令：[[03-commands|运行命令]]
-相关 Reference：[[references/environment-variables|环境变量]]、[[references/third-party-services|第三方服务]]
-常见风险：[[05-pitfalls|坑点]]、[[runbooks/debugging|调试 Runbook]]
+[Runbook 地图](README.md) · [命令速查](../03-commands.md) · [环境变量](../references/environment-variables.md)
 
-## 本地启动步骤
+## 1. 前置条件
 
-1. 打开 Visual Studio 2022 x64 Native Tools 环境。
-2. 确认 Qt 路径为 `C:/Qt/6.7.3/msvc2022_64`。
-3. 在项目根目录运行 qmake。
-4. 默认使用 `nmake release` 构建 Release 版本。
-5. 默认运行 `x64/Release/iskating.exe`；只有需要调试符号和 Debug DLL 时才构建/运行 Debug。
+Windows 客户端：
 
-示例：
+- Visual Studio 2022 MSVC x64 / x64 Native Tools。
+- Qt 6.7.3 MSVC 2022 x64，必须位于 `C:/Qt/6.7.3/msvc2022_64`。
+- FFmpeg shared MSVC x64 开发包。
+- TensorRT 10.1.0.27、CUDA 11.8、兼容 NVIDIA 驱动/GPU。
+- PostgreSQL 和可运行 FastAPI 的 Python 环境。
 
-```powershell
-& "C:/Qt/6.7.3/msvc2022_64/bin/qmake.exe" mainwindow.pro "CONFIG+=release"
-nmake release
-.\x64\Release\iskating.exe
-```
+DeepStream worker 只能在 Ubuntu/NVIDIA 环境完整开发验证，见 [部署 Runbook](deployment.md)。
 
-Debug 示例：
+## 2. 启动 PostgreSQL 与 FastAPI
 
-```powershell
-& "C:/Qt/6.7.3/msvc2022_64/bin/qmake.exe" mainwindow.pro "CONFIG+=debug"
-nmake debug
-.\x64\Debug\iskating.exe
-```
-
-## 依赖安装
-
-TODO: 仓库未提供自动安装脚本。根据 `mainwindow.pro` 和 `build/qmake/dependencies.pri`，本机需要：
-
-- Qt 6.7.3 MSVC 2022 x64
-- Visual Studio 2022 MSVC x64
-- FFmpeg shared MSVC x64 dev package
-- TensorRT 10.1.0.27
-- CUDA 11.8
-
-## 环境变量
-
-可选覆盖：
-
-- `FFMPEG_ROOT`
-- `TENSORRT_ROOT`
-- `CUDA_ROOT`
-- `ISKATING_API_BASE_URL`
-- `ISKATING_API_USERNAME`
-- `ISKATING_API_PASSWORD`
-
-Qt 根目录当前写在 `mainwindow.pro`，不是环境变量。
-
-## 数据库和训练服务准备
-
-桌面端启动前需要 PostgreSQL 和 FastAPI 训练服务：
+先创建开发数据库和用户。然后：
 
 ```powershell
 cd server
 python -m venv .venv
-.\.venv\Scripts\pip install -r requirements.txt
+.\.venv\Scripts\python -m pip install -r requirements.txt
 $env:ISKATING_DATABASE_URL="postgresql+psycopg://iskating:password@127.0.0.1:5432/iskating"
-$env:ISKATING_JWT_SECRET="dev-secret"
-python ..\tools\reset_postgres_schema.py --yes
+$env:ISKATING_JWT_SECRET="dev-only-secret"
+```
+
+首次或可丢弃开发库执行：
+
+```powershell
+.\.venv\Scripts\python ..\tools\reset_postgres_schema.py --yes
+```
+
+该命令会删除业务表，不得用于需要保留的数据。启动服务：
+
+```powershell
 .\.venv\Scripts\uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-桌面端默认连接 `http://127.0.0.1:8000`，也可用 `QSettings server/baseUrl` 或 `ISKATING_API_BASE_URL` 覆盖。
+验证：
 
-相关文件：
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/health
+```
 
-- `src/ui/mainwindow.cpp`
-- `src/app/main.cpp`
+## 3. 准备模型
 
-## 模型准备
+在仓库根目录：
 
-- 运行 `tools/download_athlete_models.ps1` 下载 YOLO26x 和 TransReID MSMT17 checkpoint，并生成两个 ONNX 文件。
-- 运行 `python tools/check_athlete_models.py` 检查模型文件和 SHA256。
-- YOLO26x ONNX 输入为 `1x3x640x640`、输出为 `1x300x6`；PersonViT ONNX 输入为 `1x3x256x128`、输出为 `1x768`。
-- 首次运行 TensorRT 可能生成 `.fp16.engine`。
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/download_athlete_models.ps1
+python tools/check_athlete_models.py
+```
 
-## 常见启动失败原因
+预期本机存在但不提交 Git：
 
-- qmake 不是 `C:/Qt/6.7.3/msvc2022_64/bin/qmake.exe`。
-- FFmpeg/TensorRT/CUDA 默认路径不存在，且没有设置覆盖环境变量。
-- 输出目录缺少 Qt platforms 插件或 FFmpeg/TensorRT/CUDA DLL。
-- GPU/驱动不支持当前 TensorRT/CUDA 或 D3D11VA 路径。
-- 任一模型缺失时，视频播放仍可用；YOLO26x 缺失会停用 AI，PersonViT 缺失会停用身份匹配。
+- `models/athlete/yolo26x.onnx`
+- `models/athlete/personvit_msmt17_vit_base.onnx`
+
+首次客户端启动可能在同目录构建 `.fp16.engine`，耗时较长。
+
+## 4. 构建客户端
+
+打开 Visual Studio 2022 x64 Native Tools 终端，在仓库根目录：
+
+```powershell
+& "C:/Qt/6.7.3/msvc2022_64/bin/qmake.exe" mainwindow.pro "CONFIG+=release"
+nmake release
+```
+
+运行：
+
+```powershell
+.\x64\Release\iskating.exe
+```
+
+桌面端默认访问 `http://127.0.0.1:8000`，默认开发账号来自服务端 seed。可通过环境变量或 QSettings 覆盖。
+
+## 5. 最小 smoke test
+
+1. `/health` 返回 `status=ok`。
+2. 客户端启动且不报 Qt platform/DLL 错误。
+3. 系统设置可打开、保存并重新打开。
+4. 人员列表能从服务端加载。
+5. 至少一个 RTSP 或兼容本地文件可显示。
+6. 模型状态符合预期：完整 AI、仅检测降级或明确不可用。
+
+## 常见失败
+
+| 现象 | 优先检查 |
+|---|---|
+| qmake 立即报错 | 是否使用固定 Qt qmake，而非 PATH 中其他版本 |
+| 找不到 FFmpeg/TensorRT/CUDA | 对应 `*_ROOT` 和开发包 import lib/header |
+| `nmake` 不存在 | 是否在 x64 Native Tools 环境 |
+| FastAPI 导入失败 | `ISKATING_DATABASE_URL`、依赖安装、PostgreSQL 可达性 |
+| FastAPI startup 失败 | schema 是否已创建、bcrypt 固定版本、seed 权限 |
+| 视频有画面但无 AI | 模型状态、是否开始采集、活动流和 D3D→RGB 提取 |
+| 首次启动很慢 | TensorRT engine 正在构建；看日志与 GPU 活动 |
 
 ## GitHub 协作
 
