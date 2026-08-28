@@ -1,100 +1,77 @@
-# Conventions
+# 工程约定
 
-上级入口：[[00-index|AI 知识库索引]]
-相关文档：[[02-architecture|架构说明]]、[[05-pitfalls|坑点]]、[[06-glossary|术语表]]
-相关模块：[[modules/core|应用核心]]、[[modules/frontend|Qt Widgets 前端]]、[[modules/video-streaming|视频流]]、[[modules/ai-inference|AI 推理]]
-任务提示：[[prompts/codex-review-code|代码审查提示词]]、[[prompts/codex-refactor|重构提示词]]
+[返回索引](00-index.md) · [系统架构](02-architecture.md) · [已知风险](05-pitfalls.md)
 
-## 命名规则
+## 目录与构建
 
-- Qt 类使用 PascalCase，例如 `MainWindow`, `VideoOpenGLWidget`, `RtspStream`。
-- 成员变量使用 `m_` 前缀，例如 `m_cameraButtons`, `m_isRecording`。
-- 常量使用 `k` 前缀，例如 `kDefaultMainStreamFps`, `kAnalysisIntervalMs`。
-- 局部 helper 多放在 `.cpp` 的匿名 namespace 中，例如 `mainwindow.cpp`, `rtspstream.cpp`。
+- `src/app`：进程入口与生命周期装配。
+- `src/ui`：Qt Widgets、Designer UI、对话框和展示组件。
+- `src/domain`：领域数据结构，不依赖具体基础设施。
+- `src/application`：跨模块流程和后台任务编排。
+- `src/infrastructure`：视频、推理、持久化和配置实现。
+- 每层通过同层 `.pri` 汇总；新增/删除 C++ 文件时必须同步清单。
+- 新资源放 `resources/icons|images|styles` 并登记到 `resources/iskating.qrc`。
+- 不修改 `Makefile*`、`.qmake.stash`、`x64/`、Qt 生成源码和 TensorRT engine。
 
-## 目录组织习惯
+## C++ / Qt 风格
 
-- 根目录只保留 `mainwindow.pro`、项目文档和顶层运行目录；Qt/C++ 业务源码不得平铺在根目录。
-- `src/app/` 放进程入口，`src/ui/` 放 Qt Widgets/UI，`src/domain/` 放领域结构，`src/application/` 放流程编排，`src/infrastructure/` 按视频、推理、持久化和配置继续分层。
-- `resources/` 放 `iskating.qrc`、`icons/`、`images/` 和 `styles/`；`models/` 保持为模型交付目录。
-- `build/qmake/` 放公共配置、第三方依赖和部署规则；各源码层通过同层 `.pri` 汇总到 `mainwindow.pro`。
-- `tests/client/` 放不依赖 GPU/网络的客户端合同测试；构建输出在 `x64/Debug` 和 `x64/Release`，不应作为源码修改对象。
+- 类和 struct：`PascalCase`；成员：`m_` 前缀；常量：`k` 前缀。
+- 头文件使用 include guard；`.cpp` 先包含自身头文件。
+- 文件内 helper 优先放匿名 namespace，避免无必要的公共抽象。
+- 低层可失败操作通常返回 `bool` 并通过 `QString *errorMessage` 传递错误。
+- 后台结果通过 signal/slot、callback 和 `Qt::QueuedConnection` 回 UI。
+- 不从 worker 线程访问 QWidget，不在持有 mutex 时调用长耗时或可能回调 UI 的代码。
 
-## 组件写法
+## UI 与资源
 
-- 基础 UI 用 `src/ui/mainwindow.ui`，复杂动态区域在 `src/ui/mainwindow.cpp` 里替换或插入控件。
-- 样式通过对象名、动态属性和 QSS 控制，例如 `setRole()`、`repolish()`、`resources/styles/iskating.qss`。
-- 视频控件封装为 `src/ui/VideoOpenGLWidget`，内部组合 `src/infrastructure/video/D3DVideoSurface`。
+- 稳定基础布局修改 `src/ui/mainwindow.ui`；复杂动态区域可在 `.cpp` 装配。
+- 优先用 objectName、动态 property 和 QSS 表达状态；property 改变后按现有 `repolish()` 模式刷新。
+- 图标按钮和窄区域保持固定尺寸；悬浮提示不要通过增删按钮文字造成布局抖动。
+- 长机位名、URL、反馈和路径需 elide 或 word wrap。
+- 不直接编辑 `ui_mainwindow.h`。
 
-## API 写法
+## 视频与日志
 
-桌面端通过 `TrainingRepository`/QtNetwork 同步调用 FastAPI；普通业务路由使用 bearer JWT，worker 路由使用独立 token。C++ 内部接口通常使用：
+- RTSP URL 记录前必须脱敏，不能输出用户名/密码组合后的完整 URL。
+- 同 URL 的实时流由 `StreamRegistry` 复用；带 seek 的本地回放使用独立流，避免互相改变位置。
+- 错误文案面向用户保持简短，诊断细节进入日志。
+- 修改重连、stop、D3D11 device 生命周期时必须检查线程退出和共享引用。
 
-- `bool initialize(..., QString *error)` 返回成功/失败和错误文本。
-- `StatusCallback` / `ResultCallback` 从后台线程向 UI 线程发布状态或结果。
-- `QMetaObject::invokeMethod(..., Qt::QueuedConnection)` 跨线程回调 UI。
+## AI 契约
 
-相关文件：
+- 模型 shape、阈值、预处理、版本以 `models/athlete/athlete_models.json` 为主。
+- ROI 在 YOLO 后、track 前执行；四点标定在身份结果后生成场地坐标，两者不是同一配置。
+- `trackId` 只在单机位范围内有意义；`athleteId` 表示匹配身份。
+- 模型降级：缺 YOLO 时无 AI；缺 PersonViT 时保留 person bbox、身份为 unknown；视频播放应尽量保持。
+- 不为旧兼容表生成虚假姿态、动作或评分。
 
-- `src/infrastructure/inference/tensorrtrunner.h`
-- `src/infrastructure/persistence/trainingrepository.h/.cpp`
-- `src/application/athleteanalysismanager.cpp`
-- `server/app/main.py`
+## FastAPI / 数据
 
-## 错误处理方式
+- 桌面端通过 `TrainingRepository` 调用 API，不直接连接 PostgreSQL。
+- API JSON 对外使用 camelCase，数据库列使用 snake_case；新增字段需同步双向映射。
+- API/schema 变更同时检查：`server/app/schema.py`、`server/app/main.py`、领域 struct、Repository、工具、测试和 Reference。
+- 新表必须加入 `BUSINESS_TABLES`，否则 reset 无法可靠重建。
+- 人员/比赛等被历史引用的数据优先软归档，不硬删。
+- 人工复核遵循“AI 原始值保留、人工有效值优先展示/汇总”。
 
-- 可恢复错误通常设置状态文本并返回空结果，例如 `TensorRtAthleteBackend::infer()`。
-- 致命视频错误通过 `RtspStream::setFatalError()` 停止重试。
-- 用户输入错误使用 `QMessageBox::warning()`。
-- 低层错误通过 `QString *error` 向上返回。
+## Python
 
-相关文件：
+- 保持现有标准库 + FastAPI/SQLAlchemy 风格，不为简单逻辑新增框架。
+- NAS URI 解析必须 resolve 后检查仍位于配置根目录内。
+- 分块先完整写入临时文件、原子重命名，再计算/登记校验值。
+- 错误不得被吞掉后伪装为完成状态。
 
-- `src/infrastructure/video/rtspstream.cpp`
-- `src/ui/systemsettingsdialog.cpp`
-- `src/ui/videoopenglwidget.cpp`
-- `src/infrastructure/inference/tensorrtrunner.cpp`
+## 测试与文档
 
-## 日志方式
+- 修改行为时优先补最接近该契约的测试；不要只修改文档描述。
+- 测试预期应表达产品/协议要求，不为错误实现降级断言。
+- 文档使用相对 Markdown 链接；命令注明执行目录、平台和破坏性。
+- 一个事实只在一个主要文档详细定义，其他位置链接引用。
 
-- 使用 `qDebug()` 和 `qWarning()`。
-- 记录 RTSP URL 前会用 `safeUrlForLog()` 遮蔽密码。
+## Git
 
-相关文件：
-
-- `src/ui/mainwindow.cpp`
-- `src/ui/videoopenglwidget.cpp`
-- `src/infrastructure/video/rtspstream.cpp`
-
-## 测试习惯
-
-`server/tests` 使用 Python `unittest` 验证协议、schema 合同和纯逻辑，命令见 [[03-commands|运行命令]] 和 [[runbooks/testing|测试 Runbook]]。真实 PostgreSQL/API、Qt UI、GPU/DeepStream 和 12 路压测仍需集成环境。
-
-## Git 工作规则
-
-- 每次工作完成后，默认把本次变更提交到本地 Git 仓库，作为本地记录留存。
-- 默认不推送远端/云端，不创建远端 PR；只有用户明确要求 `push`、发布或创建 PR 时才执行。
-- 本地提交前应确认提交范围只包含本次任务相关文件，不要把已有无关未提交修改、生成文件或构建输出带入提交。
-- 当前 GitHub 远端为 `https://github.com/EthanQing/iskating.git`，`main` 是默认且受保护的主分支。
-- 所有改动必须在非 `main` 分支完成，并通过 Pull Request 合并到 `main`；禁止直接推送、强制推送或删除 `main`。
-- 版本或重要基线使用带注释的 tag 标记；tag 应指向已经验证并合并的提交。
-
-## 类型定义习惯
-
-- 简单数据结构用 `struct` 放在头文件，例如 `AthleteAnalysisResult`, `TrainingSession`, `AnalysisTask`, `SharedCameraSettings`；旧姿态结果不再作为客户端 C++ 类型，服务端历史表/接口的兼容边界由持久化模块单独维护。
-- 枚举使用 `enum class`，例如任务、视频或识别状态类型。
-- Qt 容器与类型较多，例如 `QVector`, `QString`, `QImage`, `QPointF`。
-
-## import/export 风格
-
-- 头文件使用 include guard。
-- `.cpp` 先包含自身头文件，再包含项目头和 Qt/系统头。
-- qmake 的 `SOURCES`/`HEADERS` 在各层 `.pri` 中维护，`mainwindow.pro` 只负责入口、依赖和部署组合。
-
-## 不应该做的事情
-
-- 不要直接修改 `Makefile*`, `.qmake.stash`, `x64/`, `debug/`, `release/` 等生成文件。
-- 不要绕过 `safeUrlForLog()` 打印带密码的 RTSP URL。
-- 不要在 UI 线程里做长时间 TensorRT 构建或视频解码。
-- 不要把 Qt/C++ 源码重新放到根目录；新增源码后更新对应层 `.pri`，并确认 `mainwindow.pro` 已包含该层清单。
-- 不要假设 `.vscode/` 的 GCC 配置是当前真实构建方式；以 `mainwindow.pro` 为准。
+- 只提交本次任务相关内容；已有未提交修改不得还原、暂存或顺带格式化。
+- 默认创建本地提交；未经用户明确要求，不 push、建 PR 或部署。
+- `origin` 为 `https://github.com/EthanQing/iskating.git`，`main` 是受保护的默认分支。
+- 所有改动在非 `main` 分支完成并通过 Pull Request 合并；禁止直接推送、强制推送或删除 `main`。
+- 重要版本或基线使用 annotated tag，且 tag 应指向已经验证并合并的提交。

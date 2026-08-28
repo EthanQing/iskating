@@ -18,7 +18,7 @@
 
 每个有效轨迹点都关联一条 `speed_metrics` 记录，包含瞬时速度、1000ms 平滑速度、单位（`m/s`）、算法版本和有效标记。首点、时间异常、超过 2 秒的取样间隔或无效检测会保留为无效速度结果。历史轨迹复盘可按运动员筛选并查看、导出速度曲线；旧训练记录不会补写速度。
 
-Windows Qt/C++ 滑冰训练辅助应用，当前实时 AI 主流程为：`YOLO26x person 检测 → PersonViT/MSMT17 ReID → 当前 session 参与者匹配 → trackId/athleteId`。
+Windows Qt/C++ 滑冰训练辅助应用，当前实时 AI 主流程为：`YOLO26x person 检测 → 检测 ROI 过滤 → 单机位一对一 track → 按需 PersonViT/MSMT17 ReID → 当前 session 参与者匹配 → trackId/athleteId`。
 
 当前版本提供运动员检测、身份识别，以及在“已识别 + 有效四点标定”条件下的二维轨迹与速度；不再生成实时姿态关键点、3D 骨架、动作评分或自动动作计数。服务端仍保留历史姿态/评分/动作表和接口，客户端当前只复盘支持范围内的历史动作/评分数据，不再加载或绘制旧姿态关键点覆盖层；新训练保存检测框、机位、trackId、身份状态、置信度，并尝试保存有效轨迹/速度。
 
@@ -28,7 +28,8 @@ Windows Qt/C++ 滑冰训练辅助应用，当前实时 AI 主流程为：`YOLO26
 
 - `models/athlete/yolo26x.onnx`：官方 Ultralytics YOLO26x，`640x640`，端到端 NMS-free，输出 `300x6`，只接受 COCO `person` 类别。
 - `models/athlete/personvit_msmt17_vit_base.onnx`：TransReID ViT-Base MSMT17 baseline，输入 `3x256x128`，RGB，均值/方差 `0.5`，输出 `768` 维 L2 归一化 embedding。
-- 默认检测阈值 `0.35`、ReID 匹配阈值 `0.60`、候选差值 `0.05`、track TTL `1200 ms`。
+- `models/athlete/camera_detect_rois.json`：CAM 01–07 的冰面检测区域；按原始画面像素保存，以人体框底边中点判定，并随实际分辨率缩放。未配置 ROI 的机位保持不过滤。
+- 默认检测阈值 `0.35`、ReID 匹配阈值 `0.60`、候选差值 `0.05`、track TTL `1200 ms`；轨迹稳定 2 次后才执行 PersonViT，未知身份最多重试 3 次、间隔 `1000 ms`。
 - 二进制模型和 TensorRT engine 不提交 Git；模型来源、版本、shape 和 SHA256 见 `models/athlete/athlete_models.json` 与 `models/athlete/athlete_models.sha256`。
 
 模型下载、YOLO 导出、PersonViT 转换和校验：
@@ -103,7 +104,7 @@ nmake release
 .\x64\Release\iskating.exe
 ```
 
-Release 规则始终复制 `models/athlete` 的清单和校验文件；如果构建机已准备被忽略的 ONNX 二进制，也会一并复制到发布目录，否则需按下载脚本在发布机补齐。
+Release 规则会复制 `models/athlete` 的模型清单、校验文件和检测 ROI 配置；如果构建机已准备被忽略的 ONNX 二进制，也会一并复制到发布目录，否则需按下载脚本在发布机补齐。
 
 ## 项目结构
 

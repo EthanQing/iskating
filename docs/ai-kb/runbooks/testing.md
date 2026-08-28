@@ -1,13 +1,18 @@
-# Testing Runbook
+# 测试与验收 Runbook
 
-上级入口：[[00-index|AI 知识库索引]]、[[runbooks/README|Runbook 地图]]
-相关命令：[[03-commands|运行命令]]
-相关模块：[[modules/core|应用核心]]、[[modules/video-streaming|视频流]]、[[modules/ai-inference|AI 推理]]、[[modules/persistence|本地持久化]]
-相关提示词：[[prompts/codex-review-code|代码审查提示词]]
+[Runbook 地图](README.md) · [命令速查](../03-commands.md) · [已知风险](../05-pitfalls.md)
 
-## 单元测试
+## 自动测试
 
-客户端纯逻辑合同测试覆盖摄像头模板 JSON 规范化和视频资产路径规划：
+### Python 服务与 worker 合同
+
+```powershell
+python -m unittest discover -s server/tests -p "test_*.py"
+```
+
+覆盖重点：NAS URI/分块、模型合同、worker 参数、分析任务 schema、轨迹/速度/关节 schema 和相机连通性合同。多数测试不启动真实 PostgreSQL、FastAPI server 或 DeepStream。
+
+### 客户端合同测试
 
 ```powershell
 & "C:/Qt/6.7.3/msvc2022_64/bin/qmake.exe" tests/client/client-tests.pro "CONFIG+=release"
@@ -15,84 +20,68 @@ nmake release
 .\x64\Release\tests\client-tests.exe
 ```
 
-FastAPI 分块协议和 worker 编排使用 Python `unittest`：
+覆盖纯逻辑合同，例如摄像头模板和视频资产规划；不覆盖完整 UI、RTSP、GPU 或 API。
 
-```powershell
-uv run --python 3.12 --with-requirements server/requirements.txt python -m unittest discover -s server/tests -p "test_*.py"
-```
-
-## 集成测试
-
-当前自动测试主要通过纯函数和源码/schema 合同检查覆盖 NAS URI 约束、gzip JSONL/SHA256、范围读取、分块原子提交和 worker 参数编排。数据库状态机与外键闭环需要在临时 PostgreSQL 上验证；QtNetwork/FastAPI 真实调用与 DeepStream 原生 parser/管线也不在现有单元测试覆盖内。
-
-## 计划中的 E2E/上线验收
-
-以下是目标验收，仓库内尚无自动 E2E 实现：完整帧率 E2E 使用带已知帧号的 12 路视频，要求解码帧数等于结果帧数、`frameIndex` 从 0 连续、PTS 不倒退且无未声明缺口。随后进行 12 路 1080p60 一小时压力测试，并分别中断 worker、FastAPI 和 NAS，验证恢复后无重复/缺帧。
-
-## 如何只跑某个测试
-
-例如只运行分块测试：
-
-```powershell
-uv run --python 3.12 --with-requirements server/requirements.txt python -m unittest server.tests.test_analysis_artifacts
-```
-
-## 构建验证
-
-当前可用的本机 Release 构建命令：
+### 客户端构建
 
 ```powershell
 & "C:/Qt/6.7.3/msvc2022_64/bin/qmake.exe" mainwindow.pro "CONFIG+=release"
-cmd /c "call ""C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"" && nmake release"
+nmake release
 ```
 
-如果 PowerShell 中直接运行 `nmake` 提示找不到命令，需要先通过 Visual Studio `vcvars64.bat` 初始化 MSVC 环境。Release 构建会运行 `windeployqt` 并复制 Qt SQL driver、PrintSupport、FFmpeg/TensorRT/CUDA DLL 和模型目录。
+## 按变更选择最小验证
 
-## 建议的人工验证清单
+| 变更 | 最小自动验证 | 还需人工/集成验证 |
+|---|---|---|
+| QSS/Qt UI | 客户端构建 | 页面、缩放、长文本、交互状态 |
+| 摄像头配置模板 | 客户端合同测试 | 导入预览、保存、旧 QSettings 兼容 |
+| RTSP/视频 | 客户端构建 | UDP/TCP、断流恢复、D3D11VA、seek、stop |
+| YOLO/ReID/track | 客户端构建 + 模型校验 | GPU 输入输出、多人、TTL、gallery、降级 |
+| FastAPI 纯逻辑 | 相关 Python test | 真实 HTTP/JWT（如涉及） |
+| schema/外键 | Python schema test | 临时 PostgreSQL reset + API 集成 |
+| worker Python | worker/artifact/model tests | compose config、取消/heartbeat |
+| DeepStream C++/parser | 相关 Python contract | Ubuntu DeepStream GPU 固定输入 E2E |
+| 文档 | 链接/路径检查 | 命令与当前代码人工核对 |
 
-现有自动测试不覆盖 Qt UI、真实 PostgreSQL/API 和 GPU/DeepStream，相关修改后建议至少手动验证：
+## 必做数据集成用例
 
-- 应用能启动到最大化主窗口。
-- 系统设置可打开、保存和重新加载。
-- 至少一路 RTSP 或本地视频源可播放。
-- 开始、暂停、停止采集状态正确。
-- 模型状态栏能显示初始化/运行状态。
-- 主视频 bbox/身份/trackId 覆盖不会崩溃；已识别且四点标定的机位能绘制二维轨迹，未标定或 unknown 不生成场地点。
-- 保存新训练后历史页和建议页刷新，并确认 PostgreSQL 中生成 session、参与者和检测/身份摘要；新 person/ReID 记录不应生成姿态、自动动作或评分。
-- 使用真实 PostgreSQL 专门验证主运动员 participant UUID 与 `track_points`/`speed_metrics` 外键一致；当前已知映射缺口未修复，预期可复现静默漏存。
-- 用旧 SQLite 样本库执行 `tools/import_sqlite_to_postgres.py`，确认导入数量、历史记录和旧动作复盘兼容；旧姿态 JSON 仅验证服务端迁移/API 数据，不再要求客户端显示关键点覆盖层。
-- 打开“人员管理”，新增/编辑/删除运动员和教练，确认删除后训练下拉不再显示该人员但历史记录仍可展示。
-- 打开系统设置，点击“连通测试”：未配置 IP 应显示跳过；不可达 IP 应显示失败原因；可用 RTSP 应显示成功、UDP/TCP、分辨率和帧率；测试后表单内容不应被自动保存或改写。
-- 对含旧动作数据的本地视频记录打开“复盘校准”，验证动作列表、片段定位、慢放、逐帧、关键帧定位和人工修正；客户端已移除旧姿态叠加开关。
-- 导入单视频和创建 12 路完整帧率批次后，查询 `/analysis-tasks`，确认分别生成 `offline_import` 与 `full_rate_batch` 主任务；保存关联训练 session 后确认任务关联输出 session、进度为 100 且状态完成。
-- 在当前进程暂停/继续任务，确认完整分析暂停只停轮询；重启后的 `paused` 任务应显示“需重新发起”，不能伪装可继续。同时检查 run 的 0–1 进度不被直接当成 0–100 百分比。
-- 在复盘中手动新增动作、修正起止时间/有效性/分数/错误项/反馈，确认历史卡片、建议页趋势、报告和个体基线使用人工优先数据。
-- 在动作标准编辑入口维护阈值、权重、目标次数/分数、提示文案和参考视频路径，确认重启后不被 seed 覆盖。
-- 导出 Markdown、CSV 明细和 PDF 复盘报告，确认包含训练摘要、动作明细、AI 原始分、人工修正、教练备注和视频引用。
-- 在历史页打开“报告中心”，导出 CSV/PDF，确认参与者、训练内时间筛选生效，轨迹/速度/关节角/角速度字段、单位及无数据提示一致。
-- RTSP 源仍可预览、开始/暂停/停止采集、保存记录；RTSP 历史复盘应禁用精确 seek/慢放/逐帧并显示片段时间提示。
-- RTSP 断流验证：正常播放后临时断开摄像头网络或关闭 RTSP 服务，确认 UI 显示断流重连；30 秒后显示长时间断流；恢复网络后自动回到播放状态，日志包含 `stream interrupted`、`reconnect scheduled` 和 `stream recovered`，且 URL 密码脱敏。
-- 导入 12 路完整分析 manifest，确认媒体信息、人工时间校正、Windows NAS 根映射、每路进度/错误、取消、重试和版本号正确。
-- 完成区间边分析边回放，随机 seek 到未完成和人为缺口区间，确认明确提示且不沿用上一帧检测框。
-- 创建新 run，激活前仍显示旧激活结果；激活后缓存清空并读取新 run；清理视频后结果文件删除但审计状态保留。该用例只验证 run 版本激活，不代表模型/gallery 已冻结可复现快照。
+涉及 session、participant、轨迹或速度时，在可丢弃 PostgreSQL 上验证：
 
-相关文件：
+1. 创建主运动员和至少一名附加 participant。
+2. POST session，包含各自 participantId 的 track point/speed。
+3. 查询 `training_session_participants`、`track_points`、`speed_metrics`。
+4. 断言每条 participant 外键存在且数量正确。
+5. GET session 指标 API，断言 participant、时间、camera 和单位映射正确。
 
-- `src/ui/mainwindow.cpp`
-- `src/ui/videoopenglwidget.cpp`
-- `src/application/analysistaskmanager.cpp`
+当前主 participant UUID 缺口可能让该用例失败；修复前不得将其标为通过。
 
-## 完整帧率上线门槛
+## Windows 人工验收
 
-- 固定输入测试覆盖 YOLO parser、坐标缩放、PersonViT 预处理、gallery ambiguous 匹配和动态 batch 1/12/32。
-- 12 路时间轴使用 NVR/摄像头时间戳；正常时间源下机位误差不超过一帧，人工校正形成新运行版本。
-- 记录 GPU、CPU、显存、NAS 读写、YOLO 吞吐、ReID 调用率和每小时录像分析耗时，据此选择生产 GPU。
-- 单路失败不得破坏其他源的已提交结果；异常恢复后分块索引无重复、frameIndex 无缺失。
+按任务选择：
 
-## 常见测试失败原因
+- 启动、系统设置保存/重载、人员和标准加载。
+- RTSP 主/预览、小窗切换、UDP→TCP、30 秒断流和恢复，日志 URL 脱敏。
+- 本地视频导入失败不改变当前源；成功后可 seek/慢放/逐帧。
+- 开始/暂停/停止后计时、叠加、轨迹和内存结果状态一致。
+- YOLO 缺失时视频继续；PersonViT 缺失时保留 unknown bbox。
+- 多人 track 不在同帧复用；gallery 切换清理旧身份。
+- 未标定/unknown 无轨迹；有效标定输出米制坐标和 `m/s`。
+- 保存后历史刷新；新 person/ReID session 不新增虚假动作/评分/姿态。
+- RTSP `planned` 与本地 `external` 视频资产文案正确。
 
-- 本机没有目标摄像头或 RTSP 地址不可访问。
-- TensorRT 首次构建 engine 耗时过长，被误判为卡死。
-- Release 和 Debug 的 DLL 部署状态不同。
-- `Qt PrintSupport` 缺失时 PDF 导出或 Release 部署会失败；确认 `.pro` 包含 `printsupport` 且输出目录有 `Qt6PrintSupport.dll`。
-- `QSettings` 保留了旧配置，导致复现结果不一致。
+## 完整分析 E2E 门槛
+
+在 Ubuntu/NVIDIA/真实 NAS 或等效环境：
+
+1. 使用 12 路带可见 frameIndex 的固定视频。
+2. 核对每路解码帧数、结果帧数、frameIndex、PTS 和 batchTime。
+3. 校验 chunk SHA256、范围、无重叠、无未声明 gap。
+4. 在未完成/缺口区间回放，确认不沿用旧 bbox。
+5. 中断 worker、FastAPI、NAS，验证租约、幂等登记和恢复。
+6. 做 12 路 1080p60 至少 60 分钟压测，记录 GPU/CPU/显存/NAS I/O/吞吐。
+
+当前代码尚未把全局 frameIndex/PTS/内容一致性全部作为激活硬门槛，验收需额外检查。
+
+## 报告测试结果
+
+只报告实际执行的命令、退出结果和环境。无法验证真实摄像头、GPU、PostgreSQL 或 DeepStream 时，明确列为未验证，不用单元测试替代平台结论。

@@ -1,123 +1,98 @@
-# Architecture
+# 系统架构
 
-上级入口：[[00-index|AI 知识库索引]]
-相关文档：[[01-project-overview|项目概览]]、[[04-conventions|代码约定]]、[[05-pitfalls|坑点]]
-相关模块：[[modules/core|应用核心]]、[[modules/video-streaming|视频流]]、[[modules/ai-inference|AI 推理]]、[[modules/persistence|本地持久化]]、[[modules/background-workers|后台线程]]
-相关流程：[[flows/video-streaming-flow|视频播放流程]]、[[flows/pose-analysis-flow|运动员检测与身份流程]]、[[flows/training-record-flow|训练记录流程]]
+[返回索引](00-index.md) · [项目概览](01-project-overview.md) · [工程约定](04-conventions.md)
 
-## 前端架构
+## 运行拓扑
 
-项目是 Qt Widgets 桌面应用，不是 Web 前端。UI 由 `src/ui/mainwindow.ui` 定义基础布局，`src/ui/mainwindow.cpp` 在运行时替换或动态装配部分组件。
+```text
+RTSP / 本地文件
+       │
+       ▼
+Windows Qt 客户端 ──HTTP/JWT──> FastAPI ──SQL──> PostgreSQL
+       │                           │
+       │                           ├──文件──> ReID gallery root
+       │                           │
+       └──nas:// 回放映射          └──索引──> NAS gzip JSONL 分块
+                                                ▲
+                                                │ worker token / lease
+                                      Ubuntu DeepStream worker
+                                                ▲
+                                                └──12 路 NAS 视频
+```
 
-关键文件：
+## 组件职责
 
-- `src/ui/mainwindow.ui`: 主窗口页面、12 路摄像头、历史页和建议页的 Designer 布局。
-- `src/ui/mainwindow.cpp`: 页面切换、按钮行为、全屏/侧栏/轨迹三态、动态训练记录卡片。
-- `resources/styles/iskating.qss`: 暗色训练仪表盘 QSS。
-- `resources/iskating.qrc`: 注册 `resources/styles/`, `resources/images/`, `resources/icons/` 到 Qt 资源系统。
-- `src/ui/videoopenglwidget.cpp`: 视频控件、占位状态、播放控制浮层。
-- `src/infrastructure/video/d3dvideosurface.cpp`, `src/ui/videoopenglwidget.cpp`: 运动员检测框和身份标签覆盖层。
+### Windows 桌面客户端
 
-## 后端架构
+- `MainWindow` 是 UI 与业务编排中心。
+- `VideoOpenGLWidget`/`RtspStream` 负责视频显示和播放控制。
+- `AthleteAnalysisManager` 在单独线程中轮询活动流并执行 Windows 实时 AI。
+- `AnalysisTaskManager` 用单独线程和独立 `TrainingRepository` 管理单视频与完整分析任务。
+- `TrainingRepository` 通过同步 QtNetwork 调用 FastAPI；不得从 UI 线程执行新的长耗时批量请求。
+- QSettings 保存摄像头、采集、存储、NAS 映射和服务访问参数。
 
-系统是三层架构：
+### FastAPI 训练服务
 
-- Windows Qt/C++ 客户端：`RtspStream` 负责 FFmpeg/D3D11VA 解码与重连；`AthleteAnalysisWorker` 从活动流抽帧并调用 YOLO26x/PersonViT；`AnalysisTaskManager` 用单并发后台队列处理单视频探测和完整分析轮询。
-- FastAPI/PostgreSQL 服务：`server/app/main.py` 提供认证、人员、比赛、标准、session、复核、报告指标、通用任务和完整分析 REST API；`server/app/schema.py` 定义开发期 PostgreSQL schema。
-- Ubuntu/DeepStream worker：`analysis_worker/` 从服务端领取租约，对 12 路 NAS 视频逐解码帧做 person/ReID，将 gzip JSONL 分块原子写入 NAS，PostgreSQL 只保存索引与运行状态。
+- 提供登录、人员/ReID、比赛/标准、任务、session、历史、复盘和指标 API。
+- 通过 SQLAlchemy Core 风格 SQL 访问 PostgreSQL。
+- 启动时只 seed 缺失的默认数据，不创建 schema。
+- 普通业务 API 使用 bearer JWT；worker API 使用 `X-Analysis-Worker-Token`。
+- 当前有 `role` 与 `require_admin()` helper，但业务路由未形成完整 RBAC。
 
-相关文件：
+### DeepStream worker
 
-- `src/infrastructure/video/rtspstream.cpp`
-- `src/application/athleteanalysismanager.cpp`
-- `src/application/analysistaskmanager.cpp`
-- `src/infrastructure/inference/tensorrtrunner.cpp`
-- `server/app/main.py`
-- `analysis_worker/worker.py`
+- 领取带租约的 run，生成临时 gallery 文件并启动原生 C++ 管线。
+- 对每个解码帧运行 YOLO；NvDCF 维护单机位 track；按策略运行 PersonViT。
+- 分块先完整写入再原子提交，Python worker 计算 SHA256 后登记索引。
+- 心跳发现取消请求时终止子进程。
 
-## 数据层架构
+## 关键数据边界
 
-当前数据层分为桌面端本地设置和训练业务服务端：
+| 数据 | 权威位置 | 说明 |
+|---|---|---|
+| 摄像头与本机偏好 | QSettings | 包含 RTSP 凭据；需保护和脱敏 |
+| 人员、训练、任务、索引 | PostgreSQL | 桌面端只能经 FastAPI 访问 |
+| ReID 样本图片 | `ISKATING_IDENTITY_GALLERY_ROOT` | PostgreSQL 保存元数据和 embedding |
+| 完整帧率逐帧结果 | NAS gzip JSONL | PostgreSQL 只保存 run/source/chunk 索引 |
+| 模型二进制/engine | 部署机文件系统 | ONNX 和 engine 不作为 Git 源码交付 |
 
-- Qt `QSettings`: 摄像头公共配置、每路摄像头 URL、采集偏好、训练服务地址和访问令牌，继续兼容旧 key。
-- FastAPI 服务端: `server/app/main.py` 提供训练业务 REST API、基础登录和 seed。
-- PostgreSQL: 训练业务与分析协议数据，开发期 schema 由 `server/app/schema.py` 维护并通过 `tools/reset_postgres_schema.py` 空库重建，保存账号、人员/ReID 样本元数据、比赛/标准、计划任务、通用/完整分析任务、session/参与者/视频、检测兼容摘要、轨迹/速度/关节指标、旧动作/人工复核和基线。ReID 样本图片和完整分析逐帧分块分别位于文件根目录/NAS，数据库只保存路径或索引。
+## Windows 实时数据流
 
-`TrainingRepository::open()` 不再创建本机 SQLite；它读取 `server/baseUrl` 和 `auth/accessToken`，通过 QtNetwork 连接训练服务。旧 `%APPDATA%/iSkating/iSkating Coach/iskating.db` 仅由 `tools/import_sqlite_to_postgres.py` 在切换前一次性导入 PostgreSQL。
+1. `MainWindow` 从 QSettings 生成视频源并启动控件。
+2. `StreamRegistry` 按 URL 复用 `RtspStream`；本地 seek 文件使用独立流。
+3. `RtspStream` 后台解码为 D3D11 frame；`D3DVideoSurface` 显示。
+4. `AthleteAnalysisManager` 在活动流中 round-robin 取新帧。
+5. `D3DFrameExtractor` 转 RGB；`TensorRtAthleteBackend` 执行 YOLO → ROI → track → 按需 ReID。
+6. queued callback 回到 UI；`MainWindow` 更新叠加层和约 200ms 的兼容摘要。
+7. 已识别且已四点标定时，bbox 底边中点投影为场地点，并计算速度。
+8. 保存时通过 FastAPI 提交 session、参与者、视频资产、摘要和条件式指标。
 
-相关文件：
+详见 [实时训练流程](flows/realtime-training.md)。
 
-- `src/domain/trainingdomain.h`
-- `src/infrastructure/persistence/trainingrepository.cpp`
-- `src/ui/personmanagementdialog.cpp`
-- `src/ui/mainwindow.cpp`
-- `src/ui/systemsettingsdialog.cpp`
-- `src/app/main.cpp`
+## 完整分析数据流
 
-## 认证/权限架构
+1. 客户端创建 12 路 `nas://` batch 和 run。
+2. worker 领取 run，按源 PTS、源开始偏移和人工校正建立 batch 时间。
+3. 原生管线生成每帧对象结果；每约 10 秒形成 gzip JSONL 分块。
+4. worker 计算 SHA256 并幂等登记 chunk。
+5. 客户端查询进度和范围结果；缺口处必须清空旧叠加。
+6. run 通过现有检查后由用户显式激活；激活不会自动创建训练 session。
 
-训练服务提供账号密码登录和 JWT bearer token，worker API 使用独立 token。桌面端读取已保存 token，或使用环境账号自动登录；当前没有可见登录页或账号管理页。用户记录虽有 role，业务路由没有按 role 做 RBAC 授权。
+详见 [完整帧率分析流程](flows/fullrate-analysis.md)。
 
-RTSP 摄像头认证仍来自 URL 中的用户名/密码，本机配置保存在 QSettings，日志输出必须脱敏。
+## 线程与生命周期
 
-相关文件：
+- QWidget 只在 UI 线程操作。
+- 每个 `RtspStream` 有解码线程；同 URL 可被多个控件共享。
+- Windows 实时 AI 是单个 worker，不是每机位一个模型实例。
+- 分析任务队列是单并发 FIFO；线程内创建独立 Repository。
+- DeepStream worker 是独立 Linux 进程/容器，不共享 Windows 内存状态。
+- `RtspStream::stop()` 和 TensorRT 关闭等待时间较长，修改 stop/析构必须验证阻塞路径。
 
-- `src/infrastructure/persistence/trainingrepository.cpp`: 登录、bearer token 与 API 调用
-- `server/app/main.py`: JWT 与 worker token 验证
-- `src/ui/systemsettingsdialog.h`: `SharedCameraSettings.username/password`
-- `src/ui/mainwindow.cpp`, `src/ui/videoopenglwidget.cpp`, `src/infrastructure/video/rtspstream.cpp`: `safeUrlForLog()`
+## 架构约束
 
-## 外部服务依赖
-
-- RTSP 摄像头/视频源：`src/ui/videoopenglwidget.cpp`, `src/infrastructure/video/rtspstream.cpp`
-- FFmpeg 动态库和开发包：`build/qmake/dependencies.pri`
-- Qt 6.7.3 MSVC 2022 x64 SDK：`mainwindow.pro`
-- TensorRT 10.1、CUDA 11.8：`build/qmake/dependencies.pri`, `src/infrastructure/inference/tensorrtrunner.cpp`
-- YOLO26x 和 TransReID 模型下载/转换：`tools/download_athlete_models.ps1`, `tools/convert_personvit_msmt17.py`
-- FastAPI 训练服务与 PostgreSQL：`server/`
-- NAS `nas://` 源、视频和结果分块：`server/app/analysis_artifacts.py`, `analysis_worker/`
-- Ubuntu 24.04、NVIDIA DeepStream 9、Docker 和 NVIDIA Container Toolkit：`analysis_worker/compose.yml`
-
-## 主要数据流
-
-1. 用户在系统设置中填写公共 RTSP 参数和 12 路相机 IP。
-2. `MainWindow::persistSystemSettings()` 将配置写入 `QSettings`。
-3. 点击开始采集后，12 路小窗接入预览码流，主视图接入第一路主码流。
-4. `VideoOpenGLWidget` 通过 `StreamRegistry` 复用或创建 `RtspStream`。
-5. `RtspStream` 输出 `D3DFrame`；`D3DVideoSurface` 负责显示。
-6. `AthleteAnalysisManager` 订阅活动相机流，将最新帧转成 RGB。
-7. `TensorRtAthleteBackend` 做 YOLO26x person 检测、PersonViT embedding、gallery 匹配和 per-camera track。
-8. `MainWindow` 将选中机位结果叠加到主视频并更新身份标签；人工绑定可覆盖当前 track 的低置信度身份。已识别且已四点标定的机位会同时计算二维轨迹与速度。
-9. 保存训练后，桌面端通过 FastAPI 提交 session、参与者、检测/身份摘要、视频引用和轨迹/速度。当前主运动员 participant UUID 在客户端与服务端可能不一致，轨迹/速度存在静默漏存风险。
-10. 单视频导入先在后台做媒体/D3D11VA 探测和任务登记；导入完成不等于全视频 AI 逐帧分析完成。
-11. 12 路完整分析把 `nas://` 批次提交给 DeepStream worker，结果写 NAS 分块并显式激活；完成本身不会自动创建历史 session。
-12. 历史页读取当前检测/轨迹与旧动作/评分兼容数据，并提供复核、报告与趋势；服务端旧姿态表仍保留，但当前客户端不再加载或绘制姿态关键点覆盖层。
-
-相关文件：
-
-- `src/ui/systemsettingsdialog.cpp`
-- `src/ui/mainwindow.cpp`
-- `src/ui/videoopenglwidget.cpp`
-- `src/infrastructure/video/streamregistry.cpp`
-- `src/infrastructure/video/rtspstream.cpp`
-- `src/infrastructure/video/d3dvideosurface.cpp`
-- `src/application/athleteanalysismanager.cpp`
-- `src/infrastructure/inference/tensortrtathletebackend.cpp`
-
-## 模块关系
-
-- `MainWindow` 是编排中心，直接持有 UI、`AthleteAnalysisManager`、训练记录和摄像头设置。
-- `VideoOpenGLWidget` 只管理单个视频源的 UI 状态和活动流，不直接写入全局设置。
-- `StreamRegistry` 通过 URL 复用 `RtspStream`，避免同一 URL 被重复解码。
-- `TensorRtAthleteBackend` 依赖 `TensorRtRunner`，组合 YOLO26x 检测、PersonViT ReID 和 gallery 匹配。
-- `TrainingRepository` 是训练数据边界，所有人工复核、动作标准编辑、session 汇总重算和基线刷新都应通过它完成。
-
-## 架构关键点
-
-- `src/app/main.cpp` 必须在 `QApplication` 构造前设置本地 Qt 插件和运行库搜索路径。
-- `mainwindow.pro` 强制使用 `C:/Qt/6.7.3/msvc2022_64` 下的 qmake，否则直接报错。
-- 视频解码强依赖 D3D11VA；如果解码器不支持 D3D11VA，`RtspStream` 会进入致命错误。
-- TensorRT engine 会按 ONNX 文件名生成到同目录的 `.fp16.engine`，首次启动可能很慢。
-- 服务端旧姿态表和接口仍作为历史数据边界保留；客户端已移除旧姿态结果类型、姿态覆盖层和对应查询接口。
-- 任务中心只能恢复展示重启前的未完成任务，不会重建 job 参数，不能直接继续。
-- 完整分析的模型/gallery 字段不是冻结快照；激活前校验也尚未覆盖全局 frameIndex 无 gap、PTS 跨块单调和内容/元数据逐项一致。
+- 不让 UI 直接写 SQL、NAS 分块或模型内部状态。
+- 不把 `participant_pose_frames` 当作权威二维轨迹；轨迹和速度分别使用 `track_points`、`speed_metrics`。
+- 不把 `planned` 视频资产解释为磁盘已有录像。
+- 不把 run 上的模型/gallery 标签解释为不可变快照。
+- 不把完整分析“暂停轮询”解释为远端 worker 暂停。

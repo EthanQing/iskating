@@ -52,6 +52,7 @@ ai_models.commands = \
     if not exist $$shell_quote($$shell_path($$DESTDIR/models/athlete)) $(MKDIR) $$shell_quote($$shell_path($$DESTDIR/models/athlete)) $$escape_expand(\\n\\t) \
     $(COPY_FILE) $$shell_quote($$shell_path($$PROJECT_ROOT/models/athlete/athlete_models.json)) $$shell_quote($$shell_path($$DESTDIR/models/athlete/athlete_models.json)) $$escape_expand(\\n\\t) \
     $(COPY_FILE) $$shell_quote($$shell_path($$PROJECT_ROOT/models/athlete/athlete_models.sha256)) $$shell_quote($$shell_path($$DESTDIR/models/athlete/athlete_models.sha256)) $$escape_expand(\\n\\t) \
+    $(COPY_FILE) $$shell_quote($$shell_path($$PROJECT_ROOT/models/athlete/camera_detect_rois.json)) $$shell_quote($$shell_path($$DESTDIR/models/athlete/camera_detect_rois.json)) $$escape_expand(\\n\\t) \
     if exist $$shell_quote($$shell_path($$PROJECT_ROOT/models/athlete/yolo26x.onnx)) $(COPY_FILE) $$shell_quote($$shell_path($$PROJECT_ROOT/models/athlete/yolo26x.onnx)) $$shell_quote($$shell_path($$DESTDIR/models/athlete/yolo26x.onnx)) $$escape_expand(\\n\\t) \
     if exist $$shell_quote($$shell_path($$PROJECT_ROOT/models/athlete/personvit_msmt17_vit_base.onnx)) $(COPY_FILE) $$shell_quote($$shell_path($$PROJECT_ROOT/models/athlete/personvit_msmt17_vit_base.onnx)) $$shell_quote($$shell_path($$DESTDIR/models/athlete/personvit_msmt17_vit_base.onnx))
 QMAKE_EXTRA_TARGETS += ai_models

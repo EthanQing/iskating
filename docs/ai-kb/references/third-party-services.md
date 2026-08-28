@@ -1,62 +1,86 @@
-# Third-Party Services
+# 第三方依赖与模型
 
-上级入口：[[00-index|AI 知识库索引]]、[[references/README|Reference 地图]]
-相关模块：[[modules/video-streaming|视频流]]、[[modules/ai-inference|AI 推理]]、[[modules/persistence|本地持久化]]
-相关 Runbook：[[runbooks/local-development|本地开发]]、[[runbooks/deployment|部署]]、[[runbooks/debugging|调试]]
-相关 API：[[external-apis|外部 API]]
+[Reference 地图](README.md) · [本地开发](../runbooks/local-development.md) · [视频与实时 AI](../modules/video-and-realtime-ai.md)
 
-## 数据库服务
+## Windows 客户端依赖
 
-训练业务数据使用 PostgreSQL，由 FastAPI 服务端通过 `ISKATING_DATABASE_URL` 访问。桌面端不直连 PostgreSQL。
+| 依赖 | 当前合同 | 用途 |
+|---|---|---|
+| Qt | 6.7.3 MSVC 2022 x64 | Core/Gui/Widgets/SVG/Network/PrintSupport |
+| MSVC | Visual Studio 2022 x64，C++20 | 客户端构建 |
+| FFmpeg | shared MSVC x64；当前部署 DLL major 见 `deployment.pri` | RTSP/本地文件、D3D11VA |
+| Direct3D | D3D11/DXGI/D3DCompiler | 硬件 frame 与渲染 |
+| TensorRT | 10.1.0.27 | ONNX 解析、FP16 engine、推理 |
+| CUDA | 11.8 | TensorRT runtime/buffer |
+| QXlsx | 仓库 vendored，MIT | XLSX 导出 |
 
-相关文件：
+准确路径和链接库见 `build/qmake/dependencies.pri`，部署复制规则见 `build/qmake/deployment.pri`。
 
-- `server/app/main.py`
-- `server/app/schema.py`
-- `tools/reset_postgres_schema.py`
-- `src/infrastructure/persistence/trainingrepository.cpp`
+## 服务端依赖
 
-## 认证服务
+`server/requirements.txt` 固定：
 
-FastAPI 训练服务提供基础登录，使用 JWT bearer token。桌面端保存 `auth/accessToken`，也可通过 `ISKATING_API_USERNAME`/`ISKATING_API_PASSWORD` 自动登录。RTSP 摄像头仍可能需要用户名/密码。
+- FastAPI 0.111.1
+- SQLAlchemy 2.0.31
+- psycopg 3.2.1 binary
+- Uvicorn 0.30.3
+- PyJWT 2.8.0
+- passlib 1.7.4 + bcrypt 4.0.1
 
-相关文件：
+`bcrypt==4.0.1` 是为避免 passlib 与较新 bcrypt 的兼容问题，不要无验证升级。
 
-- `src/ui/systemsettingsdialog.h`
-- `src/ui/mainwindow.cpp`
+## DeepStream
 
-## 邮件服务
+- 容器基于 `nvcr.io/nvidia/deepstream:9.0-triton-multiarch`。
+- 目标环境：Ubuntu 24.04、兼容 NVIDIA 驱动、Docker、NVIDIA Container Toolkit。
+- 原生构建使用 CMake/g++/GStreamer 开发包/zlib。
+- 生产吞吐依赖具体 GPU 和 NAS，仓库没有最低硬件基线。
 
-TODO: 未发现邮件服务。
+## 模型合同
 
-## 支付服务
+权威 manifest：`models/athlete/athlete_models.json`。
 
-TODO: 未发现支付服务。
+### YOLO26x
 
-## 存储服务
+- 来源：Ultralytics release `yolo26x.pt`。
+- ONNX：`yolo26x.onnx`。
+- 输入：`1x3x640x640`。
+- 输出：`1x300x6`，端到端 NMS-free。
+- 类别：COCO person class 0。
+- 默认阈值：0.35。
+- 许可：Ultralytics AGPL-3.0 或 Enterprise，发布前需确认适用方案。
 
-未使用云存储服务。模型文件在本机，ReID 样本图片由 `ISKATING_IDENTITY_GALLERY_ROOT` 指向服务端文件目录，训练历史在 PostgreSQL。12 路原始录像和完整分析分块位于 Windows/Ubuntu 共同访问的 NAS；跨主机协议只使用 `nas://` URI。
+### PersonViT / TransReID
 
-相关文件：
+- 来源：TransReID MSMT17 ViT-Base baseline。
+- ONNX：`personvit_msmt17_vit_base.onnx`。
+- 输入：`1x3x256x128`，RGB，mean/std 均为 0.5。
+- 输出：768 维，并做 L2 normalize。
+- 模型版本：`personvit-msmt17-vit-base-v1`。
+- 预处理版本：`rgb-256x128-mean0.5-std0.5-l2-v1`。
+- 许可：遵守 TransReID 仓库许可和 MSMT17 数据集条款。
 
-- `models/athlete/`
-- `server/app/main.py`
-- `models/hand/`
-- `src/ui/mainwindow.cpp`
+### 运行时阈值
 
-## 日志/监控服务
+- ReID threshold：0.60。
+- ambiguous margin：0.05。
+- result TTL：350ms。
+- track TTL：1200ms。
+- track IoU：0.20。
+- ReID 最少 track hits：2；最多尝试 3；重试 1000ms。
+- ROI 默认启用，配置 `camera_detect_rois.json`。
 
-TODO: 未发现日志收集或监控服务。代码使用 `qDebug()` 和 `qWarning()`。
+## 模型交付
 
-## 主要第三方 SDK/运行时
+- ONNX 二进制和 `.fp16.engine` 不应作为普通 Git 源码提交。
+- 下载/转换：`tools/download_athlete_models.ps1`、`convert_personvit_msmt17.py`。
+- 校验：`tools/check_athlete_models.py` + `athlete_models.sha256`。
+- DeepStream 动态 batch 导出：`tools/export_deepstream_models.ps1`。
+- Engine 与 GPU、驱动、TensorRT/CUDA 和模型绑定，默认在目标机重建。
 
-- Qt 6.7.3 MSVC 2022 x64：`mainwindow.pro`
-- FFmpeg shared：`build/qmake/dependencies.pri`, `src/infrastructure/video/rtspstream.cpp`
-- Direct3D 11 / DXGI / D3DCompiler：`build/qmake/dependencies.pri`, `src/infrastructure/video/d3dvideosurface.cpp`
-- TensorRT 10.1：`build/qmake/dependencies.pri`, `src/infrastructure/inference/tensorrtrunner.cpp`
-- CUDA 11.8：`build/qmake/dependencies.pri`, `src/infrastructure/inference/tensorrtrunner.cpp`
-- NVIDIA DeepStream 9 容器：`analysis_worker/Dockerfile`；部署在 Ubuntu 24.04 分析主机，使用 NVIDIA Container Toolkit 和 NAS bind mount。
-- QXlsx vendored 源码：`third_party/QXlsx`, `build/qmake/dependencies.pri`；MIT license，用于动作明细 XLSX 导出。
-- Ultralytics YOLO26x：来源为 `https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x.pt`，AGPL-3.0 或 Enterprise license，导出为 ONNX 后运行。
-- TransReID：来源为 `https://github.com/damo-cv/TransReID`，使用官方 MSMT17 ViT-Base baseline checkpoint；遵守仓库许可证和 MSMT17 数据集条款。
-- ONNX 模型：`models/athlete/`；输入输出和 SHA256 见 `models/athlete/athlete_models.json`、`models/athlete/athlete_models.sha256`。
+## 外部服务现状
+
+- PostgreSQL：训练业务数据库。
+- RTSP 摄像头/NVR：视频源与可能的历史回放。
+- NAS：原始完整分析视频与结果分块。
+- 未发现支付、邮件、云对象存储、日志聚合或监控服务。
