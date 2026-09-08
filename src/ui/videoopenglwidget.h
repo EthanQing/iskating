@@ -96,6 +96,7 @@ private:
     void notifyStreamChanged();
     void refreshVideoFrame();
     void refreshAthleteLabels();
+    void refreshSourceOverlay();
     void layoutVideoSurface();
     void animateTile(qreal target, int duration);
     QString cameraDisplayName() const;
@@ -122,6 +123,7 @@ private:
     qint64 m_lastPresentedMsec = 0;
     QSvgRenderer m_placeholderRenderer;
     D3DVideoSurface *m_videoSurface = nullptr;
+    QLabel *m_sourceOverlayLabel = nullptr;
     QTimer *m_renderTimer = nullptr;
     QVariantAnimation *m_tileHoverAnimation = nullptr;
     QVariantAnimation *m_tilePressAnimation = nullptr;

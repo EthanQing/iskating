@@ -2,10 +2,13 @@
 
 #include "cameraconfigtemplate.h"
 #include "cameraconnectivitytester.h"
+#include "animatedbutton.h"
 
 #include <QComboBox>
 #include <QAbstractItemView>
+#include <QApplication>
 #include <QCheckBox>
+#include <QButtonGroup>
 #include <QDialogButtonBox>
 #include <QDialog>
 #include <QFileDialog>
@@ -18,6 +21,9 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QScrollArea>
+#include <QScreen>
+#include <QStackedWidget>
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -131,103 +137,207 @@ SystemSettingsDialog::SystemSettingsDialog(int cameraCount, QWidget *parent)
 {
     setWindowTitle(QStringLiteral("系统设置"));
     setDialogTitle(windowTitle());
-    setMinimumWidth(640);
+    setMinimumSize(900, 640);
+    QSize initialSize(1100, 760);
+    if (const QScreen *screen = QApplication::primaryScreen()) {
+        const QSize availableSize = screen->availableGeometry().size() - QSize(24, 24);
+        initialSize.setWidth(std::max(900, std::min(initialSize.width(), availableSize.width())));
+        initialSize.setHeight(std::max(640, std::min(initialSize.height(), availableSize.height())));
+    }
+    resize(initialSize);
+    setSizeGripEnabled(true);
+    if (auto *titleBar = findChild<QWidget *>(QStringLiteral("dialogTitleBar"))) {
+        titleBar->setFixedHeight(48);
+    }
 
-    auto *layout = contentLayout();
+    auto *dialogLayout = contentLayout();
+    dialogLayout->setContentsMargins(18, 16, 18, 16);
+    dialogLayout->setSpacing(0);
 
-    auto *tipLabel = new QLabel(QStringLiteral("统一设置公共 RTSP 参数；每一路相机仅需填写 IP。"), this);
-    tipLabel->setWordWrap(true);
-    layout->addWidget(tipLabel);
+    auto *settingsBody = new QWidget(this);
+    settingsBody->setObjectName(QStringLiteral("settingsBody"));
+    auto *bodyLayout = new QHBoxLayout(settingsBody);
+    bodyLayout->setContentsMargins(0, 0, 0, 0);
+    bodyLayout->setSpacing(20);
 
-    auto *templateButtonLayout = new QHBoxLayout();
-    templateButtonLayout->addStretch();
-    auto *importTemplateButton = new QPushButton(QStringLiteral("导入模板"), this);
-    auto *exportTemplateButton = new QPushButton(QStringLiteral("导出模板"), this);
-    m_connectivityTestButton = new QPushButton(QStringLiteral("连通测试"), this);
+    auto *navigation = new QWidget(settingsBody);
+    navigation->setObjectName(QStringLiteral("settingsNavigation"));
+    navigation->setFixedWidth(180);
+    auto *navigationLayout = new QVBoxLayout(navigation);
+    navigationLayout->setContentsMargins(0, 8, 0, 8);
+    navigationLayout->setSpacing(6);
+
+    auto *navigationTitle = new QLabel(QStringLiteral("系统设置"), navigation);
+    navigationTitle->setObjectName(QStringLiteral("navigationTitle"));
+    navigationLayout->addWidget(navigationTitle);
+    navigationLayout->addSpacing(18);
+
+    auto *pages = new QStackedWidget(settingsBody);
+    pages->setObjectName(QStringLiteral("settingsPages"));
+
+    auto createPage = [this, pages](const QString &title, const QString &description) {
+        auto *scrollArea = new QScrollArea(pages);
+        scrollArea->setObjectName(QStringLiteral("settingsPage"));
+        scrollArea->setWidgetResizable(true);
+        scrollArea->setFrameShape(QFrame::NoFrame);
+        scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+
+        auto *page = new QWidget(scrollArea);
+        auto *pageLayout = new QVBoxLayout(page);
+        pageLayout->setContentsMargins(24, 20, 24, 24);
+        pageLayout->setSpacing(14);
+
+        auto *titleLabel = new QLabel(title, page);
+        titleLabel->setObjectName(QStringLiteral("pageTitle"));
+        pageLayout->addWidget(titleLabel);
+
+        auto *descriptionLabel = new QLabel(description, page);
+        descriptionLabel->setObjectName(QStringLiteral("pageDescription"));
+        descriptionLabel->setWordWrap(true);
+        pageLayout->addWidget(descriptionLabel);
+        pageLayout->addSpacing(8);
+
+        scrollArea->setWidget(page);
+        pages->addWidget(scrollArea);
+        return pageLayout;
+    };
+
+    auto *videoPageLayout = createPage(
+        QStringLiteral("视频与摄像头"),
+        QStringLiteral("配置公共 RTSP 参数和固定机位。每一路摄像头只需填写 IP 地址。"));
+
+    auto *toolbar = new QHBoxLayout();
+    toolbar->setSpacing(8);
+    toolbar->addStretch();
+    auto *importTemplateButton = new AnimatedButton(this);
+    importTemplateButton->setText(QStringLiteral("导入模板"));
+    auto *exportTemplateButton = new AnimatedButton(this);
+    exportTemplateButton->setText(QStringLiteral("导出模板"));
+    m_connectivityTestButton = new AnimatedButton(this);
+    m_connectivityTestButton->setText(QStringLiteral("连通测试"));
+    const QVector<QPushButton *> templateButtons{
+        importTemplateButton,
+        exportTemplateButton,
+        m_connectivityTestButton
+    };
+    for (auto *button : templateButtons) {
+        button->setProperty("variant", "ghost");
+        button->setMinimumHeight(36);
+    }
     importTemplateButton->setToolTip(QStringLiteral("从 JSON 文件导入公共 RTSP 参数和 12 路相机配置。"));
     exportTemplateButton->setToolTip(QStringLiteral("把当前公共 RTSP 参数和 12 路相机配置导出为 JSON 模板。"));
     m_connectivityTestButton->setToolTip(QStringLiteral("按当前表单配置逐路测试 RTSP 预览流，结果不会自动保存。"));
-    templateButtonLayout->addWidget(importTemplateButton);
-    templateButtonLayout->addWidget(exportTemplateButton);
-    templateButtonLayout->addWidget(m_connectivityTestButton);
-    layout->addLayout(templateButtonLayout);
+    toolbar->addWidget(importTemplateButton);
+    toolbar->addWidget(exportTemplateButton);
+    toolbar->addWidget(m_connectivityTestButton);
+    videoPageLayout->addLayout(toolbar);
 
-    auto *sharedTitle = new QLabel(QStringLiteral("公共 RTSP 配置"), this);
-    layout->addWidget(sharedTitle);
+    auto *rtspTitle = new QLabel(QStringLiteral("公共 RTSP"), this);
+    rtspTitle->setObjectName(QStringLiteral("sectionTitle"));
+    videoPageLayout->addWidget(rtspTitle);
 
-    auto *sharedForm = new QFormLayout();
-    sharedForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    sharedForm->setFormAlignment(Qt::AlignTop);
-    sharedForm->setHorizontalSpacing(12);
-    sharedForm->setVerticalSpacing(10);
+    auto configureForm = [](QFormLayout *form) {
+        form->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+        form->setHorizontalSpacing(16);
+        form->setVerticalSpacing(12);
+    };
+
+    auto *sharedForms = new QHBoxLayout();
+    sharedForms->setSpacing(28);
+    auto *accountForm = new QFormLayout();
+    auto *streamForm = new QFormLayout();
+    configureForm(accountForm);
+    configureForm(streamForm);
 
     m_usernameEdit = new QLineEdit(this);
     m_usernameEdit->setClearButtonEnabled(true);
     m_usernameEdit->setPlaceholderText(QStringLiteral("例如：admin"));
-    sharedForm->addRow(QStringLiteral("账号"), m_usernameEdit);
+    accountForm->addRow(QStringLiteral("账号"), m_usernameEdit);
 
     m_passwordEdit = new QLineEdit(this);
     m_passwordEdit->setEchoMode(QLineEdit::Password);
     m_passwordEdit->setClearButtonEnabled(true);
     m_passwordEdit->setPlaceholderText(QStringLiteral("可留空"));
-    sharedForm->addRow(QStringLiteral("密码"), m_passwordEdit);
+    accountForm->addRow(QStringLiteral("密码"), m_passwordEdit);
 
     m_portEdit = new QLineEdit(this);
     m_portEdit->setClearButtonEnabled(true);
     m_portEdit->setPlaceholderText(QStringLiteral("554"));
     m_portEdit->setValidator(new QIntValidator(1, 65535, m_portEdit));
-    sharedForm->addRow(QStringLiteral("端口"), m_portEdit);
+    accountForm->addRow(QStringLiteral("端口"), m_portEdit);
 
     m_previewPathEdit = new QLineEdit(this);
     m_previewPathEdit->setClearButtonEnabled(true);
-    m_previewPathEdit->setPlaceholderText(QStringLiteral("例如：Streaming/Channels/102"));
-    sharedForm->addRow(QStringLiteral("预览路径"), m_previewPathEdit);
+    m_previewPathEdit->setPlaceholderText(QStringLiteral("Streaming/Channels/102"));
+    streamForm->addRow(QStringLiteral("预览路径"), m_previewPathEdit);
 
     m_previewFpsComboBox = new QComboBox(this);
     populateFpsOptions(m_previewFpsComboBox);
-    sharedForm->addRow(QStringLiteral("预览 FPS"), m_previewFpsComboBox);
+    streamForm->addRow(QStringLiteral("预览 FPS"), m_previewFpsComboBox);
 
     m_mainPathEdit = new QLineEdit(this);
     m_mainPathEdit->setClearButtonEnabled(true);
     m_mainPathEdit->setPlaceholderText(QStringLiteral("留空则沿用预览路径"));
-    sharedForm->addRow(QStringLiteral("主码流路径"), m_mainPathEdit);
+    streamForm->addRow(QStringLiteral("主码流路径"), m_mainPathEdit);
 
     m_mainFpsComboBox = new QComboBox(this);
     populateFpsOptions(m_mainFpsComboBox);
-    sharedForm->addRow(QStringLiteral("主码流 FPS"), m_mainFpsComboBox);
+    streamForm->addRow(QStringLiteral("主码流 FPS"), m_mainFpsComboBox);
 
+    sharedForms->addLayout(accountForm, 1);
+    sharedForms->addLayout(streamForm, 1);
+    videoPageLayout->addLayout(sharedForms);
+
+    auto *playbackForm = new QFormLayout();
+    configureForm(playbackForm);
     m_nvrPlaybackTemplateEdit = new QLineEdit(this);
     m_nvrPlaybackTemplateEdit->setClearButtonEnabled(true);
     m_nvrPlaybackTemplateEdit->setPlaceholderText(
         QStringLiteral("rtsp://{user}:{password}@{ip}:{port}/Streaming/tracks/{channel}?starttime={start}&endtime={end}"));
-    sharedForm->addRow(QStringLiteral("NVR 回放模板"), m_nvrPlaybackTemplateEdit);
+    playbackForm->addRow(QStringLiteral("NVR 回放模板"), m_nvrPlaybackTemplateEdit);
+    videoPageLayout->addLayout(playbackForm);
+    videoPageLayout->addSpacing(8);
 
-    layout->addLayout(sharedForm);
-
-    auto *cameraTitle = new QLabel(QStringLiteral("12 路相机 IP"), this);
-    layout->addWidget(cameraTitle);
+    auto *cameraTitle = new QLabel(QStringLiteral("12 路 Camera"), this);
+    cameraTitle->setObjectName(QStringLiteral("sectionTitle"));
+    videoPageLayout->addWidget(cameraTitle);
 
     auto *cameraGrid = new QGridLayout();
-    cameraGrid->setHorizontalSpacing(12);
-    cameraGrid->setVerticalSpacing(8);
+    cameraGrid->setHorizontalSpacing(18);
+    cameraGrid->setVerticalSpacing(10);
     m_ipEdits.reserve(m_cameraCount);
     for (int i = 0; i < m_cameraCount; ++i) {
-        auto *label = new QLabel(QStringLiteral("CAM %1").arg(i + 1, 2, 10, QLatin1Char('0')), this);
+        const int group = i / 4;
+        const int row = i % 4;
+        const int column = group * 2;
+        auto *label = new QLabel(
+            QStringLiteral("CAM %1").arg(i + 1, 2, 10, QLatin1Char('0')), this);
+        label->setObjectName(QStringLiteral("cameraLabel"));
         auto *edit = new QLineEdit(this);
         edit->setClearButtonEnabled(true);
-        edit->setPlaceholderText(QStringLiteral("例如：192.168.2.%1").arg(200 + i + 1));
-        cameraGrid->addWidget(label, i, 0);
-        cameraGrid->addWidget(edit, i, 1);
+        edit->setPlaceholderText(QStringLiteral("—"));
+        cameraGrid->addWidget(label, row, column);
+        cameraGrid->addWidget(edit, row, column + 1);
+        cameraGrid->setColumnStretch(column + 1, 1);
         m_ipEdits.append(edit);
     }
-    layout->addLayout(cameraGrid);
+    videoPageLayout->addLayout(cameraGrid);
+    videoPageLayout->addStretch();
+
+    auto *fieldPageLayout = createPage(
+        QStringLiteral("场地与轨迹"),
+        QStringLiteral("设置各机位覆盖的场地区间，并维护用于二维轨迹拼接的四点标定。"));
 
     auto *fieldTitle = new QLabel(QStringLiteral("场地与机位标定"), this);
-    layout->addWidget(fieldTitle);
+    fieldTitle->setObjectName(QStringLiteral("sectionTitle"));
+    fieldPageLayout->addWidget(fieldTitle);
 
-    auto *fieldTipLabel = new QLabel(QStringLiteral("每路相机覆盖滑冰场的一段距离；轨迹重建会按起止距离把 12 路画面拼接到同一条场地坐标上。"), this);
+    auto *fieldTipLabel = new QLabel(
+        QStringLiteral("双击“四点标定”单元格，可填写画面像素点及其对应的统一场地坐标。"), this);
+    fieldTipLabel->setObjectName(QStringLiteral("pageDescription"));
     fieldTipLabel->setWordWrap(true);
-    layout->addWidget(fieldTipLabel);
+    fieldPageLayout->addWidget(fieldTipLabel);
 
     m_cameraFieldTable = new QTableWidget(m_cameraCount, 10, this);
     m_cameraFieldTable->setHorizontalHeaderLabels({
@@ -244,165 +354,315 @@ SystemSettingsDialog::SystemSettingsDialog(int cameraCount, QWidget *parent)
     m_cameraFieldTable->verticalHeader()->setVisible(true);
     m_cameraFieldTable->setHorizontalHeaderItem(9, new QTableWidgetItem(QStringLiteral("四点标定")));
     for (int i = 0; i < m_cameraCount; ++i) {
-        m_cameraFieldTable->setVerticalHeaderItem(i, new QTableWidgetItem(QStringLiteral("CAM %1").arg(i + 1, 2, 10, QLatin1Char('0'))));
+        m_cameraFieldTable->setVerticalHeaderItem(
+            i, new QTableWidgetItem(QStringLiteral("CAM %1").arg(i + 1, 2, 10, QLatin1Char('0'))));
     }
     m_cameraFieldTable->horizontalHeader()->setStretchLastSection(true);
     m_cameraFieldTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
-    m_cameraFieldTable->setMinimumHeight(250);
+    m_cameraFieldTable->setMinimumHeight(450);
     m_cameraFieldTable->setAlternatingRowColors(true);
     m_cameraFieldTable->setSelectionMode(QAbstractItemView::SingleSelection);
     connect(m_cameraFieldTable, &QTableWidget::cellDoubleClicked, this, [this](int row, int column) {
         if (column != 9 || row < 0 || row >= m_cameraCalibrationJson.size()) {
             return;
         }
+
         QDialog dialog(this);
         dialog.setWindowTitle(QStringLiteral("CAM %1 四点冰面标定").arg(row + 1, 2, 10, QLatin1Char('0')));
-        auto *layout = new QVBoxLayout(&dialog);
+        dialog.setMinimumSize(680, 420);
+        auto *dialogLayout = new QVBoxLayout(&dialog);
         auto *table = new QTableWidget(4, 4, &dialog);
-        table->setHorizontalHeaderLabels({QStringLiteral("像素X"), QStringLiteral("像素Y"), QStringLiteral("场地X(m)"), QStringLiteral("场地Y(m)")});
-        const QJsonArray saved = QJsonDocument::fromJson(m_cameraCalibrationJson.at(row).toUtf8()).array();
-        const QStringList keys{QStringLiteral("px"), QStringLiteral("py"), QStringLiteral("x"), QStringLiteral("y")};
+        table->setHorizontalHeaderLabels({
+            QStringLiteral("像素X"),
+            QStringLiteral("像素Y"),
+            QStringLiteral("场地X(m)"),
+            QStringLiteral("场地Y(m)")
+        });
+        const QJsonArray saved =
+            QJsonDocument::fromJson(m_cameraCalibrationJson.at(row).toUtf8()).array();
+        const QStringList keys{
+            QStringLiteral("px"),
+            QStringLiteral("py"),
+            QStringLiteral("x"),
+            QStringLiteral("y")
+        };
         for (int point = 0; point < 4; ++point) {
-            const QJsonObject value = point < saved.size() ? saved.at(point).toObject() : QJsonObject{};
+            const QJsonObject coordinate =
+                point < saved.size() ? saved.at(point).toObject() : QJsonObject{};
             for (int field = 0; field < keys.size(); ++field) {
-                table->setItem(point, field, new QTableWidgetItem(QString::number(value.value(keys.at(field)).toDouble(), 'f', 3)));
+                table->setItem(point,
+                               field,
+                               new QTableWidgetItem(
+                                   QString::number(coordinate.value(keys.at(field)).toDouble(), 'f', 3)));
             }
         }
-        layout->addWidget(new QLabel(QStringLiteral("填写画面像素点和对应的统一场地米制坐标；四点不得共线。"), &dialog));
-        layout->addWidget(table);
-        auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
-        layout->addWidget(buttons);
+        dialogLayout->addWidget(new QLabel(
+            QStringLiteral("填写画面像素点和对应的统一场地米制坐标；四点不得共线。"), &dialog));
+        dialogLayout->addWidget(table);
+
+        auto *buttons =
+            new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
+        buttons->button(QDialogButtonBox::Save)->setText(QStringLiteral("保存"));
+        buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+        dialogLayout->addWidget(buttons);
         connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
         connect(buttons, &QDialogButtonBox::accepted, &dialog, [&]() {
             QJsonArray points;
             for (int point = 0; point < 4; ++point) {
-                QJsonObject value;
+                QJsonObject coordinate;
                 for (int field = 0; field < keys.size(); ++field) {
                     bool ok = false;
-                    const double number = table->item(point, field)->text().trimmed().toDouble(&ok);
+                    const double number =
+                        table->item(point, field)->text().trimmed().toDouble(&ok);
                     if (!ok) {
-                        QMessageBox::warning(&dialog, QStringLiteral("标定无效"), QStringLiteral("四个点的所有坐标必须为数字。"));
+                        QMessageBox::warning(
+                            &dialog,
+                            QStringLiteral("标定无效"),
+                            QStringLiteral("四个点的所有坐标必须为数字。"));
                         return;
                     }
-                    value.insert(keys.at(field), number);
+                    coordinate.insert(keys.at(field), number);
                 }
-                points.append(value);
+                points.append(coordinate);
             }
             auto hasArea = [&](const QString &first, const QString &second) {
                 double maximum = 0.0;
-                for (int a = 0; a < 4; ++a) for (int b = a + 1; b < 4; ++b) for (int c = b + 1; c < 4; ++c) {
-                    const QJsonObject p1 = points.at(a).toObject(); const QJsonObject p2 = points.at(b).toObject(); const QJsonObject p3 = points.at(c).toObject();
-                    maximum = std::max(maximum, std::abs((p2.value(first).toDouble() - p1.value(first).toDouble()) * (p3.value(second).toDouble() - p1.value(second).toDouble()) - (p2.value(second).toDouble() - p1.value(second).toDouble()) * (p3.value(first).toDouble() - p1.value(first).toDouble())));
+                for (int a = 0; a < 4; ++a) {
+                    for (int b = a + 1; b < 4; ++b) {
+                        for (int c = b + 1; c < 4; ++c) {
+                            const QJsonObject p1 = points.at(a).toObject();
+                            const QJsonObject p2 = points.at(b).toObject();
+                            const QJsonObject p3 = points.at(c).toObject();
+                            maximum = std::max(
+                                maximum,
+                                std::abs(
+                                    (p2.value(first).toDouble() - p1.value(first).toDouble())
+                                        * (p3.value(second).toDouble() - p1.value(second).toDouble())
+                                    - (p2.value(second).toDouble() - p1.value(second).toDouble())
+                                        * (p3.value(first).toDouble() - p1.value(first).toDouble())));
+                        }
+                    }
                 }
                 return maximum > 1e-6;
             };
-            if (!hasArea(QStringLiteral("px"), QStringLiteral("py")) || !hasArea(QStringLiteral("x"), QStringLiteral("y"))) {
-                QMessageBox::warning(&dialog, QStringLiteral("标定无效"), QStringLiteral("像素点和场地点都必须包含不共线的三点。"));
+            if (!hasArea(QStringLiteral("px"), QStringLiteral("py"))
+                || !hasArea(QStringLiteral("x"), QStringLiteral("y"))) {
+                QMessageBox::warning(
+                    &dialog,
+                    QStringLiteral("标定无效"),
+                    QStringLiteral("像素点和场地点都必须包含不共线的三点。"));
                 return;
             }
-            m_cameraCalibrationJson[row] = QString::fromUtf8(QJsonDocument(points).toJson(QJsonDocument::Compact));
+            m_cameraCalibrationJson[row] =
+                QString::fromUtf8(QJsonDocument(points).toJson(QJsonDocument::Compact));
             m_cameraFieldTable->setItem(row, 9, makeTableItem(QStringLiteral("已标定")));
             dialog.accept();
         });
         dialog.exec();
     });
-    layout->addWidget(m_cameraFieldTable);
+    fieldPageLayout->addWidget(m_cameraFieldTable, 1);
 
-    auto *captureTitle = new QLabel(QStringLiteral("分析设置"), this);
-    layout->addWidget(captureTitle);
+    auto *analysisPageLayout = createPage(
+        QStringLiteral("AI 分析"),
+        QStringLiteral("控制实时分析使用的视频流、处理规模和性能偏好。"));
 
-    auto *captureForm = new QFormLayout();
-    captureForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    captureForm->setFormAlignment(Qt::AlignTop);
-    captureForm->setHorizontalSpacing(12);
-    captureForm->setVerticalSpacing(10);
+    auto addExplainedRow = [this, configureForm](
+                               QVBoxLayout *pageLayout,
+                               const QString &title,
+                               const QString &description,
+                               QWidget *field) {
+        auto *form = new QFormLayout();
+        configureForm(form);
+        auto *label = new QLabel(title, this);
+        label->setObjectName(QStringLiteral("settingLabel"));
+        form->addRow(label, field);
+        pageLayout->addLayout(form);
+        auto *descriptionLabel = new QLabel(description, this);
+        descriptionLabel->setObjectName(QStringLiteral("settingDescription"));
+        descriptionLabel->setWordWrap(true);
+        pageLayout->addWidget(descriptionLabel);
+    };
 
     m_precisionComboBox = new QComboBox(this);
     m_precisionComboBox->addItem(precisionLabel(QStringLiteral("fast")), QStringLiteral("fast"));
     m_precisionComboBox->addItem(precisionLabel(QStringLiteral("balanced")), QStringLiteral("balanced"));
     m_precisionComboBox->addItem(precisionLabel(QStringLiteral("high")), QStringLiteral("high"));
-    captureForm->addRow(QStringLiteral("模型精度"), m_precisionComboBox);
+    addExplainedRow(
+        analysisPageLayout,
+        QStringLiteral("模型精度"),
+        QStringLiteral("在分析速度和识别精度之间选择适合当前设备的平衡。"),
+        m_precisionComboBox);
 
     m_analysisSourceComboBox = new QComboBox(this);
     m_analysisSourceComboBox->addItem(QStringLiteral("预览流"), QStringLiteral("preview"));
     m_analysisSourceComboBox->addItem(QStringLiteral("主视图流"), QStringLiteral("main"));
-    m_analysisSourceComboBox->setToolTip(QStringLiteral("多路 RTSP 分析默认使用预览流；主视图仍优先播放主码流。"));
-    captureForm->addRow(QStringLiteral("分析流来源"), m_analysisSourceComboBox);
-
-    m_analysisMaxStreamsComboBox = new QComboBox(this);
-    populateStreamCountOptions(m_analysisMaxStreamsComboBox, m_cameraCount);
-    captureForm->addRow(QStringLiteral("最大分析路数"), m_analysisMaxStreamsComboBox);
+    addExplainedRow(
+        analysisPageLayout,
+        QStringLiteral("分析流来源"),
+        QStringLiteral("预览流适合多机位分析；主视图仍会优先播放主码流。"),
+        m_analysisSourceComboBox);
 
     m_fpsComboBox = new QComboBox(this);
     populateFpsOptions(m_fpsComboBox);
-    m_fpsComboBox->setToolTip(QStringLiteral("多路 AI 分析按该目标 FPS 跳帧；实际 FPS 会受 GPU 和解码负载影响。"));
-    captureForm->addRow(QStringLiteral("分析目标 FPS"), m_fpsComboBox);
+    addExplainedRow(
+        analysisPageLayout,
+        QStringLiteral("分析目标 FPS"),
+        QStringLiteral("实际处理帧率会根据设备性能和视频解码负载变化。"),
+        m_fpsComboBox);
 
-    m_analysisAutoDegradeCheckBox = new QCheckBox(QStringLiteral("超载时自动降低非主机位分析频率"), this);
+    m_analysisMaxStreamsComboBox = new QComboBox(this);
+    populateStreamCountOptions(m_analysisMaxStreamsComboBox, m_cameraCount);
+    addExplainedRow(
+        analysisPageLayout,
+        QStringLiteral("最大分析路数"),
+        QStringLiteral("限制同时参与 AI 分析的摄像头数量。"),
+        m_analysisMaxStreamsComboBox);
+
+    m_analysisAutoDegradeCheckBox =
+        new QCheckBox(QStringLiteral("超载时自动降低非主机位分析频率"), this);
     m_analysisAutoDegradeCheckBox->setChecked(true);
-    captureForm->addRow(QStringLiteral("自动降级"), m_analysisAutoDegradeCheckBox);
+    addExplainedRow(
+        analysisPageLayout,
+        QStringLiteral("自动降级"),
+        QStringLiteral("设备负载过高时优先保持主机位分析的连续性。"),
+        m_analysisAutoDegradeCheckBox);
+    analysisPageLayout->addStretch();
 
-    layout->addLayout(captureForm);
+    auto *storagePageLayout = createPage(
+        QStringLiteral("存储"),
+        QStringLiteral("设置录像保存位置、容量限制、保留天数与清理候选。"));
 
     auto *storageTitle = new QLabel(QStringLiteral("视频存储"), this);
-    layout->addWidget(storageTitle);
-
-    auto *storageTipLabel = new QLabel(QStringLiteral("只管理已登记的视频资产；清理会删除本机文件并保留训练记录。"), this);
-    storageTipLabel->setWordWrap(true);
-    layout->addWidget(storageTipLabel);
+    storageTitle->setObjectName(QStringLiteral("sectionTitle"));
+    storagePageLayout->addWidget(storageTitle);
 
     auto *storageForm = new QFormLayout();
-    storageForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    storageForm->setFormAlignment(Qt::AlignTop);
-    storageForm->setHorizontalSpacing(12);
-    storageForm->setVerticalSpacing(10);
+    configureForm(storageForm);
 
     auto *rootLayout = new QHBoxLayout();
+    rootLayout->setSpacing(8);
     m_videoStorageRootEdit = new QLineEdit(this);
     m_videoStorageRootEdit->setClearButtonEnabled(true);
     m_videoStorageRootEdit->setPlaceholderText(QStringLiteral("默认：应用数据目录/recordings"));
-    auto *browseStorageButton = new QPushButton(QStringLiteral("选择"), this);
-    browseStorageButton->setProperty("role", "secondaryButton");
+    auto *browseStorageButton = new AnimatedButton(this);
+    browseStorageButton->setText(QStringLiteral("浏览"));
+    browseStorageButton->setProperty("variant", "ghost");
+    browseStorageButton->setMinimumHeight(36);
     rootLayout->addWidget(m_videoStorageRootEdit, 1);
     rootLayout->addWidget(browseStorageButton);
-    storageForm->addRow(QStringLiteral("录像根目录"), rootLayout);
+    storageForm->addRow(QStringLiteral("根目录"), rootLayout);
 
     m_videoStorageCapacitySpinBox = new QSpinBox(this);
     m_videoStorageCapacitySpinBox->setRange(1, 10240);
     m_videoStorageCapacitySpinBox->setSuffix(QStringLiteral(" GB"));
-    storageForm->addRow(QStringLiteral("容量阈值"), m_videoStorageCapacitySpinBox);
+    storageForm->addRow(QStringLiteral("容量限制"), m_videoStorageCapacitySpinBox);
 
     m_videoStorageRetentionSpinBox = new QSpinBox(this);
     m_videoStorageRetentionSpinBox->setRange(1, 3650);
     m_videoStorageRetentionSpinBox->setSuffix(QStringLiteral(" 天"));
     storageForm->addRow(QStringLiteral("保留天数"), m_videoStorageRetentionSpinBox);
+    storagePageLayout->addLayout(storageForm);
 
-    layout->addLayout(storageForm);
+    auto *storageDescription = new QLabel(
+        QStringLiteral("清理候选只包含已登记的视频资产；训练记录会继续保留。"), this);
+    storageDescription->setObjectName(QStringLiteral("settingDescription"));
+    storageDescription->setWordWrap(true);
+    storagePageLayout->addWidget(storageDescription);
+    storagePageLayout->addSpacing(12);
+
+    m_videoStorageStatusLabel = new QLabel(QStringLiteral("容量状态：未扫描"), this);
+    m_videoStorageStatusLabel->setObjectName(QStringLiteral("storageStatus"));
+    m_videoStorageStatusLabel->setWordWrap(true);
+    storagePageLayout->addWidget(m_videoStorageStatusLabel);
 
     auto *storageActionLayout = new QHBoxLayout();
-    m_videoStorageStatusLabel = new QLabel(QStringLiteral("容量状态：未扫描"), this);
-    m_videoStorageStatusLabel->setWordWrap(true);
-    m_videoStorageStatusLabel->setProperty("role", "muted");
-    m_videoStorageScanButton = new QPushButton(QStringLiteral("扫描容量"), this);
-    m_videoStorageCleanupButton = new QPushButton(QStringLiteral("清理候选"), this);
-    m_videoStorageScanButton->setProperty("role", "secondaryButton");
-    m_videoStorageCleanupButton->setProperty("role", "secondaryButton");
-    storageActionLayout->addWidget(m_videoStorageStatusLabel, 1);
+    storageActionLayout->setSpacing(8);
+    m_videoStorageScanButton = new AnimatedButton(this);
+    m_videoStorageScanButton->setText(QStringLiteral("扫描"));
+    m_videoStorageCleanupButton = new AnimatedButton(this);
+    m_videoStorageCleanupButton->setText(QStringLiteral("清理候选"));
+    const QVector<QPushButton *> storageButtons{
+        m_videoStorageScanButton,
+        m_videoStorageCleanupButton
+    };
+    for (auto *button : storageButtons) {
+        button->setProperty("variant", "ghost");
+        button->setMinimumHeight(36);
+    }
     storageActionLayout->addWidget(m_videoStorageScanButton);
     storageActionLayout->addWidget(m_videoStorageCleanupButton);
-    layout->addLayout(storageActionLayout);
+    storageActionLayout->addStretch();
+    storagePageLayout->addLayout(storageActionLayout);
+    storagePageLayout->addStretch();
 
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
-    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("保存"));
-    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
-    layout->addWidget(buttons);
+    auto *navigationGroup = new QButtonGroup(this);
+    navigationGroup->setExclusive(true);
+    const QStringList navigationLabels{
+        QStringLiteral("视频与摄像头"),
+        QStringLiteral("场地与轨迹"),
+        QStringLiteral("AI 分析"),
+        QStringLiteral("存储")
+    };
+    const QStringList navigationIcons{
+        QStringLiteral(":/icons/video.svg"),
+        QStringLiteral(":/icons/live.svg"),
+        QStringLiteral(":/icons/suggestion.svg"),
+        QStringLiteral(":/icons/save.svg")
+    };
+    for (int i = 0; i < navigationLabels.size(); ++i) {
+        auto *button = new AnimatedButton(navigation);
+        button->setText(navigationLabels.at(i));
+        button->setIconSource(navigationIcons.at(i));
+        button->setProperty("role", "nav");
+        button->setCheckable(true);
+        button->setMinimumHeight(42);
+        navigationGroup->addButton(button, i);
+        navigationLayout->addWidget(button);
+        connect(button, &QPushButton::clicked, this, [pages, i]() {
+            pages->setCurrentIndex(i);
+        });
+        connect(button, &QPushButton::toggled, this, [button](bool checked) {
+            button->setProperty("active", checked);
+            button->update();
+        });
+        if (i == 0) {
+            button->setChecked(true);
+            button->setProperty("active", true);
+        }
+    }
+    navigationLayout->addStretch();
 
-    connect(buttons, &QDialogButtonBox::accepted, this, [this]() {
+    bodyLayout->addWidget(navigation);
+    bodyLayout->addWidget(pages, 1);
+    dialogLayout->addWidget(settingsBody, 1);
+
+    auto *actionBar = new QWidget(this);
+    actionBar->setObjectName(QStringLiteral("settingsActionBar"));
+    auto *actionLayout = new QHBoxLayout(actionBar);
+    actionLayout->setContentsMargins(0, 14, 0, 0);
+    actionLayout->setSpacing(10);
+    auto *actionStatus = new QLabel(QStringLiteral("修改将在保存后生效"), actionBar);
+    actionStatus->setObjectName(QStringLiteral("actionStatus"));
+    auto *cancelButton = new AnimatedButton(actionBar);
+    cancelButton->setText(QStringLiteral("取消"));
+    cancelButton->setProperty("variant", "ghost");
+    cancelButton->setMinimumSize(96, 40);
+    auto *saveButton = new AnimatedButton(actionBar);
+    saveButton->setText(QStringLiteral("保存设置"));
+    saveButton->setProperty("variant", "primary");
+    saveButton->setMinimumSize(112, 40);
+    actionLayout->addWidget(actionStatus);
+    actionLayout->addStretch();
+    actionLayout->addWidget(cancelButton);
+    actionLayout->addWidget(saveButton);
+    dialogLayout->addWidget(actionBar);
+
+    connect(saveButton, &QPushButton::clicked, this, [this]() {
         if (validateAndAccept()) {
             accept();
         }
     });
-    connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    connect(cancelButton, &QPushButton::clicked, this, &QDialog::reject);
     connect(importTemplateButton, &QPushButton::clicked, this, [this]() {
         importCameraTemplate();
     });
@@ -427,32 +687,142 @@ SystemSettingsDialog::SystemSettingsDialog(int cameraCount, QWidget *parent)
             onShowVideoCleanupCandidates();
         }
     });
-    connect(m_mainFpsComboBox,
-            &QComboBox::currentIndexChanged,
-            this,
-            [this](int) {
-                if (!m_mainFpsComboBox || !m_fpsComboBox) {
-                    return;
-                }
+    connect(m_mainFpsComboBox, &QComboBox::currentIndexChanged, this, [this](int) {
+        if (!m_mainFpsComboBox || !m_fpsComboBox) {
+            return;
+        }
+        const int mainFps = m_mainFpsComboBox->currentData().toInt();
+        const int analysisFpsIndex = m_fpsComboBox->findData(mainFps);
+        m_fpsComboBox->setCurrentIndex(
+            analysisFpsIndex >= 0 ? analysisFpsIndex : m_fpsComboBox->findData(120));
+    });
 
-                const int mainFps = m_mainFpsComboBox->currentData().toInt();
-                const int recordFpsIndex = m_fpsComboBox->findData(mainFps);
-                m_fpsComboBox->setCurrentIndex(recordFpsIndex >= 0 ? recordFpsIndex
-                                                                   : m_fpsComboBox->findData(120));
-            });
-
-    setStyleSheet(styleSheet() + QStringLiteral(R"QSS(
-QDialog#framelessDialog QComboBox {
-    min-height: 30px;
-    border: 1px solid #2b3447;
-    background: #101623;
-    color: #e7edf7;
-    padding: 4px 24px 4px 8px;
+    setStyleSheet(QStringLiteral(R"QSS(
+QDialog#framelessDialog {
+    background: #0C1118;
+    color: #e6edf7;
+    font-size: 14px;
 }
+QDialog#framelessDialog #settingsNavigation {
+    background: #0e1521;
+    border-radius: 10px;
+}
+QDialog#framelessDialog #navigationTitle {
+    color: #f3f7fd;
+    font-size: 18px;
+    font-weight: 600;
+    padding: 4px 14px;
+}
+QDialog#framelessDialog #dialogTitleBar {
+    background: #101720;
+    border-bottom: 1px solid #202C3A;
+}
+QDialog#framelessDialog #dialogTitleLabel {
+    color: #F4F7FA;
+    font-size: 14px;
+    font-weight: 600;
+}
+QDialog#framelessDialog #dialogCloseButton {
+    min-width: 28px;
+    min-height: 24px;
+    max-width: 28px;
+    max-height: 24px;
+    border: none;
+    background: transparent;
+    color: #A2AFBF;
+    padding: 0;
+    font-size: 18px;
+}
+QDialog#framelessDialog #dialogCloseButton:hover {
+    background: #542925;
+    color: #FFFFFF;
+}
+QDialog#framelessDialog #settingsPages,
+QDialog#framelessDialog QScrollArea#settingsPage,
+QDialog#framelessDialog QScrollArea#settingsPage > QWidget > QWidget {
+    border: none;
+    background: #101720;
+}
+QDialog#framelessDialog #pageTitle {
+    color: #f4f7fb;
+    font-size: 22px;
+    font-weight: 600;
+}
+QDialog#framelessDialog #pageDescription,
+QDialog#framelessDialog #settingDescription,
+QDialog#framelessDialog #actionStatus {
+    color: #8290a5;
+    font-size: 13px;
+}
+QDialog#framelessDialog #sectionTitle {
+    color: #dce5f2;
+    font-size: 16px;
+    font-weight: 600;
+    padding-top: 4px;
+}
+QDialog#framelessDialog #settingLabel,
+QDialog#framelessDialog #cameraLabel {
+    color: #bcc8d8;
+}
+QDialog#framelessDialog QLineEdit,
+QDialog#framelessDialog QComboBox,
+QDialog#framelessDialog QSpinBox {
+    min-height: 36px;
+    max-height: 36px;
+    border: 1px solid #263247;
+    border-radius: 6px;
+    background: #151E29;
+    color: #e6edf7;
+    padding: 0 10px;
+    selection-background-color: #377dcc;
+}
+QDialog#framelessDialog QComboBox {
+    padding-right: 28px;
+}
+QDialog#framelessDialog QLineEdit:hover,
 QDialog#framelessDialog QComboBox:hover,
-QDialog#framelessDialog QComboBox:focus {
-    border-color: #3b8dff;
-    background: #111d31;
+QDialog#framelessDialog QSpinBox:hover {
+    border-color: #3a4962;
+    background: #152033;
+}
+QDialog#framelessDialog QLineEdit:focus,
+QDialog#framelessDialog QComboBox:focus,
+QDialog#framelessDialog QSpinBox:focus {
+    border-color: #38BDF8;
+    background: #152033;
+}
+QDialog#framelessDialog QCheckBox {
+    min-height: 36px;
+    color: #d4deeb;
+    spacing: 8px;
+}
+QDialog#framelessDialog #storageStatus {
+    min-height: 52px;
+    border-radius: 8px;
+    background: #151E29;
+    color: #b8c7da;
+    padding: 12px;
+}
+QDialog#framelessDialog QTableWidget {
+    border: none;
+    border-radius: 8px;
+    background: #101824;
+    alternate-background-color: #131e2d;
+    gridline-color: #202d40;
+    color: #dbe4f0;
+}
+QDialog#framelessDialog QHeaderView::section {
+    min-height: 34px;
+    border: none;
+    border-right: 1px solid #253247;
+    border-bottom: 1px solid #253247;
+    background: #172234;
+    color: #aebcd0;
+    padding: 4px 7px;
+}
+QDialog#framelessDialog #settingsActionBar {
+    border-top: 1px solid #202b3c;
+    background: #0C1118;
 }
 )QSS"));
 }

@@ -90,35 +90,34 @@ void drawEmptyState(QPainter *painter, const QRectF &rect, bool hasSamples)
 {
     painter->save();
     QFont titleFont = painter->font();
-    titleFont.setPixelSize(14);
+    titleFont.setPixelSize(16);
     titleFont.setWeight(QFont::DemiBold);
     painter->setFont(titleFont);
     painter->setPen(QColor(QStringLiteral("#F4F7FA")));
     const QRectF titleRect = rect.adjusted(8, 0, -8, 0);
     const int titleHeight = titleFont.pixelSize() + 4;
+    const int hintHeight = 13 * 2 + 10;
+    const int contentHeight = titleHeight + 4 + hintHeight;
     const int titleTop = std::max(static_cast<int>(rect.top()),
-                                  static_cast<int>(rect.center().y()) - titleHeight);
+                                  static_cast<int>(rect.center().y()) - contentHeight / 2);
     painter->drawText(QRectF(titleRect.left(), titleTop, titleRect.width(), titleHeight),
                       Qt::AlignHCenter | Qt::AlignVCenter,
                       hasSamples ? QStringLiteral("等待场地标定")
-                                 : QStringLiteral("等待二维轨迹数据"));
+                                 : QStringLiteral("暂无轨迹数据"));
 
     QFont hintFont = painter->font();
-    hintFont.setPixelSize(11);
+    hintFont.setPixelSize(13);
     hintFont.setWeight(QFont::Normal);
     painter->setFont(hintFont);
     painter->setPen(QColor(QStringLiteral("#A2AFBF")));
     const QRectF hintRect = rect.adjusted(8, 0, -8, 0);
-    const int hintHeight = hintFont.pixelSize() + 4;
-    const int hintTop = std::min(static_cast<int>(rect.bottom()) - hintHeight,
-                                 titleTop + titleHeight + 4);
-    const QString hint = hasSamples ? QStringLiteral("需要运动员身份与场地标定")
-                                    : QStringLiteral("需要已识别运动员与场地标定");
+    const int hintTop = titleTop + titleHeight + 4;
+    const QString hint = hasSamples
+                             ? QStringLiteral("已收到运动员位置，完成场地标定后，\n轨迹将在这里实时显示。")
+                             : QStringLiteral("运动员识别并完成场地标定后，\n轨迹将在这里实时显示。");
     painter->drawText(QRectF(hintRect.left(), hintTop, hintRect.width(), hintHeight),
-                      Qt::AlignHCenter | Qt::AlignVCenter,
-                      QFontMetrics(hintFont).elidedText(hint,
-                                                        Qt::ElideRight,
-                                                        static_cast<int>(hintRect.width())));
+                      Qt::AlignHCenter | Qt::AlignVCenter | Qt::TextWordWrap,
+                      hint);
     painter->restore();
 }
 
@@ -193,7 +192,7 @@ void TrajectoryWidget::paintEvent(QPaintEvent *event)
         QColor(253, 176, 34, 18),
     };
     QFont segmentFont = painter.font();
-    segmentFont.setPixelSize(9);
+    segmentFont.setPixelSize(12);
     painter.setFont(segmentFont);
     for (int index = 0; index < m_cameraSegments.size(); ++index) {
         const CameraSegment &segment = m_cameraSegments.at(index);
@@ -219,7 +218,7 @@ void TrajectoryWidget::paintEvent(QPaintEvent *event)
     painter.drawRect(plotRect);
 
     QFont axisFont = painter.font();
-    axisFont.setPixelSize(8);
+    axisFont.setPixelSize(12);
     axisFont.setWeight(QFont::Normal);
     painter.setFont(axisFont);
     painter.setPen(QColor(QStringLiteral("#667586")));
@@ -264,7 +263,7 @@ void TrajectoryWidget::paintEvent(QPaintEvent *event)
     painter.drawEllipse(samples.last(), 2.5, 2.5);
 
     QFont labelFont = painter.font();
-    labelFont.setPixelSize(10);
+    labelFont.setPixelSize(12);
     labelFont.setWeight(QFont::DemiBold);
     painter.setFont(labelFont);
     painter.setPen(QColor(QStringLiteral("#A2AFBF")));

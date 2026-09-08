@@ -4,7 +4,7 @@
 QWidget {
     color: #F4F7FA;
     font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
-    font-size: 13px;
+    font-size: 14px;
     background: transparent;
 }
 QMainWindow {
@@ -26,7 +26,7 @@ QLabel#settingsTitleLabel,
 QLabel#historyTitleLabel,
 QLabel#suggestionTitleLabel {
     color: #F4F7FA;
-    font-size: 15px;
+    font-size: 20px;
     font-weight: 600;
 }
 QLabel#brandTitleLabel {
@@ -43,7 +43,7 @@ QLabel#actionLabel,
 QLabel#legendTitleLabel,
 QLabel#suggestionSubtitleLabel {
     color: #667586;
-    font-size: 11px;
+    font-size: 12px;
 }
 QLabel#focusTitleLabel,
 QLabel#focusTitleLabelInline,
@@ -57,7 +57,7 @@ QLabel#legendContentLabel {
 }
 QLabel#sessionRoundLabel {
     color: #F4F7FA;
-    font-size: 17px;
+    font-size: 20px;
     font-weight: 600;
 }
 QLabel#durationValueLabel,
@@ -76,21 +76,25 @@ QFrame#sidebar {
     border-right: 1px solid #202C3A;
 }
 QFrame#inspector,
-QFrame#opsCard,
 QFrame[role="surface"],
 QFrame[role="panel"] {
     background: #101720;
-    border: 1px solid #202C3A;
+    border: none;
     border-radius: 8px;
 }
-QFrame#leftCard,
-QFrame#trajectoryCard {
+QFrame#leftCard {
     background: transparent;
     border: none;
 }
+QFrame#opsCard {
+    background: #101720;
+    border: none;
+    border-radius: 10px;
+}
 QFrame#trajectoryCard {
-    border-top: 1px solid #202C3A;
-    border-radius: 0;
+    background: #101720;
+    border: none;
+    border-radius: 8px;
 }
 QScrollArea,
 QScrollArea#cameraScrollArea,
@@ -140,19 +144,20 @@ QToolTip {
 
 /* Buttons */
 AnimatedButton {
-    min-height: 32px;
+    min-height: 36px;
     padding: 0 12px;
+}
+AnimatedButton[variant="primary"] {
+    min-height: 40px;
+    font-weight: 600;
 }
 AnimatedButton[role="icon"] {
     min-width: 34px;
     min-height: 34px;
     padding: 0;
 }
-AnimatedButton[variant="primary"] {
-    font-weight: 600;
-}
 QPushButton {
-    min-height: 32px;
+    min-height: 36px;
     padding: 0 12px;
     border: 1px solid #2D4054;
     border-radius: 6px;
@@ -243,7 +248,7 @@ QSpinBox,
 QDoubleSpinBox,
 QDateEdit,
 QDateTimeEdit {
-    min-height: 22px;
+    min-height: 26px;
     padding: 5px 9px;
     border: 1px solid #2D4054;
     border-radius: 5px;
@@ -388,6 +393,24 @@ QLabel[role="status"] {
     color: #A2AFBF;
     background: #151E29;
 }
+QLabel[role="muted"] {
+    color: #A2AFBF;
+    font-size: 13px;
+}
+QLabel[role="sectionTitle"] {
+    color: #D8E2EF;
+    font-size: 15px;
+    font-weight: 600;
+}
+QLabel[role="emptyBox"] {
+    min-height: 150px;
+    padding: 24px;
+    border: none;
+    border-radius: 8px;
+    color: #A2AFBF;
+    background: #101720;
+    font-size: 13px;
+}
 QLabel[state="online"],
 QLabel[state="success"] {
     color: #32D583;
@@ -437,12 +460,25 @@ VideoOpenGLWidget[selected="true"] {
 
 /* Training */
 QLabel#mainViewTitleLabel {
-    font-size: 16px;
+    font-size: 20px;
+}
+QLabel#currentAthleteNameLabel {
+    color: #F4F7FA;
+    font-size: 22px;
+    font-weight: 600;
+}
+QLabel#athleteSourceLabel,
+QLabel#athleteDetectionLabel,
+QLabel#durationValueLabel,
+QLabel#speedStatusLabel,
+QLabel#modelStatusLabel {
+    font-size: 14px;
 }
 QLabel#trajectoryTitleLabel,
 QLabel#athleteSectionLabel {
     color: #A2AFBF;
-    font-size: 12px;
+    font-size: 14px;
+    font-weight: 600;
 }
 QProgressBar {
     min-height: 6px;
@@ -543,4 +579,125 @@ QHeaderView::section {
 }
 QTableWidget {
     gridline-color: #202C3A;
+}
+
+/* Reworked workspace */
+QSplitter#workspaceSplitter {
+    background: transparent;
+}
+QSplitter#workspaceSplitter::handle {
+    width: 5px;
+    background: transparent;
+}
+QSplitter#workspaceSplitter::handle:hover {
+    background: #202C3A;
+}
+QWidget#cameraGridContainer {
+    background: transparent;
+}
+/* History */
+QLabel#historyTitleLabel {
+    font-size: 22px;
+}
+QLabel#historySubtitleLabel {
+    color: #A2AFBF;
+    font-size: 13px;
+}
+QFrame#historySearchPanel {
+    background: #101720;
+    border: none;
+    border-radius: 10px;
+}
+QFrame#summarySessionsCard,
+QFrame#summaryActionsCard,
+QFrame#summaryAvgCard,
+QFrame#summaryBestCard {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+}
+QLabel#summarySessionsLabel,
+QLabel#summaryActionsLabel,
+QLabel#summaryAvgLabel,
+QLabel#summaryBestLabel {
+    color: #A2AFBF;
+    font-size: 13px;
+}
+QLabel#summarySessionsValue,
+QLabel#summaryActionsValue,
+QLabel#summaryAvgValue,
+QLabel#summaryBestValue {
+    color: #F4F7FA;
+    font-size: 15px;
+    font-weight: 600;
+}
+QFrame[role="historyItem"] {
+    background: #101720;
+    border: none;
+    border-bottom: 1px solid #202C3A;
+    border-radius: 0;
+}
+QLabel[role="scoreTag"] {
+    min-height: 24px;
+    padding: 0 8px;
+    border: none;
+    border-radius: 12px;
+    color: #A2AFBF;
+    background: #151E29;
+}
+QFrame#historyMoreFilters {
+    background: #0C1118;
+    border: none;
+    border-radius: 7px;
+}
+QWidget#historyPager {
+    background: transparent;
+}
+QLabel#historyEmptyTitle {
+    color: #F4F7FA;
+    font-size: 16px;
+    font-weight: 600;
+}
+QLabel#historyEmptyDescription {
+    color: #A2AFBF;
+    font-size: 13px;
+}
+
+/* Training settings drawer */
+QDialog#trainingSettingsDrawer {
+    color: #F4F7FA;
+    background: #0C1118;
+    border: 1px solid #202C3A;
+}
+QDialog#trainingSettingsDrawer QWidget#dialogTitleBar {
+    min-height: 48px;
+    max-height: 48px;
+    background: #101720;
+    border-bottom: 1px solid #202C3A;
+}
+QDialog#trainingSettingsDrawer QLabel#dialogTitleLabel {
+    color: #F4F7FA;
+    font-size: 16px;
+    font-weight: 600;
+}
+QDialog#trainingSettingsDrawer QPushButton#dialogCloseButton {
+    min-width: 28px;
+    min-height: 28px;
+    max-width: 28px;
+    max-height: 28px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: #A2AFBF;
+    font-size: 18px;
+}
+QDialog#trainingSettingsDrawer QPushButton#dialogCloseButton:hover {
+    color: #F4F7FA;
+    background: #542925;
+}
+QDialog#trainingSettingsDrawer QWidget#dialogContent,
+QDialog#trainingSettingsDrawer QScrollArea#trainingSettingsScroll,
+QDialog#trainingSettingsDrawer QScrollArea#trainingSettingsScroll > QWidget > QWidget {
+    background: #0C1118;
+    border: none;
 }

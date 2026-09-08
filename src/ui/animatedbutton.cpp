@@ -59,7 +59,7 @@ AnimatedButton::AnimatedButton(QWidget *parent)
         update();
     });
     connect(this, &QAbstractButton::pressed, this, [this]() { animatePressed(1.0, 80); });
-    connect(this, &QAbstractButton::released, this, [this]() { animatePressed(0.0, 120); });
+    connect(this, &QAbstractButton::released, this, [this]() { animatePressed(0.0, 110); });
 }
 
 void AnimatedButton::setIconSource(const QString &source)
@@ -152,10 +152,10 @@ void AnimatedButton::paintEvent(QPaintEvent *event)
     }
 
     if (navigation && active) {
-        background = QColor(QStringLiteral("#1D3042"));
-        hoverBackground = QColor(QStringLiteral("#22394E"));
-        border = QColor(QStringLiteral("#2D4054"));
-        hoverBorder = QColor(QStringLiteral("#38BDF8"));
+        background = QColor(QStringLiteral("#151E29"));
+        hoverBackground = QColor(QStringLiteral("#192533"));
+        border = QColor(QStringLiteral("#00000000"));
+        hoverBorder = border;
         textColor = QColor(QStringLiteral("#F4F7FA"));
         hoverText = textColor;
         iconColor = QColor(QStringLiteral("#38BDF8"));
@@ -208,7 +208,8 @@ void AnimatedButton::paintEvent(QPaintEvent *event)
         painter.drawRoundedRect(surfaceRect.adjusted(1.5, 1.5, -1.5, -1.5), 5.0, 5.0);
     }
 
-    const int horizontalPadding = navigation ? 12 : 10;
+    const bool collapsedNavigation = navigation && m_textOpacity <= 0.001;
+    const int horizontalPadding = collapsedNavigation ? 0 : (navigation ? 12 : 10);
     const int iconSlot = navigation ? 36 : (m_iconSource.isEmpty() && icon().isNull() ? 0 : 24);
     const int contentY = qRound(m_pressProgress);
     const QRect contentRect = rect().adjusted(horizontalPadding,
@@ -218,7 +219,7 @@ void AnimatedButton::paintEvent(QPaintEvent *event)
                                   .translated(0, contentY);
     int textLeft = contentRect.left();
     if (iconSlot > 0) {
-        const QRect iconRect = iconOnly
+        const QRect iconRect = (iconOnly || collapsedNavigation)
                                    ? QRect(contentRect.center().x() - 10,
                                            contentRect.top() + (contentRect.height() - 20) / 2,
                                            20,
@@ -262,14 +263,14 @@ void AnimatedButton::paintEvent(QPaintEvent *event)
 void AnimatedButton::enterEvent(QEnterEvent *event)
 {
     QPushButton::enterEvent(event);
-    animateHover(1.0, 160);
+    animateHover(1.0, 140);
 }
 
 void AnimatedButton::leaveEvent(QEvent *event)
 {
     QPushButton::leaveEvent(event);
     animateHover(0.0, 140);
-    animatePressed(0.0, 120);
+    animatePressed(0.0, 110);
 }
 
 void AnimatedButton::changeEvent(QEvent *event)

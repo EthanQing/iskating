@@ -3,6 +3,7 @@
 #include "athleteanalysismanager.h"
 #include "analysistaskcenterdialog.h"
 #include "analysistaskmanager.h"
+#include "framelessdialog.h"
 #include "iconutils.h"
 #include "nvrplayback.h"
 #include "offlineanalysisdialog.h"
@@ -33,6 +34,7 @@
 #include <QFrame>
 #include <QGridLayout>
 #include <QGraphicsOpacityEffect>
+#include <QGuiApplication>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QIcon>
@@ -46,6 +48,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMessageBox>
+#include <QMoveEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPageLayout>
@@ -61,7 +64,9 @@
 #include <QSize>
 #include <QSizePolicy>
 #include <QScrollArea>
+#include <QScreen>
 #include <QShortcut>
+#include <QSplitter>
 #include <QSlider>
 #include <QSpinBox>
 #include <QStandardPaths>
@@ -1185,12 +1190,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_importVideoButton->setStatusTip(m_importVideoButton->toolTip());
     m_importVideoButton->setAccessibleName(QStringLiteral("导入离线视频"));
     configureStableButton(m_importVideoButton, 96, 30, QSize(18, 18));
-    const int focusTitleIndex = ui->headlineLayout->indexOf(ui->focusTitleLabel);
-    if (focusTitleIndex >= 0) {
-        ui->headlineLayout->insertWidget(focusTitleIndex, m_importVideoButton, 0, Qt::AlignRight | Qt::AlignVCenter);
-    } else {
-        ui->headlineLayout->addWidget(m_importVideoButton, 0, Qt::AlignRight | Qt::AlignVCenter);
-    }
+    ui->topbarLayout->insertWidget(std::max(0, ui->topbarLayout->indexOf(ui->systemStatusLabel)),
+                                   m_importVideoButton, 0, Qt::AlignVCenter);
     connect(m_importVideoButton, &QPushButton::clicked, this, [this]() { importOfflineVideo(); });
 
     m_fullRateAnalysisButton = new AnimatedButton(ui->leftCard);
@@ -1200,8 +1201,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_fullRateAnalysisButton->setToolTip(QStringLiteral("创建和管理 12 路完整帧率离线分析任务"));
     m_fullRateAnalysisButton->setAccessibleName(QStringLiteral("12 路完整帧率离线分析"));
     configureStableButton(m_fullRateAnalysisButton, 96, 30, QSize(18, 18));
-    const int importButtonIndex = ui->headlineLayout->indexOf(m_importVideoButton);
-    ui->headlineLayout->insertWidget(std::max(0, importButtonIndex), m_fullRateAnalysisButton, 0, Qt::AlignRight | Qt::AlignVCenter);
+    ui->topbarLayout->insertWidget(std::max(0, ui->topbarLayout->indexOf(m_importVideoButton)),
+                                   m_fullRateAnalysisButton, 0, Qt::AlignVCenter);
     connect(m_fullRateAnalysisButton, &QPushButton::clicked, this, [this]() { openOfflineAnalysisManager(); });
 
     m_taskCenterButton = new AnimatedButton(ui->leftCard);
@@ -1210,8 +1211,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_taskCenterButton->setText(QStringLiteral("任务中心"));
     m_taskCenterButton->setToolTip(QStringLiteral("查看、暂停、继续或取消后台分析任务"));
     configureStableButton(m_taskCenterButton, 96, 30, QSize(18, 18));
-    ui->headlineLayout->insertWidget(std::max(0, ui->headlineLayout->indexOf(m_fullRateAnalysisButton)),
-                                     m_taskCenterButton, 0, Qt::AlignRight | Qt::AlignVCenter);
+    ui->topbarLayout->insertWidget(std::max(0, ui->topbarLayout->indexOf(m_fullRateAnalysisButton)),
+                                   m_taskCenterButton, 0, Qt::AlignVCenter);
     connect(m_taskCenterButton, &QPushButton::clicked, this, [this]() { openAnalysisTaskCenter(); });
 
     ui->mainImageLabel->setPlaceholderText(QStringLiteral("主视频\n未播放"));
@@ -1260,6 +1261,7 @@ MainWindow::MainWindow(QWidget *parent)
     applyStyleSheet();
     installTrainingContextPanel();
     installHistorySearchPanel();
+    rebuildWorkspaceLayout();
 
     auto *fullScreenShortcut = new QShortcut(QKeySequence(Qt::Key_F11), this);
     fullScreenShortcut->setContext(Qt::WindowShortcut);
@@ -1319,6 +1321,8 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                && watched->property("showTipTextOnHover").toBool()
                && qobject_cast<QPushButton *>(watched)) {
         repolish(qobject_cast<QWidget *>(watched));
+    } else if (watched == m_cameraGridContainer && event->type() == QEvent::Resize) {
+        updateCameraGrid();
     }
 
     return QMainWindow::eventFilter(watched, event);
@@ -1404,8 +1408,7 @@ void MainWindow::setupUiState()
     }
     applyCapturePreferencesToUi();
     reloadTrainingContext();
-    ui->settingsBox->setVisible(false);
-    ui->settingsBox->setMaximumHeight(0);
+    ui->settingsBox->setMaximumHeight(QWIDGETSIZE_MAX);
     if (m_trainingRepository && !m_trainingRepository->isOpen() && !m_trainingRepository->lastError().isEmpty()) {
         ui->saveTipLabel->setText(QStringLiteral("训练数据库初始化失败：%1").arg(m_trainingRepository->lastError()));
         ui->saveTipLabel->show();
@@ -1460,31 +1463,7 @@ void MainWindow::setupConnections()
         showTrajectorySnapshot();
     });
     connect(ui->advancedSettingsButton, &QPushButton::clicked, this, [this]() {
-        m_settingsExpanded = !m_settingsExpanded;
-        if (!m_settingsAnimation) {
-            m_settingsAnimation = new QVariantAnimation(this);
-            m_settingsAnimation->setDuration(180);
-            m_settingsAnimation->setEasingCurve(QEasingCurve::OutCubic);
-            connect(m_settingsAnimation, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
-                ui->settingsBox->setMaximumHeight(value.toInt());
-            });
-            connect(m_settingsAnimation, &QVariantAnimation::finished, this, [this]() {
-                if (!m_settingsExpanded) {
-                    ui->settingsBox->setVisible(false);
-                }
-            });
-        }
-        const int startHeight = ui->settingsBox->isVisible() ? ui->settingsBox->maximumHeight() : 0;
-        const int targetHeight = m_settingsExpanded ? ui->settingsBox->sizeHint().height() : 0;
-        if (m_settingsExpanded) {
-            ui->settingsBox->setVisible(true);
-        }
-        m_settingsAnimation->stop();
-        m_settingsAnimation->setStartValue(startHeight);
-        m_settingsAnimation->setEndValue(targetHeight);
-        m_settingsAnimation->start();
-        ui->advancedSettingsButton->setProperty("active", m_settingsExpanded);
-        repolish(ui->advancedSettingsButton);
+        m_settingsExpanded ? closeTrainingSettings() : openTrainingSettings();
     });
     if (m_fullScreenButton) {
         connect(m_fullScreenButton, &QPushButton::clicked, this, [this]() {
@@ -1513,14 +1492,16 @@ void MainWindow::installTrainingContextPanel()
     titleLabel->setProperty("role", "sectionTitle");
     auto *editStandardButton = new QPushButton(QStringLiteral("编辑标准"), m_trainingContextPanel);
     editStandardButton->setProperty("role", "secondaryButton");
-    m_standardDetailLabel = new QLabel(QStringLiteral("当前版本只提供运动员检测与身份识别；动作标准仅用于兼容历史记录"), m_trainingContextPanel);
+    m_standardDetailLabel = new QLabel(QStringLiteral("动作标准仅用于保存训练上下文"), m_trainingContextPanel);
     m_standardDetailLabel->setProperty("role", "muted");
     m_standardDetailLabel->setWordWrap(true);
     m_standardDetailLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     titleRow->addWidget(titleLabel, 0);
-    titleRow->addWidget(m_standardDetailLabel, 1);
+    titleRow->addStretch(1);
     titleRow->addWidget(editStandardButton, 0);
     panelLayout->addLayout(titleRow);
+    m_standardDetailLabel->setToolTip(QStringLiteral("当前训练只生成运动员检测、身份识别以及满足条件时的轨迹与速度数据。"));
+    panelLayout->addWidget(m_standardDetailLabel);
 
     m_athleteComboBox = ui->athleteComboBox;
     m_coachComboBox = new QComboBox(m_trainingContextPanel);
@@ -1535,6 +1516,15 @@ void MainWindow::installTrainingContextPanel()
     m_setCountSpinBox = new QSpinBox(m_trainingContextPanel);
     m_restSecondsSpinBox = new QSpinBox(m_trainingContextPanel);
     m_trainingNotesEdit = new QPlainTextEdit(m_trainingContextPanel);
+
+    for (QComboBox *combo : {m_coachComboBox,
+                             m_competitionComboBox,
+                             m_competitionEventComboBox,
+                             m_actionStandardComboBox,
+                             m_trainingPhaseComboBox}) {
+        combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        combo->setMinimumContentsLength(12);
+    }
 
     m_siteLineEdit->setPlaceholderText(QStringLiteral("训练场地"));
     m_goalLineEdit->setPlaceholderText(QStringLiteral("本次训练目标"));
@@ -1556,7 +1546,7 @@ void MainWindow::installTrainingContextPanel()
     auto *athleteActions = new QHBoxLayout();
     athleteActions->setContentsMargins(0, 0, 0, 0);
     athleteActions->setSpacing(8);
-    auto *athleteHint = new QLabel(QStringLiteral("运动员已固定在右侧检查器顶部"), m_trainingContextPanel);
+    auto *athleteHint = new QLabel(QStringLiteral("运动员选择会与实时检查器同步"), m_trainingContextPanel);
     athleteHint->setProperty("role", "muted");
     athleteActions->addWidget(athleteHint, 1);
     athleteActions->addWidget(addAthleteButton);
@@ -1565,9 +1555,16 @@ void MainWindow::installTrainingContextPanel()
     auto *form = new QFormLayout();
     form->setContentsMargins(0, 0, 0, 0);
     form->setHorizontalSpacing(8);
-    form->setVerticalSpacing(6);
+    form->setVerticalSpacing(10);
     form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     form->setRowWrapPolicy(QFormLayout::WrapAllRows);
+
+    m_drawerAthleteComboBox = new QComboBox(m_trainingContextPanel);
+    m_drawerAthleteComboBox->setModel(m_athleteComboBox->model());
+    m_drawerAthleteComboBox->setCurrentIndex(m_athleteComboBox->currentIndex());
+    m_drawerAthleteComboBox->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    m_drawerAthleteComboBox->setMinimumContentsLength(12);
+    form->addRow(QStringLiteral("运动员"), m_drawerAthleteComboBox);
 
     auto *coachRow = new QWidget(m_trainingContextPanel);
     auto *coachLayout = new QHBoxLayout(coachRow);
@@ -1579,6 +1576,8 @@ void MainWindow::installTrainingContextPanel()
 
     for (int i = 0; i < 3; ++i) {
         auto *combo = new QComboBox(m_trainingContextPanel);
+        combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        combo->setMinimumContentsLength(12);
         m_participantComboBoxes.append(combo);
         form->addRow(QStringLiteral("参与%1").arg(i + 2), combo);
         connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
@@ -1617,8 +1616,18 @@ void MainWindow::installTrainingContextPanel()
         refreshTrainingContextDetails();
     });
     connect(m_athleteComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
+        if (m_drawerAthleteComboBox) {
+            const QSignalBlocker blocker(m_drawerAthleteComboBox);
+            m_drawerAthleteComboBox->setCurrentIndex(m_athleteComboBox->currentIndex());
+        }
         refreshTrainingContextDetails();
         reloadAthleteIdentityGallery();
+    });
+    connect(m_drawerAthleteComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
+        if (!m_athleteComboBox || m_athleteComboBox->currentIndex() == index) {
+            return;
+        }
+        m_athleteComboBox->setCurrentIndex(index);
     });
     connect(m_competitionComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
         reloadTrainingContext();
@@ -1645,12 +1654,10 @@ void MainWindow::installHistorySearchPanel()
     auto *titleRow = new QHBoxLayout();
     titleRow->setContentsMargins(0, 0, 0, 0);
     titleRow->setSpacing(8);
-    auto *titleLabel = new QLabel(QStringLiteral("历史检索"), m_historySearchPanel);
+    auto *titleLabel = new QLabel(QStringLiteral("筛选条件"), m_historySearchPanel);
     titleLabel->setProperty("role", "sectionTitle");
-    m_historyPageLabel = new QLabel(QStringLiteral("第 1/1 页 · 共 0 条"), m_historySearchPanel);
-    m_historyPageLabel->setProperty("role", "muted");
     titleRow->addWidget(titleLabel, 0);
-    titleRow->addWidget(m_historyPageLabel, 1, Qt::AlignVCenter);
+    titleRow->addStretch(1);
     panelLayout->addLayout(titleRow);
 
     auto *grid = new QGridLayout();
@@ -1672,6 +1679,16 @@ void MainWindow::installHistorySearchPanel()
     m_historyToCheckBox = new QCheckBox(QStringLiteral("结束"), m_historySearchPanel);
     m_historyFromDateEdit = new QDateEdit(QDate::currentDate().addMonths(-1), m_historySearchPanel);
     m_historyToDateEdit = new QDateEdit(QDate::currentDate(), m_historySearchPanel);
+    for (QComboBox *combo : {m_historyAthleteComboBox,
+                             m_historyCoachComboBox,
+                             m_historyActionComboBox,
+                             m_historyCompetitionComboBox,
+                             m_historyCompetitionEventComboBox,
+                             m_historySourceTypeComboBox,
+                             m_historySortComboBox}) {
+        combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        combo->setMinimumContentsLength(12);
+    }
 
     m_historyCompetitionLineEdit->setPlaceholderText(QStringLiteral("比赛/场次/分组/场地/阶段/目标/备注关键词"));
     for (QDateEdit *dateEdit : {m_historyFromDateEdit, m_historyToDateEdit}) {
@@ -1708,42 +1725,100 @@ void MainWindow::installHistorySearchPanel()
         button->setProperty("role", "secondaryButton");
         configureStableButton(button, kHistoryActionButtonWidth, 32, QSize(0, 0));
     }
+    titleRow->addWidget(reportCenterButton);
 
-    grid->addWidget(new QLabel(QStringLiteral("运动员"), m_historySearchPanel), 0, 0);
-    grid->addWidget(m_historyAthleteComboBox, 0, 1);
-    grid->addWidget(new QLabel(QStringLiteral("教练"), m_historySearchPanel), 0, 2);
-    grid->addWidget(m_historyCoachComboBox, 0, 3);
-    grid->addWidget(new QLabel(QStringLiteral("动作"), m_historySearchPanel), 0, 4);
-    grid->addWidget(m_historyActionComboBox, 0, 5);
+    auto *dateRange = new QWidget(m_historySearchPanel);
+    auto *dateLayout = new QVBoxLayout(dateRange);
+    dateLayout->setContentsMargins(0, 0, 0, 0);
+    dateLayout->setSpacing(4);
+    for (const auto &dateRow : {qMakePair(m_historyFromCheckBox, m_historyFromDateEdit),
+                                qMakePair(m_historyToCheckBox, m_historyToDateEdit)}) {
+        auto *row = new QWidget(dateRange);
+        auto *rowLayout = new QHBoxLayout(row);
+        rowLayout->setContentsMargins(0, 0, 0, 0);
+        rowLayout->setSpacing(6);
+        rowLayout->addWidget(dateRow.first);
+        rowLayout->addWidget(dateRow.second, 1);
+        dateLayout->addWidget(row);
+    }
 
-    grid->addWidget(m_historyFromCheckBox, 1, 0);
-    grid->addWidget(m_historyFromDateEdit, 1, 1);
-    grid->addWidget(m_historyToCheckBox, 1, 2);
-    grid->addWidget(m_historyToDateEdit, 1, 3);
-    grid->addWidget(new QLabel(QStringLiteral("分数"), m_historySearchPanel), 1, 4);
-    grid->addWidget(m_historyMinScoreSpinBox, 1, 5);
-    grid->addWidget(m_historyMaxScoreSpinBox, 1, 6);
-
-    grid->addWidget(new QLabel(QStringLiteral("比赛"), m_historySearchPanel), 2, 0);
-    grid->addWidget(m_historyCompetitionComboBox, 2, 1);
-    grid->addWidget(new QLabel(QStringLiteral("场次"), m_historySearchPanel), 2, 2);
-    grid->addWidget(m_historyCompetitionEventComboBox, 2, 3);
-    grid->addWidget(new QLabel(QStringLiteral("来源"), m_historySearchPanel), 2, 4);
-    grid->addWidget(m_historySourceTypeComboBox, 2, 5);
-    grid->addWidget(new QLabel(QStringLiteral("关键词"), m_historySearchPanel), 2, 6);
-    grid->addWidget(m_historyCompetitionLineEdit, 2, 7, 1, 2);
-    grid->addWidget(new QLabel(QStringLiteral("排序"), m_historySearchPanel), 2, 9);
-    grid->addWidget(m_historySortComboBox, 2, 10, 1, 2);
-    grid->addWidget(searchButton, 2, 12);
-    grid->addWidget(resetButton, 2, 13);
-    grid->addWidget(repetitionSearchButton, 2, 14);
-    grid->addWidget(manageCompetitionsButton, 2, 15);
-    grid->addWidget(reportCenterButton, 2, 16);
-    grid->addWidget(m_historyPreviousPageButton, 2, 17);
-    grid->addWidget(m_historyNextPageButton, 2, 18);
-
+    auto addFilterCell = [this, grid](const QString &labelText, QWidget *field, int row, int column) {
+        auto *cell = new QWidget(m_historySearchPanel);
+        auto *cellLayout = new QVBoxLayout(cell);
+        cellLayout->setContentsMargins(0, 0, 0, 0);
+        cellLayout->setSpacing(4);
+        auto *label = new QLabel(labelText, cell);
+        label->setProperty("role", "muted");
+        cellLayout->addWidget(label);
+        cellLayout->addWidget(field);
+        grid->addWidget(cell, row, column);
+        grid->setColumnStretch(column, 1);
+    };
+    addFilterCell(QStringLiteral("运动员"), m_historyAthleteComboBox, 0, 0);
+    addFilterCell(QStringLiteral("日期"), dateRange, 0, 1);
+    addFilterCell(QStringLiteral("来源"), m_historySourceTypeComboBox, 0, 2);
+    addFilterCell(QStringLiteral("关键词"), m_historyCompetitionLineEdit, 0, 3);
+    addFilterCell(QStringLiteral("教练"), m_historyCoachComboBox, 1, 0);
+    addFilterCell(QStringLiteral("比赛"), m_historyCompetitionComboBox, 1, 1);
+    addFilterCell(QStringLiteral("场次"), m_historyCompetitionEventComboBox, 1, 2);
+    grid->setColumnStretch(3, 2);
     panelLayout->addLayout(grid);
+
+    auto *moreFiltersButton = new QPushButton(QStringLiteral("更多筛选"), m_historySearchPanel);
+    moreFiltersButton->setProperty("role", "ghost");
+    auto *moreFilters = new QFrame(m_historySearchPanel);
+    moreFilters->setObjectName(QStringLiteral("historyMoreFilters"));
+    auto *moreGrid = new QGridLayout(moreFilters);
+    moreGrid->setContentsMargins(0, 0, 0, 0);
+    moreGrid->setHorizontalSpacing(8);
+    moreGrid->setVerticalSpacing(6);
+    moreGrid->addWidget(new QLabel(QStringLiteral("动作标准"), moreFilters), 0, 0);
+    moreGrid->addWidget(m_historyActionComboBox, 0, 1);
+    moreGrid->addWidget(new QLabel(QStringLiteral("历史评分"), moreFilters), 0, 2);
+    moreGrid->addWidget(m_historyMinScoreSpinBox, 0, 3);
+    moreGrid->addWidget(m_historyMaxScoreSpinBox, 0, 4);
+    moreGrid->addWidget(repetitionSearchButton, 1, 1);
+    moreGrid->addWidget(manageCompetitionsButton, 1, 2);
+    moreFilters->hide();
+    connect(moreFiltersButton, &QPushButton::clicked, moreFilters, [moreFilters, moreFiltersButton]() {
+        const bool expanded = !moreFilters->isVisible();
+        moreFilters->setVisible(expanded);
+        moreFiltersButton->setText(expanded ? QStringLiteral("收起筛选") : QStringLiteral("更多筛选"));
+    });
+    panelLayout->addWidget(moreFiltersButton, 0, Qt::AlignLeft);
+    panelLayout->addWidget(moreFilters);
+
+    auto *actions = new QHBoxLayout();
+    actions->setContentsMargins(0, 0, 0, 0);
+    actions->setSpacing(8);
+    actions->addWidget(resetButton);
+    actions->addStretch(1);
+    searchButton->setProperty("variant", "primary");
+    actions->addWidget(searchButton);
+    panelLayout->addLayout(actions);
     ui->historyPageLayout->insertWidget(1, m_historySearchPanel);
+
+    auto *resultBar = new QWidget(ui->historyPage);
+    auto *resultBarLayout = new QHBoxLayout(resultBar);
+    resultBarLayout->setContentsMargins(0, 0, 0, 0);
+    resultBarLayout->setSpacing(8);
+    m_historyPageLabel = new QLabel(QStringLiteral("第 1/1 页 · 本页 0 条"), resultBar);
+    m_historyPageLabel->setProperty("role", "muted");
+    resultBarLayout->addWidget(m_historyPageLabel);
+    resultBarLayout->addStretch(1);
+    resultBarLayout->addWidget(new QLabel(QStringLiteral("排序"), resultBar));
+    resultBarLayout->addWidget(m_historySortComboBox);
+    ui->historyPageLayout->insertWidget(3, resultBar);
+
+    auto *pager = new QWidget(ui->historyPage);
+    pager->setObjectName(QStringLiteral("historyPager"));
+    auto *pagerLayout = new QHBoxLayout(pager);
+    pagerLayout->setContentsMargins(0, 4, 0, 0);
+    pagerLayout->setSpacing(8);
+    pagerLayout->addStretch(1);
+    pagerLayout->addWidget(m_historyPreviousPageButton);
+    pagerLayout->addWidget(m_historyNextPageButton);
+    ui->historyPageLayout->addWidget(pager);
 
     connect(m_historyFromCheckBox, &QCheckBox::toggled, m_historyFromDateEdit, &QDateEdit::setEnabled);
     connect(m_historyToCheckBox, &QCheckBox::toggled, m_historyToDateEdit, &QDateEdit::setEnabled);
@@ -1781,6 +1856,339 @@ void MainWindow::installHistorySearchPanel()
 
     reloadHistorySearchOptions();
     refreshHistoryPager();
+}
+
+void MainWindow::rebuildWorkspaceLayout()
+{
+    ui->sidebar->setMinimumWidth(220);
+    ui->sidebar->setMaximumWidth(220);
+    ui->navSuggestionButton->hide();
+    ui->mainViewTitleLabel->hide();
+
+    ui->capturePageLayout->removeWidget(ui->leftCard);
+    ui->capturePageLayout->removeWidget(ui->opsCard);
+    m_workspaceSplitter = new QSplitter(Qt::Horizontal, ui->capturePage);
+    m_workspaceSplitter->setObjectName(QStringLiteral("workspaceSplitter"));
+    m_workspaceSplitter->setChildrenCollapsible(false);
+    m_workspaceSplitter->setHandleWidth(5);
+    m_workspaceSplitter->addWidget(ui->leftCard);
+    m_workspaceSplitter->addWidget(ui->opsCard);
+    m_workspaceSplitter->setStretchFactor(0, 1);
+    m_workspaceSplitter->setStretchFactor(1, 0);
+    ui->opsCard->setMinimumWidth(300);
+    ui->opsCard->setMaximumWidth(420);
+    m_workspaceSplitter->setSizes({1100, 340});
+    connect(m_workspaceSplitter, &QSplitter::splitterMoved, this, [this]() {
+        updateCameraGrid();
+    });
+    ui->capturePageLayout->addWidget(m_workspaceSplitter);
+
+    const int cameraAreaIndex = ui->leftCardLayout->indexOf(ui->cameraScrollArea);
+    ui->cameraScrollArea->hide();
+    m_cameraGridContainer = new QWidget(ui->leftCard);
+    m_cameraGridContainer->setObjectName(QStringLiteral("cameraGridContainer"));
+    m_cameraGridContainer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    m_cameraGridContainer->setMinimumHeight(210);
+    m_cameraGridContainer->setMaximumHeight(292);
+    m_cameraGridContainer->installEventFilter(this);
+    m_cameraGridLayout = new QGridLayout(m_cameraGridContainer);
+    m_cameraGridLayout->setContentsMargins(0, 0, 0, 0);
+    m_cameraGridLayout->setHorizontalSpacing(8);
+    m_cameraGridLayout->setVerticalSpacing(8);
+    m_cameraGridLayout->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
+    ui->leftCardLayout->insertWidget(std::max(0, cameraAreaIndex), m_cameraGridContainer);
+    updateCameraGrid();
+
+    ui->trajectoryCard->setMinimumHeight(112);
+    ui->trajectoryCard->setMaximumHeight(190);
+    ui->trajectoryCardLayout->setContentsMargins(12, 4, 12, 4);
+    ui->trajectoryCardLayout->setSpacing(4);
+    ui->trajectoryTitleLabel->setText(QStringLiteral("轨迹"));
+    ui->legendTitleLabel->setText(QStringLiteral("当前运动员："));
+
+    ui->athleteSectionLabel->setText(QStringLiteral("CURRENT ATHLETE"));
+    ui->athleteIdentityLabel->setText(QStringLiteral("—"));
+    ui->athleteDetectionLabel->setText(QStringLiteral("—"));
+    ui->athleteSourceLabel->setText(QStringLiteral("—"));
+    if (auto *athleteLayout = qobject_cast<QVBoxLayout *>(ui->athleteInspector->layout())) {
+        athleteLayout->removeWidget(ui->athleteComboBox);
+        athleteLayout->removeWidget(ui->athleteIdentityLabel);
+        athleteLayout->removeWidget(ui->athleteDetectionLabel);
+        athleteLayout->removeWidget(ui->athleteSourceLabel);
+        athleteLayout->setSpacing(8);
+        athleteLayout->addWidget(ui->athleteComboBox);
+        m_athleteNameLabel = new QLabel(QStringLiteral("未选择运动员"), ui->athleteInspector);
+        m_athleteNameLabel->setObjectName(QStringLiteral("currentAthleteNameLabel"));
+        m_athleteNameLabel->setProperty("role", "athleteName");
+        m_athleteNameLabel->setWordWrap(true);
+        athleteLayout->addWidget(m_athleteNameLabel);
+        athleteLayout->addWidget(ui->athleteIdentityLabel);
+        if (m_trainingStateLabel) {
+            ui->inspectorContentLayout->removeWidget(m_trainingStateLabel);
+            athleteLayout->addWidget(m_trainingStateLabel);
+        }
+    }
+    ui->inspectorContentLayout->removeWidget(ui->modelStatusLabel);
+    ui->inspectorContentLayout->removeWidget(ui->durationLabel);
+    ui->inspectorContentLayout->removeWidget(ui->durationValueLabel);
+    ui->inspectorContentLayout->removeWidget(ui->actionLabel);
+    ui->inspectorContentLayout->removeWidget(ui->actionValueLabel);
+    ui->durationLabel->hide();
+    ui->actionLabel->hide();
+    ui->actionValueLabel->hide();
+    if (m_speedStatusLabel) {
+        ui->inspectorContentLayout->removeWidget(m_speedStatusLabel);
+    }
+    auto *liveTitle = new QLabel(QStringLiteral("LIVE STATUS"), ui->inspectorContent);
+    liveTitle->setProperty("role", "sectionTitle");
+    ui->inspectorContentLayout->addWidget(liveTitle);
+    auto *liveGrid = new QGridLayout();
+    liveGrid->setContentsMargins(0, 0, 0, 0);
+    liveGrid->setHorizontalSpacing(16);
+    liveGrid->setVerticalSpacing(10);
+    const QStringList liveLabels = {
+        QStringLiteral("当前机位"), QStringLiteral("检测目标"),
+        QStringLiteral("训练时长"), QStringLiteral("当前速度")
+    };
+    const QVector<QLabel *> liveValues = {
+        ui->athleteSourceLabel, ui->athleteDetectionLabel,
+        ui->durationValueLabel, m_speedStatusLabel
+    };
+    for (int row = 0; row < liveValues.size(); ++row) {
+        auto *label = new QLabel(liveLabels.at(row), ui->inspectorContent);
+        label->setProperty("role", "muted");
+        liveGrid->addWidget(label, row, 0);
+        liveGrid->addWidget(liveValues.at(row), row, 1);
+    }
+    liveGrid->setColumnStretch(1, 1);
+    ui->inspectorContentLayout->addLayout(liveGrid);
+
+    auto *aiTitle = new QLabel(QStringLiteral("AI STATUS"), ui->inspectorContent);
+    aiTitle->setProperty("role", "sectionTitle");
+    ui->inspectorContentLayout->addWidget(aiTitle);
+    auto *aiGrid = new QGridLayout();
+    aiGrid->setContentsMargins(0, 0, 0, 0);
+    aiGrid->setHorizontalSpacing(16);
+    aiGrid->setVerticalSpacing(10);
+    auto *analysisLabel = new QLabel(QStringLiteral("AI 分析"), ui->inspectorContent);
+    analysisLabel->setProperty("role", "muted");
+    auto *identityLabel = new QLabel(QStringLiteral("身份识别"), ui->inspectorContent);
+    identityLabel->setProperty("role", "muted");
+    m_identityAvailabilityLabel = new QLabel(QStringLiteral("—"), ui->inspectorContent);
+    aiGrid->addWidget(analysisLabel, 0, 0);
+    aiGrid->addWidget(ui->modelStatusLabel, 0, 1);
+    aiGrid->addWidget(identityLabel, 1, 0);
+    aiGrid->addWidget(m_identityAvailabilityLabel, 1, 1);
+    aiGrid->setColumnStretch(1, 1);
+    ui->inspectorContentLayout->addLayout(aiGrid);
+    ui->advancedSettingsButton->setMinimumHeight(40);
+    ui->startCaptureButton->setMinimumHeight(44);
+    ui->pauseCaptureButton->setMinimumHeight(40);
+    ui->stopCaptureButton->setMinimumHeight(40);
+    ui->saveRecordButton->setMinimumHeight(40);
+
+    ui->inspectorContentLayout->removeWidget(ui->settingsBox);
+    m_trainingSettingsDialog = new FramelessDialog(this);
+    m_trainingSettingsDialog->setObjectName(QStringLiteral("trainingSettingsDrawer"));
+    m_trainingSettingsDialog->setWindowTitle(QStringLiteral("训练设置"));
+    m_trainingSettingsDialog->setDialogTitle(QStringLiteral("训练设置"));
+    m_trainingSettingsDialog->setModal(false);
+    m_trainingSettingsDialog->setMinimumSize(420, 560);
+    m_trainingSettingsDialog->setStyleSheet(QString());
+    auto *settingsScroll = new QScrollArea(m_trainingSettingsDialog);
+    settingsScroll->setObjectName(QStringLiteral("trainingSettingsScroll"));
+    settingsScroll->setFrameShape(QFrame::NoFrame);
+    settingsScroll->setWidgetResizable(true);
+    settingsScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    auto *settingsContent = new QWidget(settingsScroll);
+    auto *settingsContentLayout = new QVBoxLayout(settingsContent);
+    settingsContentLayout->setContentsMargins(18, 14, 18, 18);
+    settingsContentLayout->addWidget(ui->settingsBox);
+    settingsContentLayout->addStretch(1);
+    settingsScroll->setWidget(settingsContent);
+    m_trainingSettingsDialog->contentLayout()->addWidget(settingsScroll);
+    ui->settingsBox->show();
+    connect(m_trainingSettingsDialog, &QDialog::rejected, this, [this]() {
+        if (m_settingsAnimation) {
+            m_settingsAnimation->stop();
+        }
+        m_settingsExpanded = false;
+        ui->advancedSettingsButton->setProperty("active", false);
+        repolish(ui->advancedSettingsButton);
+    });
+
+    if (auto *bestCard = ui->summaryBestValue->parentWidget()) {
+        bestCard->hide();
+    }
+    if (auto *label = ui->historyPage->findChild<QLabel *>(QStringLiteral("summarySessionsLabel"))) {
+        label->setText(QStringLiteral("记录"));
+    }
+    if (auto *label = ui->historyPage->findChild<QLabel *>(QStringLiteral("summaryActionsLabel"))) {
+        label->setText(QStringLiteral("训练"));
+    }
+    if (auto *label = ui->historyPage->findChild<QLabel *>(QStringLiteral("summaryAvgLabel"))) {
+        label->setText(QStringLiteral("比赛"));
+    }
+    auto *summaryInline = new QFrame(ui->historyPage);
+    summaryInline->setObjectName(QStringLiteral("historySummaryInline"));
+    auto *summaryInlineLayout = new QHBoxLayout(summaryInline);
+    summaryInlineLayout->setContentsMargins(12, 8, 12, 8);
+    summaryInlineLayout->setSpacing(18);
+    const QVector<QPair<QLabel *, QLabel *>> summaryItems = {
+        {ui->summarySessionsLabel, ui->summarySessionsValue},
+        {ui->summaryActionsLabel, ui->summaryActionsValue},
+        {ui->summaryAvgLabel, ui->summaryAvgValue}
+    };
+    for (const auto &item : summaryItems) {
+        item.first->setParent(summaryInline);
+        item.second->setParent(summaryInline);
+        summaryInlineLayout->addWidget(item.first);
+        summaryInlineLayout->addWidget(item.second);
+    }
+    summaryInlineLayout->addStretch(1);
+    ui->summarySessionsCard->hide();
+    ui->summaryActionsCard->hide();
+    ui->summaryAvgCard->hide();
+    ui->summaryBestCard->hide();
+    ui->historyPageLayout->insertWidget(2, summaryInline);
+    for (int index = ui->historyPageLayout->count() - 1; index >= 0; --index) {
+        QLayoutItem *item = ui->historyPageLayout->itemAt(index);
+        if (item && item->spacerItem()) {
+            delete ui->historyPageLayout->takeAt(index);
+        }
+    }
+    auto *historySubtitle = new QLabel(QStringLiteral("查看、筛选和复盘训练记录"), ui->historyPage);
+    historySubtitle->setObjectName(QStringLiteral("historySubtitleLabel"));
+    historySubtitle->setProperty("role", "muted");
+    ui->historyPageLayout->insertWidget(1, historySubtitle);
+}
+
+void MainWindow::updateCameraGrid()
+{
+    if (!m_cameraGridLayout || !m_cameraGridContainer) {
+        return;
+    }
+    const int columns = m_cameraGridContainer->width() >= 1050 ? 6 : 4;
+    const int rows = (m_cameraButtons.size() + columns - 1) / columns;
+    const int availableWidth = std::max(0, m_cameraGridContainer->width() - (columns - 1) * 8);
+    int tileWidth = columns > 0 ? availableWidth / columns : 0;
+    tileWidth = std::min(tileWidth, columns == 6 ? 206 : 160);
+    const int heightLimit = height() < 820 ? 286 : 292;
+    const int maxTileHeight = (heightLimit - (rows - 1) * 8)
+                               / std::max(1, rows);
+    int tileHeight = qRound(tileWidth * 9.0 / 16.0);
+    if (tileHeight > maxTileHeight) {
+        tileHeight = maxTileHeight;
+        tileWidth = qRound(tileHeight * 16.0 / 9.0);
+    }
+    const QSize tileSize(tileWidth, tileHeight);
+    const int gridHeight = rows * tileHeight + std::max(0, rows - 1) * 8;
+    m_cameraGridContainer->setFixedHeight(gridHeight);
+    if (m_cameraGridColumns == columns && m_cameraTileSize == tileSize) {
+        return;
+    }
+    while (QLayoutItem *item = m_cameraGridLayout->takeAt(0)) {
+        delete item;
+    }
+    m_cameraGridColumns = columns;
+    m_cameraTileSize = tileSize;
+    for (int index = 0; index < m_cameraButtons.size(); ++index) {
+        VideoOpenGLWidget *camera = m_cameraButtons.at(index);
+        if (camera->parentWidget() != m_cameraGridContainer) {
+            camera->setParent(m_cameraGridContainer);
+        }
+        camera->setMinimumSize(0, 0);
+        camera->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+        camera->setFixedSize(tileSize);
+        if (!camera->isVisible()) {
+            camera->show();
+        }
+        m_cameraGridLayout->addWidget(camera, index / columns, index % columns);
+    }
+}
+
+void MainWindow::openTrainingSettings()
+{
+    if (!m_trainingSettingsDialog) {
+        return;
+    }
+    m_settingsExpanded = true;
+    ui->advancedSettingsButton->setProperty("active", true);
+    repolish(ui->advancedSettingsButton);
+
+    const int drawerWidth = width() >= 1500 ? 460 : 420;
+    const int drawerHeight = std::max(560, ui->opsCard->height());
+    const QPoint inspectorTopLeft = ui->opsCard->mapToGlobal(QPoint(0, 0));
+    QScreen *screen = QGuiApplication::screenAt(inspectorTopLeft);
+    if (!screen) {
+        screen = QGuiApplication::primaryScreen();
+    }
+    const QRect available = screen ? screen->availableGeometry()
+                                   : QRect(inspectorTopLeft, QSize(drawerWidth, drawerHeight));
+    const int actualHeight = std::min(drawerHeight, available.height());
+    const int endX = std::clamp(inspectorTopLeft.x() - drawerWidth - 12,
+                                available.left(),
+                                std::max(available.left(), available.right() - drawerWidth + 1));
+    const int endY = std::clamp(inspectorTopLeft.y(),
+                                available.top(),
+                                std::max(available.top(), available.bottom() - actualHeight + 1));
+    const QRect endGeometry(endX, endY, drawerWidth, actualHeight);
+    const QRect startGeometry(inspectorTopLeft.x(), endGeometry.y(), drawerWidth, actualHeight);
+    m_trainingSettingsDialog->setGeometry(startGeometry);
+    m_trainingSettingsDialog->show();
+    m_trainingSettingsDialog->raise();
+
+    if (!m_settingsAnimation) {
+        m_settingsAnimation = new QVariantAnimation(this);
+    }
+    m_settingsAnimation->stop();
+    m_settingsAnimation->setDuration(200);
+    m_settingsAnimation->setEasingCurve(QEasingCurve::OutCubic);
+    QObject::disconnect(m_settingsAnimation, nullptr, this, nullptr);
+    connect(m_settingsAnimation, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
+        if (m_trainingSettingsDialog) {
+            m_trainingSettingsDialog->setGeometry(value.toRect());
+        }
+    });
+    m_settingsAnimation->setStartValue(startGeometry);
+    m_settingsAnimation->setEndValue(endGeometry);
+    m_settingsAnimation->start();
+}
+
+void MainWindow::closeTrainingSettings()
+{
+    if (!m_trainingSettingsDialog || !m_trainingSettingsDialog->isVisible()) {
+        m_settingsExpanded = false;
+        return;
+    }
+    m_settingsExpanded = false;
+    ui->advancedSettingsButton->setProperty("active", false);
+    repolish(ui->advancedSettingsButton);
+    const QRect startGeometry = m_trainingSettingsDialog->geometry();
+    const QRect endGeometry(startGeometry.right() + 24,
+                            startGeometry.y(),
+                            startGeometry.width(),
+                            startGeometry.height());
+    if (!m_settingsAnimation) {
+        m_settingsAnimation = new QVariantAnimation(this);
+    }
+    m_settingsAnimation->stop();
+    m_settingsAnimation->setDuration(200);
+    m_settingsAnimation->setEasingCurve(QEasingCurve::OutCubic);
+    QObject::disconnect(m_settingsAnimation, nullptr, this, nullptr);
+    connect(m_settingsAnimation, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
+        if (m_trainingSettingsDialog) {
+            m_trainingSettingsDialog->setGeometry(value.toRect());
+        }
+    });
+    connect(m_settingsAnimation, &QVariantAnimation::finished, this, [this]() {
+        if (m_trainingSettingsDialog && !m_settingsExpanded) {
+            m_trainingSettingsDialog->hide();
+        }
+    });
+    m_settingsAnimation->setStartValue(startGeometry);
+    m_settingsAnimation->setEndValue(endGeometry);
+    m_settingsAnimation->start();
 }
 
 // 从资源系统读取 QSS，统一应用暗色仪表盘主题样式。
@@ -2790,9 +3198,10 @@ void MainWindow::refreshHistoryPager()
 {
     const int maxPage = historyMaxPage();
     if (m_historyPageLabel) {
-        m_historyPageLabel->setText(QStringLiteral("第 %1/%2 页 · 共 %3 条")
+        m_historyPageLabel->setText(QStringLiteral("第 %1/%2 页 · 本页 %3 条 · 共 %4 条")
                                         .arg(m_historyPageNumber)
                                         .arg(maxPage)
+                                        .arg(m_records.size())
                                         .arg(m_historyTotalCount));
     }
     if (m_historyPreviousPageButton) {
@@ -2824,6 +3233,41 @@ void MainWindow::initializeTrainingRepository()
     ui->systemStatusLabel->setProperty("state", "online");
     repolish(ui->systemStatusLabel);
     reloadTrainingContext();
+}
+
+void MainWindow::resizeEvent(QResizeEvent *event)
+{
+    QMainWindow::resizeEvent(event);
+    if (m_trainingSettingsDialog && m_trainingSettingsDialog->isVisible()) {
+        if (m_settingsAnimation) {
+            m_settingsAnimation->stop();
+        }
+        m_trainingSettingsDialog->hide();
+        m_settingsExpanded = false;
+        ui->advancedSettingsButton->setProperty("active", false);
+    }
+    const bool compactHeight = height() < 820;
+    ui->mainImageLabel->setMinimumHeight(compactHeight ? 200 : 280);
+    ui->trajectoryCard->setMinimumHeight(compactHeight ? 112 : 126);
+    if (m_trajectoryWidget) {
+        m_trajectoryWidget->setMinimumHeight(compactHeight ? 64 : 100);
+    }
+    updateCameraGrid();
+}
+
+void MainWindow::moveEvent(QMoveEvent *event)
+{
+    QMainWindow::moveEvent(event);
+    if (!m_trainingSettingsDialog || !m_trainingSettingsDialog->isVisible()) {
+        return;
+    }
+    if (m_settingsAnimation) {
+        m_settingsAnimation->stop();
+    }
+    m_trainingSettingsDialog->hide();
+    m_settingsExpanded = false;
+    ui->advancedSettingsButton->setProperty("active", false);
+    repolish(ui->advancedSettingsButton);
 }
 
 void MainWindow::reloadTrainingContext()
@@ -2858,6 +3302,10 @@ void MainWindow::reloadTrainingContext()
         const int index = m_athleteComboBox->findData(previousAthleteId);
         if (index >= 0) {
             m_athleteComboBox->setCurrentIndex(index);
+        }
+        if (m_drawerAthleteComboBox) {
+            const QSignalBlocker drawerBlocker(m_drawerAthleteComboBox);
+            m_drawerAthleteComboBox->setCurrentIndex(m_athleteComboBox->currentIndex());
         }
     }
 
@@ -3847,12 +4295,41 @@ void MainWindow::refreshTrajectoryView()
 
 void MainWindow::showTrajectorySnapshot()
 {
-    QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("二维滑行轨迹 · 当前快照"));
-    dialog.resize(960, 560);
-    auto *layout = new QVBoxLayout(&dialog);
-    layout->setContentsMargins(14, 14, 14, 14);
-    layout->setSpacing(10);
+    FramelessDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("轨迹详情"));
+    dialog.setDialogTitle(QStringLiteral("轨迹详情"));
+    dialog.resize(1040, 680);
+    dialog.setMinimumSize(820, 520);
+    dialog.setSizeGripEnabled(true);
+    auto *layout = dialog.contentLayout();
+    layout->setSpacing(12);
+
+    const QString athleteName = m_athleteComboBox && m_athleteComboBox->currentIndex() >= 0
+                                    ? m_athleteComboBox->currentText()
+                                    : QStringLiteral("未选择运动员");
+    const QString primaryParticipantId = selectedAthleteId();
+    QVector<TrackPoint> points;
+    for (const TrackPoint &point : std::as_const(m_currentTrackPoints)) {
+        if (primaryParticipantId.isEmpty() || point.participantId == primaryParticipantId) {
+            points.append(point);
+        }
+    }
+    QString timeRange = QStringLiteral("暂无数据");
+    if (!points.isEmpty()) {
+        const auto [minimum, maximum] = std::minmax_element(points.cbegin(), points.cend(),
+                                                            [](const TrackPoint &left, const TrackPoint &right) {
+                                                                return left.timestampMs < right.timestampMs;
+                                                            });
+        timeRange = QStringLiteral("%1 — %2")
+                        .arg(formatMilliseconds(static_cast<int>(minimum->timestampMs)),
+                             formatMilliseconds(static_cast<int>(maximum->timestampMs)));
+    }
+    auto *contextLabel = new QLabel(QStringLiteral("当前运动员：%1    时间范围：%2")
+                                        .arg(athleteName, timeRange),
+                                    &dialog);
+    contextLabel->setProperty("role", "muted");
+    contextLabel->setWordWrap(true);
+    layout->addWidget(contextLabel);
 
     auto *trajectory = new TrajectoryWidget(&dialog);
     QVector<TrajectoryWidget::CameraSegment> segments;
@@ -3868,17 +4345,11 @@ void MainWindow::showTrajectorySnapshot()
         segments.append(segment);
     }
     trajectory->setCameraSegments(segments);
-    const QString primaryParticipantId = selectedAthleteId();
-    QVector<TrackPoint> points;
-    for (const TrackPoint &point : std::as_const(m_currentTrackPoints)) {
-        if (primaryParticipantId.isEmpty() || point.participantId == primaryParticipantId) {
-            points.append(point);
-        }
-    }
     trajectory->setTrackPoints(points);
     layout->addWidget(trajectory, 1);
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    buttons->button(QDialogButtonBox::Close)->setText(QStringLiteral("关闭"));
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
@@ -4036,6 +4507,11 @@ void MainWindow::switchPage(int pageIndex)
     if (m_activePage == pageIndex) {
         return;
     }
+    if (m_trainingSettingsDialog && m_trainingSettingsDialog->isVisible()) {
+        m_trainingSettingsDialog->hide();
+        m_settingsExpanded = false;
+        ui->advancedSettingsButton->setProperty("active", false);
+    }
 
     if (pageIndex == kHistoryPage) {
         refreshHistory();
@@ -4089,7 +4565,7 @@ void MainWindow::toggleSidebar()
             const int width = value.toInt();
             ui->sidebar->setMinimumWidth(width);
             ui->sidebar->setMaximumWidth(width);
-            const qreal textOpacity = (width - 68.0) / 148.0;
+            const qreal textOpacity = (width - 64.0) / 156.0;
             for (QPushButton *button : {ui->navCaptureButton,
                                         ui->navHistoryButton,
                                         ui->navSuggestionButton,
@@ -4107,7 +4583,7 @@ void MainWindow::toggleSidebar()
     }
     m_sidebarAnimation->stop();
     m_sidebarAnimation->setStartValue(ui->sidebar->width());
-    m_sidebarAnimation->setEndValue(m_sidebarVisible ? 216 : 68);
+    m_sidebarAnimation->setEndValue(m_sidebarVisible ? 220 : 64);
     m_sidebarAnimation->start();
     refreshSidebarButton();
 }
@@ -4907,12 +5383,18 @@ void MainWindow::refreshStats()
             source = QStringLiteral("离线视频");
         }
     }
-    ui->athleteSourceLabel->setText(QStringLiteral("来源 · %1").arg(source));
-    ui->focusTitleLabel->setText(QStringLiteral("当前来源 · %1").arg(source));
+    ui->athleteSourceLabel->setText(source);
+    if (ui->mainImageLabel && ui->mainImageLabel->channelName() != source) {
+        ui->mainImageLabel->setChannelName(source);
+    }
     const QString athleteName = m_athleteComboBox && m_athleteComboBox->currentIndex() >= 0
                                     ? m_athleteComboBox->currentText()
                                     : QStringLiteral("未选择");
+    ui->focusTitleLabel->setText(QStringLiteral("%1 · %2").arg(athleteName, source));
     ui->legendContentLabel->setText(athleteName);
+    if (m_athleteNameLabel) {
+        m_athleteNameLabel->setText(athleteName);
+    }
 
     const QString selectedId = selectedAthleteId();
     const AthleteInstance *selectedInstance = nullptr;
@@ -4923,12 +5405,12 @@ void MainWindow::refreshStats()
         }
     }
     if (m_lastAthleteFrame.instances.isEmpty()) {
-        ui->athleteIdentityLabel->setText(QStringLiteral("身份 · 尚未识别当前运动员"));
-        ui->athleteDetectionLabel->setText(QStringLiteral("检测 · 0 个目标"));
+        ui->athleteIdentityLabel->setText(QStringLiteral("● 尚未识别"));
+        ui->athleteDetectionLabel->setText(QStringLiteral("0"));
         ui->athleteIdentityLabel->setProperty("state", "muted");
         ui->athleteDetectionLabel->setProperty("state", "muted");
         if (m_speedStatusLabel) {
-            m_speedStatusLabel->setText(QStringLiteral("速度 · —"));
+            m_speedStatusLabel->setText(QStringLiteral("—"));
             m_speedStatusLabel->setProperty("state", "muted");
         }
     } else {
@@ -4936,16 +5418,17 @@ void MainWindow::refreshStats()
             const QString identity = !selectedInstance->label.trimmed().isEmpty()
                                           ? selectedInstance->label.trimmed()
                                           : identityStatusLabel(selectedInstance->identityStatus);
-            ui->athleteIdentityLabel->setText(QStringLiteral("身份 · %1").arg(identity));
+            ui->athleteIdentityLabel->setText(QStringLiteral("● %1").arg(identity));
             ui->athleteIdentityLabel->setProperty("state", "online");
-            ui->athleteDetectionLabel->setText(QStringLiteral("检测 · %1 个目标 · 置信度 %2%")
-                                                    .arg(m_lastAthleteFrame.instances.size())
-                                                    .arg(qRound(selectedInstance->detectionConfidence * 100.0f)));
+            ui->athleteDetectionLabel->setText(QStringLiteral("%1")
+                                                    .arg(m_lastAthleteFrame.instances.size()));
+            ui->athleteDetectionLabel->setToolTip(QStringLiteral("检测置信度 %1%")
+                                                       .arg(qRound(selectedInstance->detectionConfidence * 100.0f)));
             ui->athleteDetectionLabel->setProperty("state", "online");
         } else {
-            ui->athleteIdentityLabel->setText(QStringLiteral("身份 · 尚未识别当前运动员"));
+            ui->athleteIdentityLabel->setText(QStringLiteral("● 尚未识别"));
             ui->athleteIdentityLabel->setProperty("state", "muted");
-            ui->athleteDetectionLabel->setText(QStringLiteral("检测 · %1 个目标")
+            ui->athleteDetectionLabel->setText(QStringLiteral("%1")
                                                     .arg(m_lastAthleteFrame.instances.size()));
             ui->athleteDetectionLabel->setProperty("state", "warning");
         }
@@ -4967,11 +5450,11 @@ void MainWindow::refreshStats()
                 }
             }
             if (latestSpeed) {
-                m_speedStatusLabel->setText(QStringLiteral("速度 · %1 m/s")
+                m_speedStatusLabel->setText(QStringLiteral("%1 m/s")
                                                 .arg(latestSpeed->smoothedSpeedMps, 0, 'f', 2));
                 m_speedStatusLabel->setProperty("state", "online");
             } else {
-                m_speedStatusLabel->setText(QStringLiteral("速度 · —"));
+                m_speedStatusLabel->setText(QStringLiteral("—"));
                 m_speedStatusLabel->setProperty("state", "muted");
             }
         }
@@ -5013,22 +5496,21 @@ void MainWindow::refreshHistory()
         return;
     }
 
-    int totalActions = 0;
-    int totalScore = 0;
-    int bestScore = 0;
+    int trainingCount = 0;
+    int competitionCount = 0;
     for (const SessionHistoryItem &record : std::as_const(m_records)) {
-        totalActions += record.validReps;
-        totalScore += record.score;
-        bestScore = std::max(bestScore, record.score);
+        if (record.sourceType == QStringLiteral("competition")) {
+            ++competitionCount;
+        } else if (record.sourceType == QStringLiteral("training")) {
+            ++trainingCount;
+        }
     }
 
-    const int sessionCount = m_records.size();
-    const int averageScore = sessionCount > 0 ? (totalScore + sessionCount / 2) / sessionCount : 0;
     if (m_summaryValues.size() >= 4) {
-        m_summaryValues.at(0)->setText(QString::number(sessionCount));
-        m_summaryValues.at(1)->setText(QString::number(totalActions));
-        m_summaryValues.at(2)->setText(QString::number(averageScore));
-        m_summaryValues.at(3)->setText(QString::number(bestScore));
+        m_summaryValues.at(0)->setText(QString::number(m_records.size()));
+        m_summaryValues.at(1)->setText(QString::number(trainingCount));
+        m_summaryValues.at(2)->setText(QString::number(competitionCount));
+        m_summaryValues.at(3)->clear();
     }
 
     clearLayout(ui->historyListLayout);
@@ -5041,7 +5523,9 @@ void MainWindow::refreshHistory()
         emptyLabel->setProperty("role", "emptyBox");
         emptyLabel->setAlignment(Qt::AlignCenter);
         emptyLabel->setWordWrap(true);
+        ui->historyListLayout->addStretch(1);
         ui->historyListLayout->addWidget(emptyLabel);
+        ui->historyListLayout->addStretch(1);
         return;
     }
 
@@ -5123,12 +5607,16 @@ void MainWindow::refreshHistory()
         connect(exportButton, &QPushButton::clicked, this, [this, record]() {
             exportTrainingReport(record.id);
         });
+        auto *detailsButton = new QPushButton(QStringLiteral("更多"), card);
+        detailsButton->setProperty("role", "ghost");
+        configureStableButton(detailsButton, 64, 32, QSize(0, 0));
 
         headerActionsLayout->addWidget(playButton);
         headerActionsLayout->addWidget(reviewButton);
         headerActionsLayout->addWidget(poseReviewButton);
         headerActionsLayout->addWidget(commentButton);
         headerActionsLayout->addWidget(exportButton);
+        headerActionsLayout->addWidget(detailsButton);
         if (ui->historyPage && ui->historyPage->width() < 900) {
             headerLayout->addWidget(timeLabel, 1);
             headerLayout->addWidget(scoreTag, 0, Qt::AlignRight | Qt::AlignTop);
@@ -5147,20 +5635,20 @@ void MainWindow::refreshHistory()
                                                ? QStringLiteral("CAM %1").arg(pad(record.camera))
                                                : QStringLiteral("离线视频"));
         auto *metaLabel = new QLabel(
-            QStringLiteral("时长 %1   有效/总动作 %2/%3   目标 %4 次/%5 分   最佳 %6 分   来源 %7   精度 %8   分析 %9 FPS")
+            QStringLiteral("时长 %1   来源 %2   教练 %3   保存于 %4")
                 .arg(formatTime(record.duration))
-                .arg(record.validReps)
-                .arg(record.totalReps)
-                .arg(record.targetReps)
-                .arg(record.targetScore)
-                .arg(record.bestScore)
                 .arg(sourceLabel)
-                .arg(precisionLabel(record.modelPrecision))
-                .arg(record.fps),
+                .arg(record.coachName.isEmpty() ? QStringLiteral("未指定") : record.coachName)
+                .arg(record.time.isEmpty() ? QStringLiteral("—") : record.time),
             card);
         metaLabel->setProperty("role", "muted");
         metaLabel->setWordWrap(true);
         cardLayout->addWidget(metaLabel);
+
+        auto *detailsContainer = new QWidget(card);
+        auto *detailsLayout = new QVBoxLayout(detailsContainer);
+        detailsLayout->setContentsMargins(0, 0, 0, 0);
+        detailsLayout->setSpacing(10);
 
         auto *feedbackLabel = new QLabel(QStringLiteral("标准 v%1 · %2 · %3\n场地：%4   阶段：%5   目标：%6\n备注：%7\n视频：%8\n视频资产：%9\n离线任务：%10\n反馈：%11")
                                              .arg(record.standardVersion)
@@ -5178,7 +5666,7 @@ void MainWindow::refreshHistory()
                                              .arg(record.feedback),
                                          card);
         feedbackLabel->setWordWrap(true);
-        cardLayout->addWidget(feedbackLabel);
+        detailsLayout->addWidget(feedbackLabel);
 
         const QString competitionDate = record.competitionDate.isValid()
                                             ? record.competitionDate.toString(QStringLiteral("yyyy-MM-dd"))
@@ -5191,7 +5679,7 @@ void MainWindow::refreshHistory()
                                             card);
         competitionLabel->setProperty("role", "muted");
         competitionLabel->setWordWrap(true);
-        cardLayout->addWidget(competitionLabel);
+        detailsLayout->addWidget(competitionLabel);
 
         auto *eventLabel = new QLabel(QStringLiteral("场次：%1   项目：%2   轮次：%3   分组：%4   参赛号：%5   道次：%6   成绩/名次：%7/%8")
                                           .arg(record.raceName.trimmed().isEmpty() ? QStringLiteral("未关联场次") : record.raceName.trimmed(),
@@ -5205,7 +5693,7 @@ void MainWindow::refreshHistory()
                                       card);
         eventLabel->setProperty("role", "muted");
         eventLabel->setWordWrap(true);
-        cardLayout->addWidget(eventLabel);
+        detailsLayout->addWidget(eventLabel);
 
         auto *sourceTypeLabel = new QLabel(QStringLiteral("分析归属：%1   对象：%2")
                                                .arg(sessionSourceTypeLabel(record.sourceType),
@@ -5213,14 +5701,14 @@ void MainWindow::refreshHistory()
                                            card);
         sourceTypeLabel->setProperty("role", "muted");
         sourceTypeLabel->setWordWrap(true);
-        cardLayout->addWidget(sourceTypeLabel);
+        detailsLayout->addWidget(sourceTypeLabel);
 
         if (repetitions.isEmpty()) {
             auto *emptyReviewLabel = new QLabel(QStringLiteral("本次未生成新的动作实例。当前版本只保存运动员检测与身份识别结果，旧记录仍可在此复盘。"),
                                                 card);
             emptyReviewLabel->setProperty("role", "muted");
             emptyReviewLabel->setWordWrap(true);
-            cardLayout->addWidget(emptyReviewLabel);
+            detailsLayout->addWidget(emptyReviewLabel);
         } else {
             const auto bestIt = std::max_element(repetitions.cbegin(),
                                                  repetitions.cend(),
@@ -5255,7 +5743,7 @@ void MainWindow::refreshHistory()
                                            card);
             reviewLabel->setProperty("role", "reviewSummary");
             reviewLabel->setWordWrap(true);
-            cardLayout->addWidget(reviewLabel);
+            detailsLayout->addWidget(reviewLabel);
 
             QStringList timelineLines;
             for (int repIndex = 0; repIndex < repetitions.size() && timelineLines.size() < 5; ++repIndex) {
@@ -5277,11 +5765,11 @@ void MainWindow::refreshHistory()
                                              card);
             timelineLabel->setProperty("role", "muted");
             timelineLabel->setWordWrap(true);
-            cardLayout->addWidget(timelineLabel);
+            detailsLayout->addWidget(timelineLabel);
 
             auto *detailTitle = new QLabel(QStringLiteral("动作明细"), card);
             detailTitle->setProperty("role", "sectionTitle");
-            cardLayout->addWidget(detailTitle);
+            detailsLayout->addWidget(detailTitle);
 
             const int detailCount = std::min(8, static_cast<int>(repetitions.size()));
             for (int repIndex = 0; repIndex < detailCount; ++repIndex) {
@@ -5310,14 +5798,14 @@ void MainWindow::refreshHistory()
 
                 rowLayout->addWidget(detailLabel, 1);
                 rowLayout->addWidget(clipButton, 0, Qt::AlignRight | Qt::AlignTop);
-                cardLayout->addWidget(row);
+                detailsLayout->addWidget(row);
             }
             if (repetitions.size() > detailCount) {
                 auto *moreLabel = new QLabel(QStringLiteral("还有 %1 个动作实例，可通过导出报告查看完整明细。")
                                                  .arg(repetitions.size() - detailCount),
                                              card);
                 moreLabel->setProperty("role", "muted");
-                cardLayout->addWidget(moreLabel);
+                detailsLayout->addWidget(moreLabel);
             }
         }
 
@@ -5328,8 +5816,15 @@ void MainWindow::refreshHistory()
                                              card);
         coachCommentLabel->setWordWrap(true);
         coachCommentLabel->setProperty("role", "muted");
-        cardLayout->addWidget(coachCommentLabel);
-
+        detailsLayout->addWidget(coachCommentLabel);
+        detailsContainer->hide();
+        cardLayout->addWidget(detailsContainer);
+        connect(detailsButton, &QPushButton::clicked, card, [detailsContainer, detailsButton]() {
+            const bool expanded = detailsContainer->isVisible();
+            detailsContainer->setVisible(!expanded);
+            detailsButton->setText(expanded ? QStringLiteral("更多") : QStringLiteral("收起"));
+        });
+        scoreTag->setVisible(!repetitions.isEmpty());
         ui->historyListLayout->addWidget(card);
     }
 }
@@ -5736,6 +6231,7 @@ void MainWindow::openTrackPointReview(const SessionHistoryItem &record)
     connect(exportCsv, &QPushButton::clicked, &dialog, [&]() { exportPoints(QStringLiteral("csv")); });
     connect(exportXlsx, &QPushButton::clicked, &dialog, [&]() { exportPoints(QStringLiteral("xlsx")); });
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    buttons->button(QDialogButtonBox::Close)->setText(QStringLiteral("关闭"));
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     reload();
@@ -6574,13 +7070,33 @@ void MainWindow::refreshModelStatus(const QString &statusText)
         return;
     }
     const QString status = statusText.trimmed();
-    ui->modelStatusLabel->setText(status.isEmpty()
-                                      ? QStringLiteral("AI · 未知")
-                                      : QStringLiteral("AI · %1").arg(status));
     const bool warning = status.contains(QStringLiteral("error"), Qt::CaseInsensitive)
                          || status.contains(QStringLiteral("fail"), Qt::CaseInsensitive)
-                         || status.contains(QStringLiteral("错误"));
-    ui->modelStatusLabel->setProperty("state", status.isEmpty() ? "muted" : (warning ? "warning" : "online"));
+                         || status.contains(QStringLiteral("错误"))
+                         || status.contains(QStringLiteral("失败"));
+    if (status.contains(QStringLiteral("已就绪")) || status.contains(QStringLiteral("运行中"))) {
+        m_aiAnalysisReady = true;
+    } else if (warning) {
+        m_aiAnalysisReady = false;
+    }
+    if (status.contains(QStringLiteral("PersonViT"))) {
+        m_identityRecognitionKnown = true;
+        m_identityRecognitionAvailable = !status.contains(QStringLiteral("不可用")) && !warning;
+    }
+    ui->modelStatusLabel->setText(m_aiAnalysisReady ? QStringLiteral("已就绪")
+                                                     : (warning ? QStringLiteral("不可用") : QStringLiteral("—")));
+    ui->modelStatusLabel->setToolTip(status);
+    ui->modelStatusLabel->setProperty("state", m_aiAnalysisReady ? "online" : (warning ? "warning" : "muted"));
+    if (m_identityAvailabilityLabel) {
+        m_identityAvailabilityLabel->setText(m_identityRecognitionAvailable
+                                                 ? QStringLiteral("可用")
+                                                 : (m_identityRecognitionKnown ? QStringLiteral("不可用")
+                                                                               : QStringLiteral("—")));
+        m_identityAvailabilityLabel->setProperty("state", m_identityRecognitionAvailable ? "online"
+                                                                                           : (warning ? "warning" : "muted"));
+        m_identityAvailabilityLabel->setToolTip(status);
+        repolish(m_identityAvailabilityLabel);
+    }
     repolish(ui->modelStatusLabel);
 }
 

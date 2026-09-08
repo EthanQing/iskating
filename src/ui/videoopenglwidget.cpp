@@ -134,6 +134,17 @@ VideoOpenGLWidget::VideoOpenGLWidget(QWidget *parent)
     m_videoSurface->lower();
     m_videoSurface->setAttribute(Qt::WA_TransparentForMouseEvents, true);
 
+    m_sourceOverlayLabel = new QLabel(this);
+    m_sourceOverlayLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_sourceOverlayLabel->setAttribute(Qt::WA_NativeWindow);
+    m_sourceOverlayLabel->setAttribute(Qt::WA_OpaquePaintEvent);
+    m_sourceOverlayLabel->setObjectName(QStringLiteral("videoSourceOverlay"));
+    m_sourceOverlayLabel->setStyleSheet(QStringLiteral(
+        "QLabel { color: #F4F7FA; background: #0C1118; "
+        "border: none; border-radius: 5px; padding: 5px 9px; font-size: 13px; "
+        "font-weight: 600; }"));
+    m_sourceOverlayLabel->hide();
+
     m_tileHoverAnimation->setEasingCurve(QEasingCurve::OutCubic);
     m_tilePressAnimation->setEasingCurve(QEasingCurve::OutCubic);
     connect(m_tileHoverAnimation, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
@@ -184,6 +195,7 @@ void VideoOpenGLWidget::setPlaying(bool playing)
             m_statusText = QStringLiteral("播放中");
             m_renderTimer->start();
             notifyStreamChanged();
+            refreshSourceOverlay();
             update();
             return;
         }
@@ -234,6 +246,7 @@ void VideoOpenGLWidget::pausePlayback()
     m_playing = false;
     m_statusText = QStringLiteral("已暂停");
     notifyStreamChanged();
+    refreshSourceOverlay();
     update();
 }
 
@@ -252,6 +265,7 @@ void VideoOpenGLWidget::stopPlayback()
     m_videoSurface->clearFrame();
     m_videoSurface->hide();
     notifyStreamChanged();
+    refreshSourceOverlay();
     update();
 }
 
@@ -335,6 +349,7 @@ void VideoOpenGLWidget::setSourceTile(bool enabled)
         setOverlayControlsVisible(false);
     }
     layoutVideoSurface();
+    refreshSourceOverlay();
     update();
 }
 
@@ -454,6 +469,7 @@ void VideoOpenGLWidget::setChannelName(const QString &name)
     if (isSourceTile()) {
         setToolTip(cameraDisplayName());
     }
+    refreshSourceOverlay();
     update();
 }
 
@@ -574,6 +590,7 @@ void VideoOpenGLWidget::attachStream(const QString &source, const QString &fallb
     m_lastPresentedMsec = 0;
     m_renderTimer->start();
     notifyStreamChanged();
+    refreshSourceOverlay();
     update();
 }
 
@@ -593,6 +610,7 @@ void VideoOpenGLWidget::refreshVideoFrame()
     const QString streamStatus = m_stream->statusText();
     if (!streamStatus.isEmpty() && streamStatus != m_statusText) {
         m_statusText = streamStatus;
+        refreshSourceOverlay();
         update();
     }
 
@@ -617,6 +635,7 @@ void VideoOpenGLWidget::refreshVideoFrame()
         m_statusText = QStringLiteral("主码流不可用，已回退预览码流");
         m_lastPresentedMsec = 0;
         notifyStreamChanged();
+        refreshSourceOverlay();
         update();
         return;
     }
@@ -639,6 +658,7 @@ void VideoOpenGLWidget::refreshVideoFrame()
                 button->raise();
             }
         }
+        refreshSourceOverlay();
     }
     layoutVideoSurface();
     m_videoSurface->presentFrame(frame);
@@ -703,6 +723,52 @@ void VideoOpenGLWidget::refreshAthleteLabels()
     }
 }
 
+void VideoOpenGLWidget::refreshSourceOverlay()
+{
+    if (!m_sourceOverlayLabel || isSourceTile() || m_channelName.trimmed().isEmpty()) {
+        if (m_sourceOverlayLabel) {
+            m_sourceOverlayLabel->hide();
+        }
+        return;
+    }
+
+    const QString source = currentVideoPath().trimmed();
+    const bool isRtspSource =
+        QUrl(source).scheme().compare(QStringLiteral("rtsp"), Qt::CaseInsensitive) == 0;
+    const QString sourceStatus = sourceState();
+    QString stateLabel;
+    if (sourceStatus == QStringLiteral("unconfigured")) {
+        stateLabel = QStringLiteral("未配置");
+    } else if (sourceStatus == QStringLiteral("error")) {
+        stateLabel = QStringLiteral("连接失败");
+    } else if (sourceStatus == QStringLiteral("online")) {
+        stateLabel = isRtspSource ? QStringLiteral("LIVE") : QStringLiteral("播放中");
+    } else if (m_stream && !m_playing) {
+        stateLabel = QStringLiteral("已暂停");
+    } else if (m_stream && m_playing) {
+        stateLabel = QStringLiteral("连接中");
+    } else {
+        stateLabel = QStringLiteral("离线");
+    }
+
+    QFont overlayFont = m_sourceOverlayLabel->font();
+    overlayFont.setPixelSize(13);
+    overlayFont.setWeight(QFont::DemiBold);
+    const int maximumWidth = std::max(80, std::min(400, width() - 28));
+    const QString fullText = QStringLiteral("%1 · %2").arg(cameraDisplayName(), stateLabel);
+    const QString displayText =
+        QFontMetrics(overlayFont).elidedText(fullText, Qt::ElideRight, maximumWidth - 18);
+    m_sourceOverlayLabel->setFont(overlayFont);
+    m_sourceOverlayLabel->setText(displayText);
+    m_sourceOverlayLabel->setToolTip(fullText);
+    const int overlayWidth =
+        std::min(maximumWidth, QFontMetrics(overlayFont).horizontalAdvance(displayText) + 18);
+    m_sourceOverlayLabel->setFixedSize(overlayWidth, 31);
+    m_sourceOverlayLabel->move(14, 14);
+    m_sourceOverlayLabel->show();
+    m_sourceOverlayLabel->raise();
+}
+
 void VideoOpenGLWidget::paintEvent(QPaintEvent *)
 {
     QPainter painter(this);
@@ -712,7 +778,7 @@ void VideoOpenGLWidget::paintEvent(QPaintEvent *)
     const bool cameraTile = isSourceTile();
     const QColor baseBackground(QStringLiteral("#101720"));
     const QColor hoverBackground(QStringLiteral("#192533"));
-    const QColor selectedBackground(QStringLiteral("#1D3042"));
+    const QColor selectedBackground(QStringLiteral("#173348"));
     const QColor pressedBackground(QStringLiteral("#0C141D"));
     QColor backgroundColor = blendColor(baseBackground, hoverBackground, m_tileHoverProgress);
     if (cameraTile && m_selected) {
@@ -723,7 +789,7 @@ void VideoOpenGLWidget::paintEvent(QPaintEvent *)
     }
     QColor borderColor(QStringLiteral("#202C3A"));
     if (cameraTile && m_selected) {
-        borderColor = QColor(QStringLiteral("#38BDF8"));
+        borderColor = QColor(QStringLiteral("#26739B"));
     } else if (cameraTile) {
         borderColor = blendColor(borderColor, QColor(QStringLiteral("#2D4054")), m_tileHoverProgress);
     }
@@ -749,15 +815,30 @@ void VideoOpenGLWidget::paintEvent(QPaintEvent *)
     }
 
     if (cameraTile) {
-        const int stripHeight = std::min(24, std::max(0, height() - 4));
+        if (m_selected) {
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(QColor(QStringLiteral("#38BDF8")));
+            painter.drawRoundedRect(
+                QRectF(0.0, 5.0, 3.0, std::max(0, height() - 10)), 1.5, 1.5);
+        }
+
+        const int stripHeight = std::min(30, std::max(0, height() - 4));
         const QRect stripRect(2,
                               std::max(2, height() - stripHeight - 2),
                               std::max(0, width() - 4),
                               stripHeight);
-        painter.fillRect(stripRect,
-                         blendColor(QColor(QStringLiteral("#101720")),
-                                    QColor(QStringLiteral("#0C141D")),
-                                    m_tilePressProgress));
+        QColor stripBackground = blendColor(QColor(QStringLiteral("#101720")),
+                                            QColor(QStringLiteral("#192533")),
+                                            m_tileHoverProgress);
+        if (m_selected) {
+            stripBackground = blendColor(stripBackground,
+                                         QColor(QStringLiteral("#1D3042")),
+                                         0.9);
+        }
+        stripBackground = blendColor(stripBackground,
+                                     QColor(QStringLiteral("#0C141D")),
+                                     m_tilePressProgress);
+        painter.fillRect(stripRect, stripBackground);
         painter.setPen(QPen(blendColor(QColor(QStringLiteral("#202C3A")),
                                        QColor(QStringLiteral("#38BDF8")),
                                        std::max(m_tileHoverProgress * 0.45, m_tilePressProgress * 0.8)),
@@ -765,11 +846,15 @@ void VideoOpenGLWidget::paintEvent(QPaintEvent *)
         painter.drawLine(stripRect.topLeft(), stripRect.topRight());
 
         QFont stripFont = painter.font();
-        stripFont.setPixelSize(10);
+        stripFont.setPixelSize(13);
         stripFont.setWeight(QFont::DemiBold);
         painter.setFont(stripFont);
-        painter.setPen(QColor(QStringLiteral("#F4F7FA")));
-        const int dotX = stripRect.right() - 79;
+        painter.setPen(m_selected
+                           ? QColor(QStringLiteral("#38BDF8"))
+                           : blendColor(QColor(QStringLiteral("#F4F7FA")),
+                                        QColor(QStringLiteral("#B9E6FE")),
+                                        m_tileHoverProgress));
+        const int dotX = stripRect.right() - 66;
         const QRect nameRect = stripRect.adjusted(8, 0, -(stripRect.right() - dotX + 12), 0);
         const QString cameraName = QFontMetrics(stripFont).elidedText(cameraDisplayName(),
                                                                        Qt::ElideRight,
@@ -785,12 +870,12 @@ void VideoOpenGLWidget::paintEvent(QPaintEvent *)
                                             ? QColor(QStringLiteral("#F97066"))
                                             : QColor(QStringLiteral("#667586"));
         const QString stateLabel = state == QStringLiteral("online")
-                                       ? QStringLiteral("ONLINE")
+                                       ? QStringLiteral("在线")
                                        : state == QStringLiteral("error")
-                                             ? QStringLiteral("ERROR")
+                                             ? QStringLiteral("离线")
                                              : state == QStringLiteral("unconfigured")
-                                                   ? QStringLiteral("SETUP")
-                                                   : QStringLiteral("OFFLINE");
+                                                   ? QStringLiteral("未配置")
+                                                   : QStringLiteral("离线");
         painter.setPen(Qt::NoPen);
         painter.setBrush(stateColor);
         painter.drawEllipse(QRectF(dotX, stripRect.center().y() - 3, 6, 6));
@@ -808,7 +893,7 @@ void VideoOpenGLWidget::paintEvent(QPaintEvent *)
     }
 
     if (cameraTile) {
-        const int stripHeight = std::min(24, std::max(0, height() - 4));
+        const int stripHeight = std::min(30, std::max(0, height() - 4));
         const QRect imageRect(6,
                               6,
                               std::max(0, width() - 12),
@@ -834,7 +919,7 @@ void VideoOpenGLWidget::paintEvent(QPaintEvent *)
         }
 
         QFont tileFont = painter.font();
-        tileFont.setPixelSize(9);
+        tileFont.setPixelSize(13);
         tileFont.setWeight(QFont::Normal);
         painter.setFont(tileFont);
         painter.setPen(QColor(QStringLiteral("#A2AFBF")));
@@ -938,6 +1023,7 @@ void VideoOpenGLWidget::resizeEvent(QResizeEvent *event)
     layoutVideoSurface();
     layoutOverlayControls();
     refreshAthleteLabels();
+    refreshSourceOverlay();
 }
 
 void VideoOpenGLWidget::keyPressEvent(QKeyEvent *event)
@@ -962,7 +1048,7 @@ void VideoOpenGLWidget::keyReleaseEvent(QKeyEvent *event)
         && (event->key() == Qt::Key_Space || event->key() == Qt::Key_Return
             || event->key() == Qt::Key_Enter)) {
         m_tilePressAnimation->stop();
-        m_tilePressAnimation->setDuration(120);
+        m_tilePressAnimation->setDuration(110);
         m_tilePressAnimation->setStartValue(m_tilePressProgress);
         m_tilePressAnimation->setEndValue(0.0);
         m_tilePressAnimation->start();
@@ -1009,7 +1095,7 @@ void VideoOpenGLWidget::enterEvent(QEnterEvent *event)
 {
     QWidget::enterEvent(event);
     if (isSourceTile()) {
-        animateTile(1.0, 160);
+        animateTile(1.0, 140);
     }
 }
 
@@ -1019,7 +1105,7 @@ void VideoOpenGLWidget::leaveEvent(QEvent *event)
     if (isSourceTile()) {
         animateTile(0.0, 140);
         m_tilePressAnimation->stop();
-        m_tilePressAnimation->setDuration(120);
+        m_tilePressAnimation->setDuration(110);
         m_tilePressAnimation->setStartValue(m_tilePressProgress);
         m_tilePressAnimation->setEndValue(0.0);
         m_tilePressAnimation->start();
@@ -1044,7 +1130,7 @@ void VideoOpenGLWidget::mouseReleaseEvent(QMouseEvent *event)
 {
     if (isSourceTile() && event->button() == Qt::LeftButton && isEnabled()) {
         m_tilePressAnimation->stop();
-        m_tilePressAnimation->setDuration(120);
+        m_tilePressAnimation->setDuration(110);
         m_tilePressAnimation->setStartValue(m_tilePressProgress);
         m_tilePressAnimation->setEndValue(0.0);
         m_tilePressAnimation->start();
@@ -1075,7 +1161,7 @@ void VideoOpenGLWidget::layoutVideoSurface()
 
     if (isSourceTile()) {
         const int surfaceWidth = std::max(0, width() - 4);
-        const int surfaceHeight = std::max(0, height() - 28);
+        const int surfaceHeight = std::max(0, height() - 34);
         m_videoSurface->setGeometry(2, 2, surfaceWidth, surfaceHeight);
     } else {
         m_videoSurface->setGeometry(rect().adjusted(1, 1, -1, -1));

@@ -23,10 +23,15 @@ class QLineEdit;
 class QSpinBox;
 class QPlainTextEdit;
 class QEvent;
+class QMoveEvent;
+class QResizeEvent;
 class QPushButton;
 class QScrollArea;
+class QGridLayout;
+class QSplitter;
 class QVariantAnimation;
 class QVBoxLayout;
+class FramelessDialog;
 class VideoOpenGLWidget;
 class TrajectoryWidget;
 class AthleteAnalysisManager;
@@ -48,12 +53,18 @@ public:
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
     void changeEvent(QEvent *event) override;
+    void moveEvent(QMoveEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
 
 private:
     void setupUiState();
     void setupConnections();
     void installTrainingContextPanel();
     void installHistorySearchPanel();
+    void rebuildWorkspaceLayout();
+    void updateCameraGrid();
+    void openTrainingSettings();
+    void closeTrainingSettings();
     void applyStyleSheet();
     void loadCameraSettings();
     void saveCameraSettings();
@@ -160,6 +171,7 @@ private:
     std::unique_ptr<TrainingRepository> m_trainingRepository;
     QWidget *m_trainingContextPanel = nullptr;
     QComboBox *m_athleteComboBox = nullptr;
+    QComboBox *m_drawerAthleteComboBox = nullptr;
     QComboBox *m_coachComboBox = nullptr;
     QComboBox *m_competitionComboBox = nullptr;
     QComboBox *m_competitionEventComboBox = nullptr;
@@ -177,7 +189,16 @@ private:
     QLabel *m_trainingTargetLabel = nullptr;
     QLabel *m_trainingStateLabel = nullptr;
     QLabel *m_speedStatusLabel = nullptr;
+    QLabel *m_athleteNameLabel = nullptr;
+    QLabel *m_identityAvailabilityLabel = nullptr;
     QScrollArea *m_saveTipScrollArea = nullptr;
+    QSplitter *m_workspaceSplitter = nullptr;
+    QWidget *m_cameraGridContainer = nullptr;
+    QGridLayout *m_cameraGridLayout = nullptr;
+    int m_cameraGridColumns = 0;
+    QSize m_cameraTileSize;
+    bool m_compactWorkspace = false;
+    FramelessDialog *m_trainingSettingsDialog = nullptr;
     QWidget *m_historySearchPanel = nullptr;
     QComboBox *m_historyAthleteComboBox = nullptr;
     QComboBox *m_historyCoachComboBox = nullptr;
@@ -225,6 +246,9 @@ private:
     QVariantAnimation *m_sidebarAnimation = nullptr;
     QVariantAnimation *m_settingsAnimation = nullptr;
     bool m_settingsExpanded = false;
+    bool m_aiAnalysisReady = false;
+    bool m_identityRecognitionKnown = false;
+    bool m_identityRecognitionAvailable = false;
     int m_cameraGridNormalSpacing = 10;
     int m_selectedCamera = 1;
     bool m_isRecording = false;
