@@ -122,11 +122,14 @@ QString safeUrlForLog(const QString &source)
 VideoOpenGLWidget::VideoOpenGLWidget(QWidget *parent)
     : QWidget(parent)
     , m_placeholderRenderer(QStringLiteral(":/icons/video.svg"))
-    , m_videoSurface(new D3DVideoSurface(this))
     , m_renderTimer(new QTimer(this))
     , m_tileHoverAnimation(new QVariantAnimation(this))
     , m_tilePressAnimation(new QVariantAnimation(this))
 {
+    // Keep the native video surface and overlays local to this widget; otherwise
+    // Qt promotes the surrounding workspace to native windows during creation.
+    setAttribute(Qt::WA_DontCreateNativeAncestors);
+    m_videoSurface = new D3DVideoSurface(this);
     setAutoFillBackground(false);
     setAttribute(Qt::WA_OpaquePaintEvent, true);
     setMouseTracking(true);
@@ -169,6 +172,9 @@ VideoOpenGLWidget::VideoOpenGLWidget(QWidget *parent)
     connect(m_renderTimer, &QTimer::timeout, this, [this]() { refreshVideoFrame(); });
 
     setupOverlayControls();
+    for (QWidget *child : findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly)) {
+        child->setAttribute(Qt::WA_DontCreateNativeAncestors);
+    }
 }
 
 QString VideoOpenGLWidget::defaultVideoPath()

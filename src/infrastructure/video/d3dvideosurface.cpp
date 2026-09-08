@@ -172,6 +172,7 @@ void appendBox(std::vector<OverlayVertex> *vertices,
 D3DVideoSurface::D3DVideoSurface(QWidget *parent)
     : QWidget(parent)
 {
+    setAttribute(Qt::WA_DontCreateNativeAncestors);
     setAttribute(Qt::WA_NativeWindow, true);
     setAttribute(Qt::WA_PaintOnScreen, true);
     setAttribute(Qt::WA_NoSystemBackground, true);
@@ -193,6 +194,9 @@ void D3DVideoSurface::presentFrame(const std::shared_ptr<D3DFrame> &frame)
 
 void D3DVideoSurface::clearFrame()
 {
+    if (!m_swapChain) {
+        return;
+    }
     if (!ensureSwapChain() || !m_renderTargetView) {
         return;
     }

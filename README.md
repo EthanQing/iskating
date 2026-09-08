@@ -110,3 +110,5 @@ $env:ISKATING_JWT_SECRET = "REPLACE_WITH_A_LONG_RANDOM_SECRET"
 | `tests/client/` | 客户端合同测试 |
 
 本地修改完成后提交 Git；仅在明确需要发布时推送远端。
+
+视频画面和覆盖层的原生窗口应限制在 VideoOpenGLWidget 内，避免将外层页面、分隔区和侧栏提升为原生窗口，增加布局动画的窗口调整开销。尚未创建交换链时，清空画面不初始化图形资源；实际视频帧到达后再创建渲染资源。
