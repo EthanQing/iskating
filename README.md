@@ -1,134 +1,107 @@
 # iSkating Coach
 
-项目结构、运行方式和当前边界见 [项目概览](docs/ai-kb/01-project-overview.md) 与 [本地开发 Runbook](docs/ai-kb/runbooks/local-development.md)。
+Windows 滑冰训练辅助桌面应用，使用 Qt Widgets / C++20。支持多机位视频预览、运动员检测与身份识别、训练记录和历史复盘；完成场地标定后可生成二维轨迹与速度。当前新训练不生成自动动作计数、技术评分或 3D 骨架。
 
-## 实时训练工作区
+## Windows 构建与运行
 
-实时训练采用主视频、12 路自适应 Camera 网格、二维轨迹和右侧运动员检查器。点击机位切换主视频，右键控制该路播放；网格随可用宽度切换六列或四列，视频与检查器之间可拖动分隔条。主运动员在检查器顶部选择，模型精度、分析帧率和其他训练上下文从独立“训练设置”面板编辑。开始、暂停、停止和保存操作固定在检查器下方，F11 / Esc 用于进入/退出全屏。
+### 环境要求
 
-历史复盘采用分层筛选、紧凑汇总和可展开详情的记录列表。系统设置按视频与摄像头、场地与轨迹、AI 分析、存储分类，底部始终保留取消和保存设置。侧栏可折叠为图标导航，旧动作建议不再作为一级页面展示；人员、比赛、历史复盘及报告的已有业务入口继续保留。
+- Visual Studio 2022，安装“使用 C++ 的桌面开发”（MSVC x64、Windows SDK）。
+- Qt 6.7.3，MSVC 2022 64 位版本。
+- FFmpeg 8.0.1 shared 开发包，包含 `include`、`lib`、`bin`。
+- TensorRT 10.1、CUDA Toolkit 11.8；实时 AI 运行还需要兼容的 NVIDIA GPU 和驱动。
 
-## Git 协作约定
+当前项目使用以下默认路径：
 
-代码仓库位于 [EthanQing/iskating](https://github.com/EthanQing/iskating)，`main` 是受保护的默认分支。所有改动都应在其他分支完成，再通过 Pull Request 合并到 `main`；不要直接推送、强制推送或删除 `main`。
+| 依赖 | 默认路径 | 修改方式 |
+| --- | --- | --- |
+| Qt | `C:/Qt/6.7.3/msvc2022_64` | `mainwindow.pro` 中的 `QT_ROOT` |
+| FFmpeg | `C:/Users/qc/zm/ffmpeg-8.0.1-full_build-shared` | 环境变量 `FFMPEG_ROOT` |
+| TensorRT | `C:/Program Files/TensorRT-10.1.0.27` | 环境变量 `TENSORRT_ROOT` |
+| CUDA | `C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.8` | 环境变量 `CUDA_ROOT` |
 
-本地开发分支完成验证后，使用 `git push -u origin <branch>` 推送，并创建目标为 `main` 的 Pull Request。版本或重要基线使用带注释的 tag 标记，具体命令见 [本地开发 Runbook](docs/ai-kb/runbooks/local-development.md)。
+依赖路径和部署规则分别在 `build/qmake/dependencies.pri`、`build/qmake/deployment.pri` 中。部署规则使用指定版本的 DLL 文件名，不能只改目录就任意替换依赖版本。
 
-## F-24 二维滑行轨迹
+### 构建 Release
 
-完成每路相机的四点冰面标定后，应用将检测框底边投影到统一场地米制坐标，实时绘制并在保存训练时提交 `track_points`。坐标原点位于场地起点冰面，`+x` 指向滑行方向，`+y` 为预先约定的横向正方向，`z=0`。在系统设置的场地表双击“四点标定”单元格，输入四个像素点及其对应的场地 `(x,y)`；未标定的机位不会产生轨迹点。历史卡片的轨迹入口打开二维轨迹/速度面板，可导出 CSV/XLSX。
+1. **先退出正在运行的 iSkating**，否则构建可能无法覆盖 EXE 或 DLL。
+2. 从开始菜单打开 **x64 Native Tools Command Prompt for VS 2022**。
+3. 执行下面命令；仓库位置不同时替换第一行路径。
 
-已知限制：客户端预生成的主运动员 participant UUID 与服务端重建的 UUID 可能不一致，导致主运动员轨迹/速度在入库时被跳过。实时绘制能力已存在，但持久化闭环需要修复后做 PostgreSQL 集成验证。
+```bat
+cd /d C:\Users\qc\Desktop\deep-thought\iskating
+C:\Qt\6.7.3\msvc2022_64\bin\qmake.exe mainwindow.pro "CONFIG+=release"
+nmake /nologo /f Makefile.Release
+```
 
-## F-25 滑行速度序列
+等待命令成功结束后运行：
 
-每个有效轨迹点都关联一条 `speed_metrics` 记录，包含瞬时速度、1000ms 平滑速度、单位（`m/s`）、算法版本和有效标记。首点、时间异常、超过 2 秒的取样间隔或无效检测会保留为无效速度结果。历史轨迹复盘可按运动员筛选并查看、导出速度曲线；旧训练记录不会补写速度。
+```bat
+x64\Release\iskating.exe
+```
 
-Windows Qt/C++ 滑冰训练辅助应用，当前实时 AI 主流程为：`YOLO26x person 检测 → 检测 ROI 过滤 → 单机位一对一 track → 按需 PersonViT/MSMT17 ReID → 当前 session 参与者匹配 → trackId/athleteId`。
+输出目录为 `x64/Release`。构建会复制运行依赖、Qt 插件和模型配置，运行时应保留整个输出目录，不要只复制 EXE。
 
-当前版本提供运动员检测、身份识别，以及在“已识别 + 有效四点标定”条件下的二维轨迹与速度；不再生成实时姿态关键点、3D 骨架、动作评分或自动动作计数。服务端仍保留历史姿态/评分/动作表和接口，客户端当前只复盘支持范围内的历史动作/评分数据，不再加载或绘制旧姿态关键点覆盖层；新训练保存检测框、机位、trackId、身份状态、置信度，并尝试保存有效轨迹/速度。
+后续只修改 C++ 源码时，可以在同一开发者命令提示符中直接执行 `nmake /nologo /f Makefile.Release` 增量构建。修改 `.pro`、`.pri`、依赖路径或新增/删除源码后，先重新执行 qmake。
 
-系统同时支持 12 路完整帧率离线分析：Windows 端继续以默认每路 5 FPS 做低延迟实时预览；Ubuntu 24.04 + NVIDIA DeepStream 9 worker 对 NAS 中的 12 路 1080p60 同步录像逐解码帧执行 YOLO，并按轨迹触发 PersonViT。完整结果写入 NAS 的 10 秒 gzip JSONL 分块，PostgreSQL 只保存任务、版本、进度与分块索引。
+如果使用普通 CMD，可先执行下面命令初始化本机 Community 版 MSVC 环境，再执行上述构建命令：
 
-## AI 模型
+```bat
+call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
+```
 
-- `models/athlete/yolo26x.onnx`：官方 Ultralytics YOLO26x，`640x640`，端到端 NMS-free，输出 `300x6`，只接受 COCO `person` 类别。
-- `models/athlete/personvit_msmt17_vit_base.onnx`：TransReID ViT-Base MSMT17 baseline，输入 `3x256x128`，RGB，均值/方差 `0.5`，输出 `768` 维 L2 归一化 embedding。
-- `models/athlete/camera_detect_rois.json`：CAM 01–07 的冰面检测区域；按原始画面像素保存，以人体框底边中点判定，并随实际分辨率缩放。未配置 ROI 的机位保持不过滤。
-- 默认检测阈值 `0.35`、ReID 匹配阈值 `0.60`、候选差值 `0.05`、track TTL `1200 ms`；轨迹稳定 2 次后才执行 PersonViT，未知身份最多重试 3 次、间隔 `1000 ms`。
-- 二进制模型和 TensorRT engine 不提交 Git；模型来源、版本、shape 和 SHA256 见 `models/athlete/athlete_models.json` 与 `models/athlete/athlete_models.sha256`。
+普通 PowerShell 中直接运行这个 `.bat` 不会把环境保留到 PowerShell；推荐使用上述开发者命令提示符。
 
-模型下载、YOLO 导出、PersonViT 转换和校验：
+## 首次运行与配置
+
+- “系统设置”配置公共 RTSP 参数、摄像头 IP、场地标定、AI 和存储选项。
+- 桌面端通过 FastAPI 访问训练数据，不直接连接 PostgreSQL。默认服务地址为 `http://127.0.0.1:8000`，可用环境变量 `ISKATING_API_BASE_URL` 覆盖。
+- 保存训练、人员管理和历史查询需要可用的训练服务及数据库。顶部“服务未连接”应检查服务是否启动及地址是否正确。
+- AI 模型放在 `models/athlete/`，契约见 `models/athlete/athlete_models.json`。ONNX 模型和 TensorRT engine 不随 Git 提交。构建时会复制已有 ONNX；缺少模型时需先准备模型，再重新构建。
+
+模型准备入口（仓库根目录，PowerShell）：
 
 ```powershell
 .\tools\download_athlete_models.ps1
 python tools\check_athlete_models.py
 ```
 
-DeepStream 使用动态 batch 模型，需另外导出到被忽略的 `models/athlete/deepstream`：
+## 训练服务
+
+服务使用 Python / FastAPI / PostgreSQL，依赖清单为 `server/requirements.txt`。以下命令用于启动服务，前提是已准备好 PostgreSQL 数据库及项目表结构；示例账号、密码和密钥需要替换。
+
+在仓库根目录打开 PowerShell：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools/export_deepstream_models.ps1
+python -m venv server/.venv
+.\server\.venv\Scripts\python.exe -m pip install -r server/requirements.txt
+$env:ISKATING_DATABASE_URL = "postgresql+psycopg://iskating:YOUR_PASSWORD@127.0.0.1:5432/iskating"
+$env:ISKATING_JWT_SECRET = "REPLACE_WITH_A_LONG_RANDOM_SECRET"
+.\server\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir server --host 127.0.0.1 --port 8000
 ```
 
-## 数据服务
+数据库表结构定义在 `server/app/schema.py`。`tools/reset_postgres_schema.py --yes` 会重建并破坏已有数据，不是日常启动或升级命令。
 
-桌面端使用 Qt Widgets + QtNetwork，服务端使用 FastAPI，训练业务数据保存到 PostgreSQL。运动员管理页可以添加、查看和删除 ReID 样本，样本图片和 embedding 通过 `athlete_identity_samples` / `athlete_identity_embeddings` 保存。服务端样本文件目录由 `ISKATING_IDENTITY_GALLERY_ROOT` 配置。
+12 路完整帧率分析另有 Ubuntu / NVIDIA DeepStream worker，入口为 `analysis_worker/compose.yml`；普通桌面端构建不需要启动它。
 
-历史页的“报告中心”可按训练保存日期、参与者、训练内时间段及专项指标导出 CSV 明细或 PDF 验收汇总。专项指标覆盖轨迹、速度、关节角和角速度；已有数据库需先运行 `python tools/backfill_joint_metrics.py` 后再启用关节指标保存。当前历史顶部汇总和专项报告中心只使用客户端已加载的当前页 session，不代表全部筛选结果。
+## 常见构建问题
 
-离线单视频导入和 12 路完整帧率批次会创建可追踪的通用分析任务；已有数据库可运行 `python tools/backfill_analysis_tasks.py` 补齐任务记录关联。
-采集页的“任务中心”以单并发队列在后台准备本地导入、创建并提交完整帧率远端运行，再跟踪其进度；当前进程内可暂停、继续或取消。应用重启后会把遗留任务显示为 `paused`，但不会重建 job 参数，因此不能直接继续，需重新发起对应导入或批次。完整分析的“暂停”只停止客户端轮询，不会暂停远端 worker。
+- **找不到 nmake / cl**：使用 x64 Native Tools Command Prompt，或先在 CMD 中调用 `vcvars64.bat`。
+- **文件正由另一进程使用 / 无法复制 DLL / 无法写入 EXE**：退出 iSkating 和调试会话后重新构建。
+- **qmake 提示缺少头文件或 .lib**：核对上述 SDK 路径，FFmpeg 必须包含开发头文件与 MSVC 导入库。
+- **修改后仍显示旧界面**：确认构建成功，并运行对应的 `x64/Release/iskating.exe`；仅编译 `.obj` 不会更新 EXE。
 
-系统设置中的“连通测试”会逐路探测预览 RTSP 流，展示地址解析状态、UDP/TCP 协议、RTSP Open 耗时、首帧耗时、分辨率、帧率、失败阶段和错误码。结果仅供本次联调查看，不会保存或影响正在播放的视频。
+## 主要目录
 
-```powershell
-cd server
-python -m venv .venv
-.\.venv\Scripts\pip install -r requirements.txt
-$env:ISKATING_DATABASE_URL="postgresql+psycopg://iskating:password@127.0.0.1:5432/iskating"
-$env:ISKATING_JWT_SECRET="change-this"
-$env:ISKATING_IDENTITY_GALLERY_ROOT="data/identity-gallery"
-python ..\tools\reset_postgres_schema.py --yes
-.\.venv\Scripts\uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
+| 路径 | 用途 |
+| --- | --- |
+| `mainwindow.pro`、`build/qmake/` | qmake 构建入口、依赖和部署规则 |
+| `src/ui/`、`resources/` | 桌面界面、QSS、图标和资源 |
+| `src/domain/`、`src/application/` | 领域模型与训练流程 |
+| `src/infrastructure/` | 视频、推理、服务访问和本机配置 |
+| `server/` | 训练 API 与数据库表结构 |
+| `analysis_worker/` | DeepStream 完整帧率分析 worker |
+| `models/athlete/`、`tools/` | 模型配置和维护工具 |
+| `tests/client/` | 客户端合同测试 |
 
-已有 PostgreSQL 数据库使用幂等回填工具增加轨迹速度与完整帧率协议；空库仍可直接重建：
-
-```powershell
-python tools/backfill_video_indexes.py
-python tools/backfill_full_rate_analysis.py
-python tools/backfill_analysis_tasks.py
-python tools/backfill_joint_metrics.py
-```
-
-## DeepStream 离线 worker
-
-分析主机要求 Ubuntu 24.04、Docker、NVIDIA Container Toolkit、兼容 DeepStream 9 的驱动，并把同一 NAS 根目录挂载到容器 `/mnt/iskating`。FastAPI 与 worker 必须配置相同的工作令牌，并让各自的 `ISKATING_ANALYSIS_NAS_ROOT` 指向同一逻辑根目录。
-
-```bash
-export ISKATING_API_BASE_URL=http://api-host:8000
-export ISKATING_ANALYSIS_WORKER_TOKEN='replace-with-a-long-random-token'
-export ISKATING_ANALYSIS_WORKER_ID=deepstream-01
-export ISKATING_ANALYSIS_NAS_ROOT=/srv/iskating
-docker compose -f analysis_worker/compose.yml up -d --build
-```
-
-桌面端点击“完整分析”导入恰好 12 路 `nas://` 源，创建运行并查看每路进度。Windows 回放前需在该窗口配置同一 `nas://` 根目录对应的盘符或 UNC 路径；完成区间可渐进回放，缺口不会沿用旧检测框，新版本完成后需显式激活。完成或激活不会自动创建训练 session；运行中的模型/gallery 版本字段也只是标签，尚未冻结可复现快照。
-
-操作清单与 manifest 格式见 [部署 Runbook](docs/ai-kb/runbooks/deployment.md) 和 [测试 Runbook](docs/ai-kb/runbooks/testing.md)。
-
-桌面端默认连接 `http://127.0.0.1:8000`，可通过 `ISKATING_API_BASE_URL` 覆盖。模型缺失或 PersonViT 初始化失败时，视频播放仍可继续；对应身份识别能力会在状态栏提示不可用。
-
-## 桌面端构建
-
-需要 Qt 6.7.3 MSVC 2022 x64、FFmpeg shared dev package、TensorRT 10.1 和 CUDA 11.8：
-
-```powershell
-& "C:/Qt/6.7.3/msvc2022_64/bin/qmake.exe" mainwindow.pro "CONFIG+=release"
-nmake release
-.\x64\Release\iskating.exe
-```
-
-Release 规则会复制 `models/athlete` 的模型清单、校验文件和检测 ROI 配置；如果构建机已准备被忽略的 ONNX 二进制，也会一并复制到发布目录，否则需按下载脚本在发布机补齐。
-
-## 项目结构
-
-```text
-iskating/
-├─ mainwindow.pro              # qmake 入口
-├─ build/qmake/                # 公共配置、依赖和部署规则
-├─ src/
-│  ├─ app/                     # 进程入口
-│  ├─ ui/                      # Qt Widgets 与窗体
-│  ├─ domain/                  # 训练领域数据结构
-│  ├─ application/             # 训练流程与任务编排
-│  └─ infrastructure/          # 视频、推理、持久化、配置
-├─ resources/                  # qrc、图标、图片和 QSS
-├─ tests/client/               # 客户端纯逻辑合同测试
-├─ server/                     # FastAPI/PostgreSQL
-├─ analysis_worker/            # DeepStream worker
-└─ tools/                      # 模型与数据维护工具
-```
-
-新增 Qt/C++ 文件时，请放入对应 `src/` 分层并更新同层 `.pri`；不要把业务源码重新放回项目根目录。
+本地修改完成后提交 Git；仅在明确需要发布时推送远端。
