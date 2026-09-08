@@ -1880,6 +1880,9 @@ void MainWindow::rebuildWorkspaceLayout()
     ui->sidebar->setMaximumWidth(220);
     ui->navSuggestionButton->hide();
     ui->mainViewTitleLabel->hide();
+    ui->leftCardLayout->removeItem(ui->headlineLayout);
+    delete ui->headlineLayout;
+    ui->headlineLayout = nullptr;
 
     ui->capturePageLayout->removeWidget(ui->leftCard);
     ui->capturePageLayout->removeWidget(ui->opsCard);
