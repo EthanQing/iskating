@@ -109,7 +109,7 @@ void drawEmptyState(QPainter *painter, const QRectF &rect, bool hasSamples)
     hintFont.setPixelSize(13);
     hintFont.setWeight(QFont::Normal);
     painter->setFont(hintFont);
-    painter->setPen(QColor(QStringLiteral("#A2AFBF")));
+    painter->setPen(QColor(QStringLiteral("#B6C2D0")));
     const QRectF hintRect = rect.adjusted(8, 0, -8, 0);
     const int hintTop = titleTop + titleHeight + 4;
     const QString hint = hasSamples
@@ -165,7 +165,7 @@ void TrajectoryWidget::paintEvent(QPaintEvent *event)
     painter.setRenderHint(QPainter::Antialiasing, true);
 
     const QRectF viewRect = rect();
-    painter.fillRect(viewRect, QColor(QStringLiteral("#101720")));
+    painter.fillRect(viewRect, QColor(QStringLiteral("#111A24")));
 
     const bool fieldMode = hasFieldSamples(m_samples);
     const QRectF bounds = fieldMode ? fieldBounds(m_cameraSegments, m_samples) : QRectF();
@@ -175,8 +175,8 @@ void TrajectoryWidget::paintEvent(QPaintEvent *event)
         return;
     }
 
-    painter.fillRect(plotRect, QColor(QStringLiteral("#0C1118")));
-    painter.setPen(QPen(QColor(QStringLiteral("#202C3A")), 1.0));
+    painter.fillRect(plotRect, QColor(QStringLiteral("#0D131B")));
+    painter.setPen(QPen(QColor(QStringLiteral("#243244")), 1.0));
     for (int column = 0; column <= 8; ++column) {
         const qreal x = plotRect.left() + plotRect.width() * column / 8.0;
         painter.drawLine(QPointF(x, plotRect.top()), QPointF(x, plotRect.bottom()));
@@ -207,13 +207,13 @@ void TrajectoryWidget::paintEvent(QPaintEvent *event)
             continue;
         }
         painter.fillRect(band, segmentColors.at(index % segmentColors.size()));
-        painter.setPen(QColor(QStringLiteral("#A2AFBF")));
+        painter.setPen(QColor(QStringLiteral("#B6C2D0")));
         painter.drawText(band.adjusted(4.0, 3.0, -4.0, -3.0),
                          Qt::AlignLeft | Qt::AlignTop,
                          QStringLiteral("CAM %1").arg(segment.cameraId, 2, 10, QLatin1Char('0')));
     }
 
-    painter.setPen(QPen(QColor(QStringLiteral("#2D4054")), 1.0));
+    painter.setPen(QPen(QColor(QStringLiteral("#31445A")), 1.0));
     painter.setBrush(Qt::NoBrush);
     painter.drawRect(plotRect);
 
@@ -221,7 +221,7 @@ void TrajectoryWidget::paintEvent(QPaintEvent *event)
     axisFont.setPixelSize(12);
     axisFont.setWeight(QFont::Normal);
     painter.setFont(axisFont);
-    painter.setPen(QColor(QStringLiteral("#667586")));
+    painter.setPen(QColor(QStringLiteral("#7E8FA3")));
     const QString startLabel = QStringLiteral("%1 m").arg(bounds.left(), 0, 'f', 1);
     const QString endLabel = QStringLiteral("%1 m").arg(bounds.right(), 0, 'f', 1);
     painter.drawText(QRectF(plotRect.left(), plotRect.bottom() + 4.0, plotRect.width() * 0.5, 14.0),
@@ -266,7 +266,7 @@ void TrajectoryWidget::paintEvent(QPaintEvent *event)
     labelFont.setPixelSize(12);
     labelFont.setWeight(QFont::DemiBold);
     painter.setFont(labelFont);
-    painter.setPen(QColor(QStringLiteral("#A2AFBF")));
+    painter.setPen(QColor(QStringLiteral("#B6C2D0")));
     painter.drawText(viewRect.adjusted(28.0, 7.0, -20.0, 0.0),
                      Qt::AlignLeft | Qt::AlignTop,
                      QStringLiteral("二维滑行轨迹"));

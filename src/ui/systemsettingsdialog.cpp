@@ -221,7 +221,7 @@ SystemSettingsDialog::SystemSettingsDialog(int cameraCount, QWidget *parent)
         m_connectivityTestButton
     };
     for (auto *button : templateButtons) {
-        button->setProperty("variant", "ghost");
+        button->setProperty("variant", "subtle");
         button->setMinimumHeight(36);
     }
     importTemplateButton->setToolTip(QStringLiteral("从 JSON 文件导入公共 RTSP 参数和 12 路相机配置。"));
@@ -546,7 +546,7 @@ SystemSettingsDialog::SystemSettingsDialog(int cameraCount, QWidget *parent)
     m_videoStorageRootEdit->setPlaceholderText(QStringLiteral("默认：应用数据目录/recordings"));
     auto *browseStorageButton = new AnimatedButton(this);
     browseStorageButton->setText(QStringLiteral("浏览"));
-    browseStorageButton->setProperty("variant", "ghost");
+    browseStorageButton->setProperty("variant", "subtle");
     browseStorageButton->setMinimumHeight(36);
     rootLayout->addWidget(m_videoStorageRootEdit, 1);
     rootLayout->addWidget(browseStorageButton);
@@ -586,7 +586,7 @@ SystemSettingsDialog::SystemSettingsDialog(int cameraCount, QWidget *parent)
         m_videoStorageCleanupButton
     };
     for (auto *button : storageButtons) {
-        button->setProperty("variant", "ghost");
+        button->setProperty("variant", "subtle");
         button->setMinimumHeight(36);
     }
     storageActionLayout->addWidget(m_videoStorageScanButton);
@@ -645,7 +645,7 @@ SystemSettingsDialog::SystemSettingsDialog(int cameraCount, QWidget *parent)
     actionStatus->setObjectName(QStringLiteral("actionStatus"));
     auto *cancelButton = new AnimatedButton(actionBar);
     cancelButton->setText(QStringLiteral("取消"));
-    cancelButton->setProperty("variant", "ghost");
+    cancelButton->setProperty("variant", "subtle");
     cancelButton->setMinimumSize(96, 40);
     auto *saveButton = new AnimatedButton(actionBar);
     saveButton->setText(QStringLiteral("保存设置"));
@@ -697,134 +697,6 @@ SystemSettingsDialog::SystemSettingsDialog(int cameraCount, QWidget *parent)
             analysisFpsIndex >= 0 ? analysisFpsIndex : m_fpsComboBox->findData(120));
     });
 
-    setStyleSheet(QStringLiteral(R"QSS(
-QDialog#framelessDialog {
-    background: #0C1118;
-    color: #e6edf7;
-    font-size: 14px;
-}
-QDialog#framelessDialog #settingsNavigation {
-    background: #0e1521;
-    border-radius: 10px;
-}
-QDialog#framelessDialog #navigationTitle {
-    color: #f3f7fd;
-    font-size: 18px;
-    font-weight: 600;
-    padding: 4px 14px;
-}
-QDialog#framelessDialog #dialogTitleBar {
-    background: #101720;
-    border-bottom: 1px solid #202C3A;
-}
-QDialog#framelessDialog #dialogTitleLabel {
-    color: #F4F7FA;
-    font-size: 14px;
-    font-weight: 600;
-}
-QDialog#framelessDialog #dialogCloseButton {
-    min-width: 28px;
-    min-height: 24px;
-    max-width: 28px;
-    max-height: 24px;
-    border: none;
-    background: transparent;
-    color: #A2AFBF;
-    padding: 0;
-    font-size: 18px;
-}
-QDialog#framelessDialog #dialogCloseButton:hover {
-    background: #542925;
-    color: #FFFFFF;
-}
-QDialog#framelessDialog #settingsPages,
-QDialog#framelessDialog QScrollArea#settingsPage,
-QDialog#framelessDialog QScrollArea#settingsPage > QWidget > QWidget {
-    border: none;
-    background: #101720;
-}
-QDialog#framelessDialog #pageTitle {
-    color: #f4f7fb;
-    font-size: 22px;
-    font-weight: 600;
-}
-QDialog#framelessDialog #pageDescription,
-QDialog#framelessDialog #settingDescription,
-QDialog#framelessDialog #actionStatus {
-    color: #8290a5;
-    font-size: 13px;
-}
-QDialog#framelessDialog #sectionTitle {
-    color: #dce5f2;
-    font-size: 16px;
-    font-weight: 600;
-    padding-top: 4px;
-}
-QDialog#framelessDialog #settingLabel,
-QDialog#framelessDialog #cameraLabel {
-    color: #bcc8d8;
-}
-QDialog#framelessDialog QLineEdit,
-QDialog#framelessDialog QComboBox,
-QDialog#framelessDialog QSpinBox {
-    min-height: 36px;
-    max-height: 36px;
-    border: 1px solid #263247;
-    border-radius: 6px;
-    background: #151E29;
-    color: #e6edf7;
-    padding: 0 10px;
-    selection-background-color: #377dcc;
-}
-QDialog#framelessDialog QComboBox {
-    padding-right: 28px;
-}
-QDialog#framelessDialog QLineEdit:hover,
-QDialog#framelessDialog QComboBox:hover,
-QDialog#framelessDialog QSpinBox:hover {
-    border-color: #3a4962;
-    background: #152033;
-}
-QDialog#framelessDialog QLineEdit:focus,
-QDialog#framelessDialog QComboBox:focus,
-QDialog#framelessDialog QSpinBox:focus {
-    border-color: #38BDF8;
-    background: #152033;
-}
-QDialog#framelessDialog QCheckBox {
-    min-height: 36px;
-    color: #d4deeb;
-    spacing: 8px;
-}
-QDialog#framelessDialog #storageStatus {
-    min-height: 52px;
-    border-radius: 8px;
-    background: #151E29;
-    color: #b8c7da;
-    padding: 12px;
-}
-QDialog#framelessDialog QTableWidget {
-    border: none;
-    border-radius: 8px;
-    background: #101824;
-    alternate-background-color: #131e2d;
-    gridline-color: #202d40;
-    color: #dbe4f0;
-}
-QDialog#framelessDialog QHeaderView::section {
-    min-height: 34px;
-    border: none;
-    border-right: 1px solid #253247;
-    border-bottom: 1px solid #253247;
-    background: #172234;
-    color: #aebcd0;
-    padding: 4px 7px;
-}
-QDialog#framelessDialog #settingsActionBar {
-    border-top: 1px solid #202b3c;
-    background: #0C1118;
-}
-)QSS"));
 }
 
 void SystemSettingsDialog::setSharedCameraSettings(const SharedCameraSettings &settings)

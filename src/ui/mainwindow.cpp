@@ -117,7 +117,6 @@ constexpr qint64 kAthleteTimelineSampleIntervalMs = 200;
 constexpr int kSpeedSmoothingWindowMs = 1000;
 constexpr const char *kSpeedAlgorithmVersion = "trajectory_speed_v1";
 constexpr const char *kPreviousWindowStateProperty = "previousWindowStateBeforeFullScreen";
-constexpr const char *kMutedInactiveColor = "#8c8c8c";
 
 QString cameraSettingsGroup(int cameraIndex)
 {
@@ -1184,14 +1183,12 @@ MainWindow::MainWindow(QWidget *parent)
         ui->topbarLayout->addWidget(m_fullScreenButton);
     }
 
-    m_importVideoButton = new AnimatedButton(ui->leftCard);
+    auto *importVideoButton = new AnimatedButton(ui->leftCard);
+    importVideoButton->setIconSource(QStringLiteral(":/icons/video.svg"));
+    m_importVideoButton = importVideoButton;
     m_importVideoButton->setObjectName(QStringLiteral("importOfflineVideoButton"));
     m_importVideoButton->setProperty("role", "secondary");
     m_importVideoButton->setText(QStringLiteral("导入视频"));
-    m_importVideoButton->setIcon(makeNormalizedTintedSvgIcon(QStringLiteral(":/icons/video.svg"),
-                                                             QColor(QString::fromLatin1(kMutedInactiveColor)),
-                                                             18,
-                                                             16));
     m_importVideoButton->setIconSize(QSize(18, 18));
     m_importVideoButton->setToolTip(QStringLiteral("导入本地视频用于运动员检测、身份识别和训练复盘"));
     m_importVideoButton->setStatusTip(m_importVideoButton->toolTip());
@@ -1781,7 +1778,7 @@ void MainWindow::installHistorySearchPanel()
     panelLayout->addLayout(grid);
 
     auto *moreFiltersButton = new QPushButton(QStringLiteral("更多筛选"), m_historySearchPanel);
-    moreFiltersButton->setProperty("role", "ghost");
+    moreFiltersButton->setProperty("variant", "subtle");
     auto *moreFilters = new QFrame(m_historySearchPanel);
     moreFilters->setObjectName(QStringLiteral("historyMoreFilters"));
     auto *moreGrid = new QGridLayout(moreFilters);
@@ -2011,7 +2008,6 @@ void MainWindow::rebuildWorkspaceLayout()
     m_trainingSettingsDialog->setDialogTitle(QStringLiteral("训练设置"));
     m_trainingSettingsDialog->setModal(false);
     m_trainingSettingsDialog->setMinimumSize(420, 560);
-    m_trainingSettingsDialog->setStyleSheet(QString());
     auto *settingsScroll = new QScrollArea(m_trainingSettingsDialog);
     settingsScroll->setObjectName(QStringLiteral("trainingSettingsScroll"));
     settingsScroll->setFrameShape(QFrame::NoFrame);
@@ -3855,6 +3851,7 @@ void MainWindow::openPersonManagement()
     const QString previousAthleteId = selectedAthleteId();
     const QString previousCoachId = selectedCoachId();
     PersonManagementDialog dialog(m_trainingRepository.get(), this);
+    installModalScrim(&dialog);
     dialog.exec();
     if (!dialog.changed()) {
         return;
@@ -3890,6 +3887,7 @@ void MainWindow::openCompetitionManagement()
     const QString previousCompetitionId = selectedCompetitionId();
     const QString previousCompetitionEventId = selectedCompetitionEventId();
     QDialog dialog(this);
+    installModalScrim(&dialog);
     dialog.setWindowTitle(QStringLiteral("比赛管理"));
     dialog.resize(980, 680);
 
@@ -5852,7 +5850,7 @@ void MainWindow::refreshHistory()
             exportTrainingReport(record.id);
         });
         auto *detailsButton = new QPushButton(QStringLiteral("更多"), card);
-        detailsButton->setProperty("role", "ghost");
+        detailsButton->setProperty("variant", "subtle");
         configureStableButton(detailsButton, 64, 32, QSize(0, 0));
 
         headerActionsLayout->addWidget(playButton);

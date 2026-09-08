@@ -112,3 +112,7 @@ $env:ISKATING_JWT_SECRET = "REPLACE_WITH_A_LONG_RANDOM_SECRET"
 本地修改完成后提交 Git；仅在明确需要发布时推送远端。
 
 视频画面和覆盖层的原生窗口应限制在 VideoOpenGLWidget 内，避免将外层页面、分隔区和侧栏提升为原生窗口，增加布局动画的窗口调整开销。尚未创建交换链时，清空画面不初始化图形资源；实际视频帧到达后再创建渲染资源。
+
+界面颜色以 `resources/styles/iskating.qss` 为主：应用背景、普通面板、弹窗和交互控件分别使用 Background / Surface / Elevated / Interactive 层级。`AnimatedButton` 与轨迹手工绘制使用相同语义配色；普通文字操作使用 `secondary` 或 `subtle`，`ghost` 仅用于次要工具动作。FramelessDialog 和系统设置的结构样式统一放在全局 QSS，不再覆盖一套本地控件主题。
+
+`FramelessDialog` 自动安装模态遮罩；普通管理弹窗可通过 `installModalScrim()` 复用。遮罩仅在弹窗实际模态显示时出现，使用独立透明工具窗口覆盖原生视频子窗口，随所属窗口移动、缩放，并在弹窗隐藏或销毁时清理。非模态训练设置 Drawer 不显示遮罩；不要将工作区提升为原生窗口，也不要为遮罩加入截图、模糊或图形特效。
