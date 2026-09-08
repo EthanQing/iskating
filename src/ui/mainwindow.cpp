@@ -2071,9 +2071,6 @@ void MainWindow::updateCameraGrid()
     const int rows = (m_cameraButtons.size() + columns - 1) / columns;
     const int availableWidth = std::max(0, m_cameraGridContainer->width() - (columns - 1) * 8);
     int tileWidth = columns > 0 ? availableWidth / columns : 0;
-    if (columns == 4) {
-        tileWidth = std::min(tileWidth, 160);
-    }
     const QMargins margins = ui->leftCardLayout->contentsMargins();
     const int layoutSpacing = ui->leftCardLayout->spacing()
                               * std::max(0, ui->leftCardLayout->count() - 1);
@@ -2081,9 +2078,9 @@ void MainWindow::updateCameraGrid()
         - margins.top() - margins.bottom() - layoutSpacing
         - ui->mainImageLabel->minimumHeight()
         - std::max(ui->trajectoryCard->minimumHeight(), ui->trajectoryCard->sizeHint().height()));
-    // 宽屏网格随工作区增大，同时为主视频和轨迹保留空间。
+    // 四列模式也随窗口缩放，网格最多占视频与网格可用高度的一半。
     const int preferredHeight = columns == 6 ? ui->leftCard->height() * 35 / 100
-                                             : (height() < 820 ? 286 : 292);
+                                             : (remainingHeight + ui->mainImageLabel->minimumHeight()) / 2;
     const int heightLimit = std::min(preferredHeight, remainingHeight);
     const int maxTileHeight = std::max(0, heightLimit - (rows - 1) * 8)
                                / std::max(1, rows);
