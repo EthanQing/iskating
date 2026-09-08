@@ -208,8 +208,9 @@ void AnimatedButton::paintEvent(QPaintEvent *event)
         painter.drawRoundedRect(surfaceRect.adjusted(1.5, 1.5, -1.5, -1.5), 5.0, 5.0);
     }
 
-    const bool collapsedNavigation = navigation && m_textOpacity <= 0.001;
-    const int horizontalPadding = collapsedNavigation ? 0 : (navigation ? 12 : 10);
+    // The collapsed sidebar leaves a 36 px button; keep its icon centered at x = 18
+    // throughout the width animation instead of switching alignment when text fades out.
+    const int horizontalPadding = navigation ? 8 : 10;
     const int iconSlot = navigation ? 36 : (m_iconSource.isEmpty() && icon().isNull() ? 0 : 24);
     const int contentY = qRound(m_pressProgress);
     const QRect contentRect = rect().adjusted(horizontalPadding,
@@ -219,7 +220,7 @@ void AnimatedButton::paintEvent(QPaintEvent *event)
                                   .translated(0, contentY);
     int textLeft = contentRect.left();
     if (iconSlot > 0) {
-        const QRect iconRect = (iconOnly || collapsedNavigation)
+        const QRect iconRect = iconOnly
                                    ? QRect(contentRect.center().x() - 10,
                                            contentRect.top() + (contentRect.height() - 20) / 2,
                                            20,

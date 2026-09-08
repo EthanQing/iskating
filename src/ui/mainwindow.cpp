@@ -1366,6 +1366,7 @@ void MainWindow::setupUiState()
         {ui->settingsButton, QStringLiteral(":/icons/settings.svg")}
     };
     for (const auto &[button, source] : navigationIcons) {
+        button->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         if (auto *animatedButton = qobject_cast<AnimatedButton *>(button)) {
             animatedButton->setIconSource(source);
         }
