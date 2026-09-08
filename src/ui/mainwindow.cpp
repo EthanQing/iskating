@@ -79,6 +79,7 @@
 #include <QTextDocument>
 #include <QTextStream>
 #include <QTime>
+#include <QThread>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QUuid>
@@ -1219,6 +1220,20 @@ MainWindow::MainWindow(QWidget *parent)
                                    m_taskCenterButton, 0, Qt::AlignVCenter);
     connect(m_taskCenterButton, &QPushButton::clicked, this, [this]() { openAnalysisTaskCenter(); });
 
+    m_environmentCheckButton = new AnimatedButton(this);
+    m_environmentCheckButton->setObjectName(QStringLiteral("environmentCheckButton"));
+    m_environmentCheckButton->setProperty("variant", "primary");
+    m_environmentCheckButton->setText(QStringLiteral("执行检查"));
+    configureStableButton(m_environmentCheckButton, 144, 38, QSize(18, 18));
+    m_environmentCheckButton->hide();
+    m_environmentCheckLabel = new QLabel(this);
+    m_environmentCheckLabel->setProperty("role", "muted");
+    m_environmentCheckLabel->hide();
+    const int checkButtonIndex = ui->topbarLayout->indexOf(m_taskCenterButton);
+    ui->topbarLayout->insertWidget(checkButtonIndex, m_environmentCheckLabel);
+    ui->topbarLayout->insertWidget(checkButtonIndex + 1, m_environmentCheckButton);
+    connect(m_environmentCheckButton, &QPushButton::clicked, this, &MainWindow::startEnvironmentCheck);
+
     ui->mainImageLabel->setPlaceholderText(QStringLiteral("主视频\n未播放"));
     ui->mainImageLabel->setOverlayControlsVisible(false);
     ui->mainImageLabel->setStreamChangedHandler([this](VideoOpenGLWidget *) {
@@ -1296,6 +1311,14 @@ MainWindow::MainWindow(QWidget *parent)
 // 释放由 Qt Designer 生成的界面对象。
 MainWindow::~MainWindow()
 {
+    if (m_environmentCheckThread) {
+        disconnect(m_environmentCheckThread, nullptr, this, nullptr);
+        m_environmentCheckThread->requestInterruption();
+        m_environmentCheckThread->quit();
+        m_environmentCheckThread->wait();
+        delete m_environmentCheckThread;
+        m_environmentCheckThread = nullptr;
+    }
     if (m_athleteAnalysisManager) {
         m_athleteAnalysisManager->stop();
         m_athleteAnalysisManager.reset();
@@ -2426,8 +2449,173 @@ void MainWindow::refreshCameraConfigurationStatus()
     refreshCameraRuntimeStatus();
 }
 
+void MainWindow::startEnvironmentCheck()
+{
+    if (m_environmentCheckThread) {
+        return;
+    }
+
+    refreshTrainingServiceStatus(QDateTime());
+    refreshAiCapabilityStatus();
+    refreshVideoStorageStatus();
+    refreshAnalysisTaskStatus();
+    refreshCameraConfigurationStatus();
+
+    const int configuredCount = std::count_if(m_cameraSlotSettings.cbegin(), m_cameraSlotSettings.cend(),
+                                             [](const CameraSlotSettings &slot) { return !slot.ip.trimmed().isEmpty(); });
+    const int revision = m_cameraConfigurationRevision;
+    const QString password = m_sharedCameraSettings.password;
+    m_environmentCheckButton->setEnabled(false);
+    m_environmentCheckButton->setText(QStringLiteral("检查中 0 / %1").arg(configuredCount));
+    m_environmentCheckLabel->setText(QStringLiteral("正在检查"));
+
+    auto *thread = new QThread(this);
+    auto *tester = new CameraConnectivityTester(m_sharedCameraSettings, m_cameraSlotSettings);
+    m_environmentCheckThread = thread;
+    tester->moveToThread(thread);
+    connect(thread, &QThread::started, tester, &CameraConnectivityTester::run);
+    connect(tester, &CameraConnectivityTester::progress, this,
+            [this, revision, configuredCount, completedCount = 0](int, int, const CameraConnectivityResult &result) mutable {
+        if (revision != m_cameraConfigurationRevision || result.skipped) {
+            return;
+        }
+        ++completedCount;
+        m_environmentCheckButton->setText(QStringLiteral("检查中 %1 / %2").arg(completedCount).arg(configuredCount));
+        m_environmentCheckLabel->setText(QStringLiteral("已检查 CAM %1")
+                                           .arg(result.cameraIndex + 1, 2, 10, QLatin1Char('0')));
+    });
+    connect(tester, &CameraConnectivityTester::finished, this,
+            [this, revision, password](const QVector<CameraConnectivityResult> &results) {
+        if (revision != m_cameraConfigurationRevision) {
+            m_environmentCheckLabel->setText(QStringLiteral("配置已更新，请重新检查"));
+            return;
+        }
+
+        m_lastCameraConnectivityResults = results;
+        // Keep credentials out of stored display details, including URL-encoded passwords.
+        if (!password.isEmpty()) {
+            const QString encodedPassword = QString::fromLatin1(QUrl::toPercentEncoding(password));
+            for (CameraConnectivityResult &result : m_lastCameraConnectivityResults) {
+                for (QString *field : {&result.ip, &result.status, &result.addressStatus, &result.transport,
+                                       &result.resolution, &result.frameRate, &result.failureStage,
+                                       &result.errorCode, &result.ffmpegErrorCode, &result.message}) {
+                    field->replace(encodedPassword, QStringLiteral("***"));
+                    field->replace(password, QStringLiteral("***"));
+                }
+            }
+        }
+        refreshVideoStorageStatus();
+        refreshAnalysisTaskStatus();
+        refreshAiCapabilityStatus();
+        m_lastEnvironmentCheckAt = QDateTime::currentDateTime();
+        m_cameraConnectivityChecked = true;
+        m_cameraConnectivityInvalidated = false;
+        refreshCameraConnectivityStatus();
+        refreshTrainingServiceStatus(m_lastEnvironmentCheckAt);
+        ui->trainingServiceValue3->setToolTip(QStringLiteral("环境检查完成时间；训练服务和 AI 使用当前已知状态"));
+        m_environmentCheckLabel->setText(QStringLiteral("检查完成"));
+    });
+    connect(tester, &CameraConnectivityTester::finished, tester, &QObject::deleteLater);
+    // quit() must not depend on the UI event loop: the destructor may be waiting.
+    connect(tester, &CameraConnectivityTester::finished, thread, &QThread::quit, Qt::DirectConnection);
+    connect(thread, &QThread::finished, this, [this, thread]() {
+        m_environmentCheckThread = nullptr;
+        m_environmentCheckButton->setText(QStringLiteral("重新检查"));
+        m_environmentCheckButton->setEnabled(true);
+        thread->deleteLater();
+    });
+    thread->start();
+}
+
+void MainWindow::invalidateCameraConnectivityResults()
+{
+    ++m_cameraConfigurationRevision;
+    m_lastCameraConnectivityResults.clear();
+    m_cameraConnectivityChecked = false;
+    m_cameraConnectivityInvalidated = true;
+    if (m_environmentCheckThread) {
+        m_environmentCheckThread->requestInterruption();
+    }
+    m_environmentCheckLabel->setText(QStringLiteral("配置已更新，请执行检查"));
+}
+
+void MainWindow::refreshCameraConnectivityStatus()
+{
+    if (!m_cameraConnectivityChecked) {
+        ui->cameraStatusValue2->setText(QStringLiteral("未检测"));
+        ui->cameraStatusValue3->setText(QStringLiteral("—"));
+        for (QLabel *label : {ui->cameraStatusValue2, ui->cameraStatusValue3}) {
+            label->setProperty("state", "muted");
+            label->setToolTip(QStringLiteral("配置已更新，请重新执行连通检查"));
+            repolish(label);
+        }
+        return;
+    }
+
+    int configuredCount = 0;
+    int successCount = 0;
+    int failedCount = 0;
+    int skippedCount = 0;
+    QStringList details;
+    for (const CameraConnectivityResult &result : m_lastCameraConnectivityResults) {
+        if (result.skipped) {
+            ++skippedCount;
+            continue;
+        }
+        ++configuredCount;
+        if (result.success) {
+            ++successCount;
+        } else {
+            ++failedCount;
+        }
+        QString detail = QStringLiteral("CAM %1\n状态：%2")
+                             .arg(result.cameraIndex + 1, 2, 10, QLatin1Char('0'))
+                             .arg(result.success ? QStringLiteral("成功") : QStringLiteral("失败"));
+        if (result.success) {
+            detail += QStringLiteral("\n传输：%1\n分辨率：%2\n帧率：%3")
+                          .arg(result.transport, result.resolution, result.frameRate);
+        }
+        if (result.openElapsedMs >= 0) {
+            detail += QStringLiteral("\n打开耗时：%1 ms").arg(result.openElapsedMs);
+        }
+        if (result.firstFrameElapsedMs >= 0) {
+            detail += QStringLiteral("\n首帧：%1 ms").arg(result.firstFrameElapsedMs);
+        }
+        if (!result.success) {
+            detail += QStringLiteral("\n阶段：%1\n错误码：%2\n错误：%3")
+                          .arg(result.failureStage, result.errorCode, result.message);
+            if (!result.ffmpegErrorCode.isEmpty()) {
+                detail += QStringLiteral("\nFFmpeg 错误码：%1").arg(result.ffmpegErrorCode);
+            }
+        }
+        details.append(detail);
+    }
+    ui->cameraStatusValue2->setText(configuredCount > 0
+                                      ? QStringLiteral("%1 / %2").arg(successCount).arg(configuredCount)
+                                      : QStringLiteral("—"));
+    ui->cameraStatusValue2->setProperty("state", configuredCount == 0 ? "muted"
+                                                  : failedCount == 0 ? "success"
+                                                  : successCount > 0 ? "warning" : "error");
+    ui->cameraStatusValue3->setText(configuredCount > 0 ? QString::number(failedCount) : QStringLiteral("—"));
+    ui->cameraStatusValue3->setProperty("state", configuredCount == 0 ? "muted"
+                                                  : failedCount > 0 ? "error" : "success");
+    const QString summary = QStringLiteral("最近检查：%1\n已配置：%2\n成功：%3\n失败：%4\n跳过：%5\n\n%6")
+                                .arg(m_lastEnvironmentCheckAt.toString(QStringLiteral("hh:mm:ss")))
+                                .arg(configuredCount).arg(successCount).arg(failedCount).arg(skippedCount)
+                                .arg(details.join(QStringLiteral("\n\n")));
+    const QString tooltip = QStringLiteral("<qt>%1</qt>").arg(summary.toHtmlEscaped().replace(QLatin1Char('\n'), QStringLiteral("<br>")));
+    for (QLabel *label : {ui->cameraStatusValue2, ui->cameraStatusValue3}) {
+        label->setToolTip(tooltip);
+        repolish(label);
+    }
+}
+
 void MainWindow::refreshCameraRuntimeStatus()
 {
+    if (m_cameraConnectivityChecked || m_cameraConnectivityInvalidated) {
+        refreshCameraConnectivityStatus();
+        return;
+    }
     int configuredCount = 0;
     int onlineCount = 0;
     int connectingCount = 0;
@@ -2919,6 +3107,7 @@ void MainWindow::openSystemSettings()
     }
 
     m_sharedCameraSettings = dialog.sharedCameraSettings();
+    invalidateCameraConnectivityResults();
     m_cameraSlotSettings = dialog.cameraSlotSettings();
     m_capturePreferenceSettings = dialog.capturePreferenceSettings();
     m_videoStorageSettings = dialog.videoStorageSettings();
@@ -3461,7 +3650,9 @@ void MainWindow::refreshTrainingServiceStatus(const QDateTime &checkedAt)
     ui->trainingServiceValue1->setToolTip(connected ? QString() : m_trainingRepository->lastError());
     ui->trainingServiceValue2->setText(connected ? QStringLiteral("正常") : QStringLiteral("未知"));
     ui->trainingServiceValue2->setProperty("state", connected ? "success" : "muted");
-    ui->trainingServiceValue3->setText(checkedAt.toString(QStringLiteral("hh:mm:ss")));
+    if (checkedAt.isValid()) {
+        ui->trainingServiceValue3->setText(checkedAt.toString(QStringLiteral("hh:mm:ss")));
+    }
     ui->systemStatusEmptyLabel->hide();
 
     for (QLabel *label : {ui->systemStatusLabel, ui->trainingServiceValue1, ui->trainingServiceValue2}) {
@@ -4764,6 +4955,8 @@ void MainWindow::switchPage(int pageIndex)
                                          : QStringLiteral("实时训练"));
     ui->sessionRoundLabel->setText(pageIndex == kSystemStatusPage ? QStringLiteral("系统状态") : pageTitle);
     ui->systemStatusSubtitleLabel->setVisible(pageIndex == kSystemStatusPage);
+    m_environmentCheckButton->setVisible(pageIndex == kSystemStatusPage);
+    m_environmentCheckLabel->setVisible(pageIndex == kSystemStatusPage);
     ui->focusTitleLabel->setVisible(pageIndex != kSystemStatusPage);
     ui->brandLogoLabelShell->setVisible(pageIndex == kCapturePage && m_isRecording);
     refreshNavButtons();
@@ -7346,9 +7539,16 @@ void MainWindow::refreshModelStatus(const QString &statusText)
     }
     repolish(ui->modelStatusLabel);
 
+    m_aiModelFailed = modelFailure;
+    m_lastModelStatusText = statusText;
+    refreshAiCapabilityStatus();
+}
+
+void MainWindow::refreshAiCapabilityStatus()
+{
     ui->aiAnalysisValue1->setText(m_aiAnalysisReady ? QStringLiteral("可用")
-                                                  : (modelFailure ? QStringLiteral("不可用") : QStringLiteral("初始化中")));
-    ui->aiAnalysisValue1->setProperty("state", m_aiAnalysisReady ? "success" : (modelFailure ? "error" : "muted"));
+                                                  : (m_aiModelFailed ? QStringLiteral("不可用") : QStringLiteral("初始化中")));
+    ui->aiAnalysisValue1->setProperty("state", m_aiAnalysisReady ? "success" : (m_aiModelFailed ? "error" : "muted"));
     ui->aiAnalysisValue2->setText(m_identityRecognitionKnown
                                     ? (m_identityRecognitionAvailable ? QStringLiteral("可用") : QStringLiteral("不可用"))
                                     : QStringLiteral("—"));
@@ -7356,9 +7556,9 @@ void MainWindow::refreshModelStatus(const QString &statusText)
                                                  ? (m_identityRecognitionAvailable ? "success" : "warning")
                                                  : "muted");
     ui->aiAnalysisValue3->setText(m_aiAnalysisReady ? QStringLiteral("已就绪")
-                                                  : (modelFailure ? QStringLiteral("不可用") : QStringLiteral("初始化中")));
-    ui->aiAnalysisValue3->setProperty("state", m_aiAnalysisReady ? "success" : (modelFailure ? "error" : "muted"));
-    ui->aiAnalysisValue3->setToolTip(statusText);
+                                                  : (m_aiModelFailed ? QStringLiteral("不可用") : QStringLiteral("初始化中")));
+    ui->aiAnalysisValue3->setProperty("state", m_aiAnalysisReady ? "success" : (m_aiModelFailed ? "error" : "muted"));
+    ui->aiAnalysisValue3->setToolTip(m_lastModelStatusText);
     for (QLabel *label : {ui->aiAnalysisValue1, ui->aiAnalysisValue2, ui->aiAnalysisValue3}) {
         repolish(label);
     }

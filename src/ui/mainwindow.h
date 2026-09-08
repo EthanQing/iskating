@@ -5,6 +5,7 @@
 #include "systemsettingsdialog.h"
 #include "trainingdomain.h"
 #include "offlinevideoprobe.h"
+#include "cameraconnectivitytester.h"
 
 #include <QHash>
 #include <QMainWindow>
@@ -20,6 +21,7 @@ class QCheckBox;
 class QComboBox;
 class QDateEdit;
 class QDateTime;
+class QThread;
 class QLineEdit;
 class QSpinBox;
 class QPlainTextEdit;
@@ -70,6 +72,10 @@ private:
     void loadCameraSettings();
     void refreshCameraConfigurationStatus();
     void refreshCameraRuntimeStatus();
+    void startEnvironmentCheck();
+    void invalidateCameraConnectivityResults();
+    void refreshCameraConnectivityStatus();
+    void refreshAiCapabilityStatus();
     void saveCameraSettings();
     void saveCameraSetting(int cameraIndex);
     void loadTrainingRecords();
@@ -253,6 +259,16 @@ private:
     QVariantAnimation *m_settingsAnimation = nullptr;
     bool m_settingsExpanded = false;
     bool m_aiAnalysisReady = false;
+    bool m_aiModelFailed = false;
+    QString m_lastModelStatusText;
+    QPushButton *m_environmentCheckButton = nullptr;
+    QLabel *m_environmentCheckLabel = nullptr;
+    QThread *m_environmentCheckThread = nullptr;
+    QVector<CameraConnectivityResult> m_lastCameraConnectivityResults;
+    QDateTime m_lastEnvironmentCheckAt;
+    int m_cameraConfigurationRevision = 0;
+    bool m_cameraConnectivityChecked = false;
+    bool m_cameraConnectivityInvalidated = false;
     bool m_identityRecognitionKnown = false;
     bool m_identityRecognitionAvailable = false;
     int m_cameraGridNormalSpacing = 10;

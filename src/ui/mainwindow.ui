@@ -1591,7 +1591,7 @@
                  </item>
                  <item row="3" column="0">
                   <widget class="QLabel" name="trainingServiceLabel3">
-                   <property name="text"><string>最后检查</string></property>
+                   <property name="text"><string>最近检查</string></property>
                    <property name="role" stdset="0"><string>muted</string></property>
                   </widget>
                  </item>
