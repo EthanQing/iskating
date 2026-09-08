@@ -11,6 +11,7 @@
         <file alias="fullscreen.svg">icons/fullscreen.svg</file>
         <file alias="save.svg">icons/save.svg</file>
         <file alias="settings.svg">icons/settings.svg</file>
+        <file alias="system-status.svg">icons/system-status.svg</file>
         <file alias="sidebar.svg">icons/sidebar.svg</file>
         <file alias="start_cap.svg">icons/start_cap.svg</file>
         <file alias="stop.svg">icons/stop.svg</file>

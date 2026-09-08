@@ -102,6 +102,7 @@ namespace {
 constexpr int kCapturePage = 0;
 constexpr int kHistoryPage = 1;
 constexpr int kSuggestionPage = 2;
+constexpr int kSystemStatusPage = 3;
 constexpr int kDefaultFps = 30;
 constexpr int kDefaultPreviewStreamFps = 30;
 constexpr int kDefaultMainStreamFps = 120;
@@ -1058,7 +1059,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_cameraButtons = {ui->cameraButton01, ui->cameraButton02, ui->cameraButton03, ui->cameraButton04,
                        ui->cameraButton05, ui->cameraButton06, ui->cameraButton07, ui->cameraButton08,
                        ui->cameraButton09, ui->cameraButton10, ui->cameraButton11, ui->cameraButton12};
-    for (QLabel *label : {ui->brandTitleLabel, ui->brandSubtitleLabel, ui->sidebarSectionLabel, ui->sidebarToolsLabel}) {
+    for (QLabel *label : {ui->brandTitleLabel, ui->brandSubtitleLabel, ui->sidebarSectionLabel, ui->sidebarToolsLabel, ui->sidebarSystemLabel}) {
         auto *effect = new QGraphicsOpacityEffect(label);
         effect->setOpacity(1.0);
         label->setGraphicsEffect(effect);
@@ -1340,11 +1341,12 @@ void MainWindow::changeEvent(QEvent *event)
 // 初始化运行时 UI 状态；当前界面主要在构造函数中完成初始化，保留该入口便于后续扩展。
 void MainWindow::setupUiState()
 {
-    m_navButtons = {ui->navCaptureButton, ui->navHistoryButton, ui->navSuggestionButton};
+    m_navButtons = {ui->navCaptureButton, ui->navHistoryButton, ui->navSuggestionButton, ui->navSystemStatusButton};
     const QVector<QString> navigationLabels = {
         QStringLiteral("实时训练"),
         QStringLiteral("历史复盘"),
-        QStringLiteral("训练建议")
+        QStringLiteral("训练建议"),
+        QStringLiteral("系统状态")
     };
     for (int index = 0; index < m_navButtons.size(); ++index) {
         auto *button = m_navButtons.at(index);
@@ -1358,6 +1360,7 @@ void MainWindow::setupUiState()
         {ui->navCaptureButton, QStringLiteral(":/icons/live.svg")},
         {ui->navHistoryButton, QStringLiteral(":/icons/history.svg")},
         {ui->navSuggestionButton, QStringLiteral(":/icons/suggestion.svg")},
+        {ui->navSystemStatusButton, QStringLiteral(":/icons/system-status.svg")},
         {ui->personManagementButton, QStringLiteral(":/icons/person.svg")},
         {ui->competitionManagementButton, QStringLiteral(":/icons/competition.svg")},
         {ui->settingsButton, QStringLiteral(":/icons/settings.svg")}
@@ -1443,6 +1446,9 @@ void MainWindow::setupConnections()
     });
     connect(ui->navSuggestionButton, &QPushButton::clicked, this, [this]() {
         switchPage(kSuggestionPage);
+    });
+    connect(ui->navSystemStatusButton, &QPushButton::clicked, this, [this]() {
+        switchPage(kSystemStatusPage);
     });
     connect(ui->toggleSidebarButton, &QPushButton::clicked, this, [this]() {
         toggleSidebar();
@@ -4533,7 +4539,9 @@ void MainWindow::switchPage(int pageIndex)
                                   : (pageIndex == kSuggestionPage
                                          ? QStringLiteral("训练建议")
                                          : QStringLiteral("实时训练"));
-    ui->sessionRoundLabel->setText(pageTitle);
+    ui->sessionRoundLabel->setText(pageIndex == kSystemStatusPage ? QStringLiteral("系统状态") : pageTitle);
+    ui->systemStatusSubtitleLabel->setVisible(pageIndex == kSystemStatusPage);
+    ui->focusTitleLabel->setVisible(pageIndex != kSystemStatusPage);
     ui->brandLogoLabelShell->setVisible(pageIndex == kCapturePage && m_isRecording);
     refreshNavButtons();
 
@@ -4576,12 +4584,13 @@ void MainWindow::toggleSidebar()
             for (QPushButton *button : {ui->navCaptureButton,
                                         ui->navHistoryButton,
                                         ui->navSuggestionButton,
+                                        ui->navSystemStatusButton,
                                         ui->personManagementButton,
                                         ui->competitionManagementButton,
                                         ui->settingsButton}) {
                 button->setProperty("textOpacity", textOpacity);
             }
-            for (QLabel *label : {ui->brandTitleLabel, ui->brandSubtitleLabel, ui->sidebarSectionLabel, ui->sidebarToolsLabel}) {
+            for (QLabel *label : {ui->brandTitleLabel, ui->brandSubtitleLabel, ui->sidebarSectionLabel, ui->sidebarToolsLabel, ui->sidebarSystemLabel}) {
                 if (auto *effect = qobject_cast<QGraphicsOpacityEffect *>(label->graphicsEffect())) {
                     effect->setOpacity(textOpacity);
                 }

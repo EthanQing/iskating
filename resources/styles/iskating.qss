@@ -36,6 +36,7 @@ QLabel#brandTitleLabel {
 QLabel#brandSubtitleLabel,
 QLabel#sidebarSectionLabel,
 QLabel#sidebarToolsLabel,
+QLabel#sidebarSystemLabel,
 QLabel#athleteDetectionLabel,
 QLabel#athleteSourceLabel,
 QLabel#durationLabel,
