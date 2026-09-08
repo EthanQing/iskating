@@ -2067,7 +2067,7 @@ void MainWindow::updateCameraGrid()
     if (!m_cameraGridLayout || !m_cameraGridContainer) {
         return;
     }
-    const int columns = m_cameraGridContainer->width() >= 1050 ? 6 : 4;
+    const int columns = m_cameraGridContainer->width() >= 840 ? 6 : 4;
     const int rows = (m_cameraButtons.size() + columns - 1) / columns;
     const int availableWidth = std::max(0, m_cameraGridContainer->width() - (columns - 1) * 8);
     int tileWidth = columns > 0 ? availableWidth / columns : 0;
@@ -2078,18 +2078,15 @@ void MainWindow::updateCameraGrid()
         - margins.top() - margins.bottom() - layoutSpacing
         - ui->mainImageLabel->minimumHeight()
         - std::max(ui->trajectoryCard->minimumHeight(), ui->trajectoryCard->sizeHint().height()));
-    // 四列优先铺满横向空间，高度为主视频和轨迹保留最小可用空间。
-    const int preferredHeight = columns == 6 ? ui->leftCard->height() * 35 / 100
-                                             : remainingHeight;
+    // 两种列数都限制网格高度，为主视频和轨迹保留空间。
+    const int preferredHeight = ui->leftCard->height() * 35 / 100;
     const int heightLimit = std::min(preferredHeight, remainingHeight);
     const int maxTileHeight = std::max(0, heightLimit - (rows - 1) * 8)
                                / std::max(1, rows);
     int tileHeight = qRound(tileWidth * 9.0 / 16.0);
     if (tileHeight > maxTileHeight) {
-        tileHeight = maxTileHeight;
-        if (columns == 6) {
-            tileWidth = qRound(tileHeight * 16.0 / 9.0);
-        }
+        tileWidth = std::min(tileWidth, maxTileHeight * 16 / 9);
+        tileHeight = qRound(tileWidth * 9.0 / 16.0);
     }
     const QSize tileSize(tileWidth, tileHeight);
     const int gridHeight = rows * tileHeight + std::max(0, rows - 1) * 8;
