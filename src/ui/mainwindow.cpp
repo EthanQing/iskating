@@ -1888,8 +1888,6 @@ void MainWindow::rebuildWorkspaceLayout()
     m_cameraGridContainer = new QWidget(ui->leftCard);
     m_cameraGridContainer->setObjectName(QStringLiteral("cameraGridContainer"));
     m_cameraGridContainer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    m_cameraGridContainer->setMinimumHeight(210);
-    m_cameraGridContainer->setMaximumHeight(292);
     m_cameraGridContainer->installEventFilter(this);
     m_cameraGridLayout = new QGridLayout(m_cameraGridContainer);
     m_cameraGridLayout->setContentsMargins(0, 0, 0, 0);
@@ -2073,9 +2071,21 @@ void MainWindow::updateCameraGrid()
     const int rows = (m_cameraButtons.size() + columns - 1) / columns;
     const int availableWidth = std::max(0, m_cameraGridContainer->width() - (columns - 1) * 8);
     int tileWidth = columns > 0 ? availableWidth / columns : 0;
-    tileWidth = std::min(tileWidth, columns == 6 ? 206 : 160);
-    const int heightLimit = height() < 820 ? 286 : 292;
-    const int maxTileHeight = (heightLimit - (rows - 1) * 8)
+    if (columns == 4) {
+        tileWidth = std::min(tileWidth, 160);
+    }
+    const QMargins margins = ui->leftCardLayout->contentsMargins();
+    const int layoutSpacing = ui->leftCardLayout->spacing()
+                              * std::max(0, ui->leftCardLayout->count() - 1);
+    const int remainingHeight = std::max(0, ui->leftCard->height()
+        - margins.top() - margins.bottom() - layoutSpacing
+        - ui->mainImageLabel->minimumHeight()
+        - std::max(ui->trajectoryCard->minimumHeight(), ui->trajectoryCard->sizeHint().height()));
+    // 宽屏网格随工作区增大，同时为主视频和轨迹保留空间。
+    const int preferredHeight = columns == 6 ? ui->leftCard->height() * 35 / 100
+                                             : (height() < 820 ? 286 : 292);
+    const int heightLimit = std::min(preferredHeight, remainingHeight);
+    const int maxTileHeight = std::max(0, heightLimit - (rows - 1) * 8)
                                / std::max(1, rows);
     int tileHeight = qRound(tileWidth * 9.0 / 16.0);
     if (tileHeight > maxTileHeight) {
