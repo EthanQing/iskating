@@ -1189,7 +1189,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_importVideoButton->setToolTip(QStringLiteral("导入本地视频用于运动员检测、身份识别和训练复盘"));
     m_importVideoButton->setStatusTip(m_importVideoButton->toolTip());
     m_importVideoButton->setAccessibleName(QStringLiteral("导入离线视频"));
-    configureStableButton(m_importVideoButton, 96, 30, QSize(18, 18));
+    configureStableButton(m_importVideoButton, 112, 38, QSize(18, 18));
     ui->topbarLayout->insertWidget(std::max(0, ui->topbarLayout->indexOf(ui->systemStatusLabel)),
                                    m_importVideoButton, 0, Qt::AlignVCenter);
     connect(m_importVideoButton, &QPushButton::clicked, this, [this]() { importOfflineVideo(); });
@@ -1200,7 +1200,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_fullRateAnalysisButton->setText(QStringLiteral("完整分析"));
     m_fullRateAnalysisButton->setToolTip(QStringLiteral("创建和管理 12 路完整帧率离线分析任务"));
     m_fullRateAnalysisButton->setAccessibleName(QStringLiteral("12 路完整帧率离线分析"));
-    configureStableButton(m_fullRateAnalysisButton, 96, 30, QSize(18, 18));
+    configureStableButton(m_fullRateAnalysisButton, 112, 38, QSize(18, 18));
     ui->topbarLayout->insertWidget(std::max(0, ui->topbarLayout->indexOf(m_importVideoButton)),
                                    m_fullRateAnalysisButton, 0, Qt::AlignVCenter);
     connect(m_fullRateAnalysisButton, &QPushButton::clicked, this, [this]() { openOfflineAnalysisManager(); });
@@ -1210,7 +1210,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_taskCenterButton->setProperty("role", "secondary");
     m_taskCenterButton->setText(QStringLiteral("任务中心"));
     m_taskCenterButton->setToolTip(QStringLiteral("查看、暂停、继续或取消后台分析任务"));
-    configureStableButton(m_taskCenterButton, 96, 30, QSize(18, 18));
+    configureStableButton(m_taskCenterButton, 112, 38, QSize(18, 18));
     ui->topbarLayout->insertWidget(std::max(0, ui->topbarLayout->indexOf(m_fullRateAnalysisButton)),
                                    m_taskCenterButton, 0, Qt::AlignVCenter);
     connect(m_taskCenterButton, &QPushButton::clicked, this, [this]() { openAnalysisTaskCenter(); });
@@ -1906,7 +1906,7 @@ void MainWindow::rebuildWorkspaceLayout()
     ui->trajectoryTitleLabel->setText(QStringLiteral("轨迹"));
     ui->legendTitleLabel->setText(QStringLiteral("当前运动员："));
 
-    ui->athleteSectionLabel->setText(QStringLiteral("CURRENT ATHLETE"));
+    ui->athleteSectionLabel->setText(QStringLiteral("当前运动员"));
     ui->athleteIdentityLabel->setText(QStringLiteral("—"));
     ui->athleteDetectionLabel->setText(QStringLiteral("—"));
     ui->athleteSourceLabel->setText(QStringLiteral("—"));
@@ -1939,7 +1939,7 @@ void MainWindow::rebuildWorkspaceLayout()
     if (m_speedStatusLabel) {
         ui->inspectorContentLayout->removeWidget(m_speedStatusLabel);
     }
-    auto *liveTitle = new QLabel(QStringLiteral("LIVE STATUS"), ui->inspectorContent);
+    auto *liveTitle = new QLabel(QStringLiteral("实时状态"), ui->inspectorContent);
     liveTitle->setProperty("role", "sectionTitle");
     ui->inspectorContentLayout->addWidget(liveTitle);
     auto *liveGrid = new QGridLayout();
@@ -1963,7 +1963,7 @@ void MainWindow::rebuildWorkspaceLayout()
     liveGrid->setColumnStretch(1, 1);
     ui->inspectorContentLayout->addLayout(liveGrid);
 
-    auto *aiTitle = new QLabel(QStringLiteral("AI STATUS"), ui->inspectorContent);
+    auto *aiTitle = new QLabel(QStringLiteral("AI 状态"), ui->inspectorContent);
     aiTitle->setProperty("role", "sectionTitle");
     ui->inspectorContentLayout->addWidget(aiTitle);
     auto *aiGrid = new QGridLayout();
@@ -2057,6 +2057,7 @@ void MainWindow::rebuildWorkspaceLayout()
             delete ui->historyPageLayout->takeAt(index);
         }
     }
+    ui->historyTitleLabel->hide();
     auto *historySubtitle = new QLabel(QStringLiteral("查看、筛选和复盘训练记录"), ui->historyPage);
     historySubtitle->setObjectName(QStringLiteral("historySubtitleLabel"));
     historySubtitle->setProperty("role", "muted");

@@ -299,7 +299,7 @@ SystemSettingsDialog::SystemSettingsDialog(int cameraCount, QWidget *parent)
     videoPageLayout->addLayout(playbackForm);
     videoPageLayout->addSpacing(8);
 
-    auto *cameraTitle = new QLabel(QStringLiteral("12 路 Camera"), this);
+    auto *cameraTitle = new QLabel(QStringLiteral("12 路摄像头"), this);
     cameraTitle->setObjectName(QStringLiteral("sectionTitle"));
     videoPageLayout->addWidget(cameraTitle);
 
