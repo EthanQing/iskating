@@ -46,7 +46,7 @@ QLabel#suggestionSubtitleLabel {
 QLabel#sidebarSectionLabel,
 QLabel#sidebarToolsLabel,
 QLabel#sidebarSystemLabel {
-    color: #8798AA;
+    color: #91A2B4;
     font-size: 12px;
     font-weight: 600;
     padding-top: 8px;
@@ -204,13 +204,14 @@ QPushButton[variant="primary"]:pressed {
 QPushButton[variant="secondary"],
 QPushButton[role="secondary"],
 QPushButton[role="secondaryButton"] {
-    color: #F4F7FA;
+    color: #D5DEE8;
     background: #192735;
-    border-color: #31445A;
+    border-color: #30445A;
 }
 QPushButton[variant="secondary"]:hover,
 QPushButton[role="secondary"]:hover,
 QPushButton[role="secondaryButton"]:hover {
+    color: #F4F7FA;
     background: #1D3040;
     border-color: #3D566F;
 }

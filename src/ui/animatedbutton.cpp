@@ -131,16 +131,16 @@ void AnimatedButton::paintEvent(QPaintEvent *event)
         hoverText = textColor;
         iconColor = textColor;
         hoverIcon = iconColor;
-    } else if (variant == QStringLiteral("secondary")) {
+    } else if (variant == QStringLiteral("secondary") || role == QStringLiteral("secondary")) {
         background = QColor(QStringLiteral("#192735"));
         hoverBackground = QColor(QStringLiteral("#1D3040"));
         pressedBackground = QColor(QStringLiteral("#16212E"));
-        border = QColor(QStringLiteral("#31445A"));
+        border = QColor(QStringLiteral("#30445A"));
         hoverBorder = QColor(QStringLiteral("#3D566F"));
-        textColor = QColor(QStringLiteral("#F4F7FA"));
-        hoverText = textColor;
+        textColor = QColor(QStringLiteral("#D5DEE8"));
+        hoverText = QColor(QStringLiteral("#F4F7FA"));
         iconColor = QColor(QStringLiteral("#AFC0D0"));
-        hoverIcon = textColor;
+        hoverIcon = hoverText;
     } else if (variant == QStringLiteral("subtle")) {
         background = QColor(QStringLiteral("#151F2B"));
         hoverBackground = QColor(QStringLiteral("#1A2A38"));
@@ -157,7 +157,7 @@ void AnimatedButton::paintEvent(QPaintEvent *event)
         pressedBackground = QColor(QStringLiteral("#1D3042"));
         border = QColor(QStringLiteral("#00000000"));
         hoverBorder = QColor(QStringLiteral("#31445A"));
-        textColor = QColor(QStringLiteral("#B6C2D0"));
+        textColor = QColor(navigation ? QStringLiteral("#BCC8D4") : QStringLiteral("#B6C2D0"));
         hoverText = QColor(QStringLiteral("#F4F7FA"));
         iconColor = QColor(QStringLiteral("#AFC0D0"));
         hoverIcon = hoverText;
