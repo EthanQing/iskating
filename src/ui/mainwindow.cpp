@@ -2078,16 +2078,18 @@ void MainWindow::updateCameraGrid()
         - margins.top() - margins.bottom() - layoutSpacing
         - ui->mainImageLabel->minimumHeight()
         - std::max(ui->trajectoryCard->minimumHeight(), ui->trajectoryCard->sizeHint().height()));
-    // 四列模式也随窗口缩放，网格最多占视频与网格可用高度的一半。
+    // 四列优先铺满横向空间，高度为主视频和轨迹保留最小可用空间。
     const int preferredHeight = columns == 6 ? ui->leftCard->height() * 35 / 100
-                                             : (remainingHeight + ui->mainImageLabel->minimumHeight()) / 2;
+                                             : remainingHeight;
     const int heightLimit = std::min(preferredHeight, remainingHeight);
     const int maxTileHeight = std::max(0, heightLimit - (rows - 1) * 8)
                                / std::max(1, rows);
     int tileHeight = qRound(tileWidth * 9.0 / 16.0);
     if (tileHeight > maxTileHeight) {
         tileHeight = maxTileHeight;
-        tileWidth = qRound(tileHeight * 16.0 / 9.0);
+        if (columns == 6) {
+            tileWidth = qRound(tileHeight * 16.0 / 9.0);
+        }
     }
     const QSize tileSize(tileWidth, tileHeight);
     const int gridHeight = rows * tileHeight + std::max(0, rows - 1) * 8;
