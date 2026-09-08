@@ -2379,6 +2379,22 @@ void MainWindow::loadCameraSettings()
     }
 
     applyCameraSettingsToWidgets(false);
+    refreshCameraConfigurationStatus();
+}
+
+void MainWindow::refreshCameraConfigurationStatus()
+{
+    int configuredCount = 0;
+    for (const CameraSlotSettings &slot : m_cameraSlotSettings) {
+        if (!slot.ip.trimmed().isEmpty()) {
+            ++configuredCount;
+        }
+    }
+    ui->cameraStatusValue1->setText(QStringLiteral("%1 / %2")
+                                      .arg(configuredCount)
+                                      .arg(m_cameraSlotSettings.size()));
+    ui->cameraStatusValue1->setProperty("state", configuredCount > 0 ? "success" : "muted");
+    repolish(ui->cameraStatusValue1);
 }
 
 // 程序退出时保存全部摄像头配置，确保未触发单路保存的变更也会落盘。
@@ -2749,6 +2765,7 @@ void MainWindow::openSystemSettings()
     applyCapturePreferencesToUi();
     applyCameraSettingsToWidgets(true);
     saveCameraSettings();
+    refreshCameraConfigurationStatus();
 }
 
 QString MainWindow::videoStorageRootDir() const

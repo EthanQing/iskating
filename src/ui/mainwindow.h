@@ -68,6 +68,7 @@ private:
     void closeTrainingSettings();
     void applyStyleSheet();
     void loadCameraSettings();
+    void refreshCameraConfigurationStatus();
     void saveCameraSettings();
     void saveCameraSetting(int cameraIndex);
     void loadTrainingRecords();
