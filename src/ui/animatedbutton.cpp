@@ -69,6 +69,8 @@ void AnimatedButton::setIconSource(const QString &source)
         return;
     }
     m_iconSource = normalized;
+    m_generatedIcon = QIcon();
+    m_generatedIconColor = QColor();
     update();
 }
 
@@ -231,7 +233,11 @@ void AnimatedButton::paintEvent(QPaintEvent *event)
                                            20);
         QIcon iconToDraw = icon();
         if (!m_iconSource.isEmpty()) {
-            iconToDraw = makeNormalizedTintedSvgIcon(m_iconSource, currentIcon, 20, 18);
+            if (m_generatedIcon.isNull() || m_generatedIconColor != currentIcon) {
+                m_generatedIcon = makeNormalizedTintedSvgIcon(m_iconSource, currentIcon, 20, 18);
+                m_generatedIconColor = currentIcon;
+            }
+            iconToDraw = m_generatedIcon;
         }
         if (!iconToDraw.isNull()) {
             painter.drawPixmap(iconRect, iconToDraw.pixmap(iconRect.size(), QIcon::Normal, QIcon::Off));

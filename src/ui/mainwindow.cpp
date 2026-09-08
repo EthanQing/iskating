@@ -2106,27 +2106,45 @@ void MainWindow::updateCameraGrid()
     }
     const QSize tileSize(tileWidth, tileHeight);
     const int gridHeight = rows * tileHeight + std::max(0, rows - 1) * 8;
-    m_cameraGridContainer->setFixedHeight(gridHeight);
-    if (m_cameraGridColumns == columns && m_cameraTileSize == tileSize) {
+    if (m_cameraGridContainer->height() != gridHeight
+        || m_cameraGridContainer->minimumHeight() != gridHeight
+        || m_cameraGridContainer->maximumHeight() != gridHeight) {
+        m_cameraGridContainer->setFixedHeight(gridHeight);
+    }
+    const bool columnsChanged = m_cameraGridColumns != columns;
+    const bool sizeChanged = m_cameraTileSize != tileSize;
+    if (!columnsChanged && !sizeChanged) {
         return;
     }
-    while (QLayoutItem *item = m_cameraGridLayout->takeAt(0)) {
-        delete item;
+
+    if (columnsChanged) {
+        while (QLayoutItem *item = m_cameraGridLayout->takeAt(0)) {
+            delete item;
+        }
+        m_cameraGridColumns = columns;
+        for (int index = 0; index < m_cameraButtons.size(); ++index) {
+            VideoOpenGLWidget *camera = m_cameraButtons.at(index);
+            if (camera->parentWidget() != m_cameraGridContainer) {
+                camera->setParent(m_cameraGridContainer);
+            }
+            camera->setMinimumSize(0, 0);
+            camera->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+            if (!camera->isVisible()) {
+                camera->show();
+            }
+            m_cameraGridLayout->addWidget(camera, index / columns, index % columns);
+        }
     }
-    m_cameraGridColumns = columns;
-    m_cameraTileSize = tileSize;
-    for (int index = 0; index < m_cameraButtons.size(); ++index) {
-        VideoOpenGLWidget *camera = m_cameraButtons.at(index);
-        if (camera->parentWidget() != m_cameraGridContainer) {
-            camera->setParent(m_cameraGridContainer);
+
+    if (columnsChanged || sizeChanged) {
+        m_cameraTileSize = tileSize;
+        for (VideoOpenGLWidget *camera : m_cameraButtons) {
+            if (camera->size() != tileSize
+                || camera->minimumSize() != tileSize
+                || camera->maximumSize() != tileSize) {
+                camera->setFixedSize(tileSize);
+            }
         }
-        camera->setMinimumSize(0, 0);
-        camera->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-        camera->setFixedSize(tileSize);
-        if (!camera->isVisible()) {
-            camera->show();
-        }
-        m_cameraGridLayout->addWidget(camera, index / columns, index % columns);
     }
 }
 
@@ -4782,8 +4800,9 @@ void MainWindow::toggleSidebar()
         m_sidebarAnimation->setEasingCurve(QEasingCurve::OutCubic);
         connect(m_sidebarAnimation, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
             const int width = value.toInt();
-            ui->sidebar->setMinimumWidth(width);
-            ui->sidebar->setMaximumWidth(width);
+            if (ui->sidebar->minimumWidth() != width || ui->sidebar->maximumWidth() != width) {
+                ui->sidebar->setFixedWidth(width);
+            }
             const qreal textOpacity = (width - 64.0) / 156.0;
             for (QPushButton *button : {ui->navCaptureButton,
                                         ui->navHistoryButton,

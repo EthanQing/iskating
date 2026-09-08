@@ -1,6 +1,8 @@
 #ifndef ANIMATEDBUTTON_H
 #define ANIMATEDBUTTON_H
 
+#include <QColor>
+#include <QIcon>
 #include <QPushButton>
 
 class QEnterEvent;
@@ -28,6 +30,8 @@ private:
     void animateHover(qreal target, int duration);
     void animatePressed(qreal target, int duration);
     QString m_iconSource;
+    QIcon m_generatedIcon;
+    QColor m_generatedIconColor;
     qreal m_hoverProgress = 0.0;
     qreal m_pressProgress = 0.0;
     qreal m_textOpacity = 1.0;
