@@ -69,6 +69,7 @@ private:
     void applyStyleSheet();
     void loadCameraSettings();
     void refreshCameraConfigurationStatus();
+    void refreshCameraRuntimeStatus();
     void saveCameraSettings();
     void saveCameraSetting(int cameraIndex);
     void loadTrainingRecords();
@@ -113,6 +114,7 @@ private:
     CapturePreferenceSettings capturePreferenceSettingsFromUi() const;
     QString videoStorageRootDir() const;
     void refreshVideoStorageStatus();
+    void refreshAnalysisTaskStatus();
     QString videoStorageStatusSummary(const VideoStorageSettings &settings) const;
     QVector<VideoFileCleanupCandidate> videoCleanupCandidates(const VideoStorageSettings &settings,
                                                               qint64 *existingBytes = nullptr) const;

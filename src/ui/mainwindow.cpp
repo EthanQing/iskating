@@ -9,6 +9,7 @@
 #include "offlineanalysisdialog.h"
 #include "offlinevideoprobe.h"
 #include "personmanagementdialog.h"
+#include "rtspstream.h"
 #include "trainingreviewdialog.h"
 #include "trainingrepository.h"
 #include "trajectorywidget.h"
@@ -1256,7 +1257,10 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_analysisTaskManager.get(), &AnalysisTaskManager::taskError, this,
             [this](const QString &, const QString &message) {
         if (!message.isEmpty()) ui->saveTipLabel->setText(QStringLiteral("后台任务失败：%1").arg(message));
+        refreshAnalysisTaskStatus();
     }, Qt::QueuedConnection);
+    connect(m_analysisTaskManager.get(), &AnalysisTaskManager::taskUpdated, this,
+            [this](const QString &) { refreshAnalysisTaskStatus(); }, Qt::QueuedConnection);
     m_analysisTaskManager->restorePendingTasks();
 
     applyStyleSheet();
@@ -2397,6 +2401,139 @@ void MainWindow::refreshCameraConfigurationStatus()
                                       .arg(m_cameraSlotSettings.size()));
     ui->cameraStatusValue1->setProperty("state", configuredCount > 0 ? "success" : "muted");
     repolish(ui->cameraStatusValue1);
+    refreshCameraRuntimeStatus();
+}
+
+void MainWindow::refreshCameraRuntimeStatus()
+{
+    int configuredCount = 0;
+    int onlineCount = 0;
+    int connectingCount = 0;
+    int reconnectingCount = 0;
+    int errorCount = 0;
+    int streamCount = 0;
+    int inactiveCount = 0;
+    QStringList errorCameras;
+
+    for (int i = 0; i < m_cameraSlotSettings.size(); ++i) {
+        if (m_cameraSlotSettings.at(i).ip.trimmed().isEmpty()) {
+            continue;
+        }
+        ++configuredCount;
+
+        std::shared_ptr<RtspStream> stream;
+        if (i < m_cameraButtons.size() && m_cameraButtons.at(i)) {
+            stream = m_cameraButtons.at(i)->activeStream();
+        }
+        if (!stream && m_offlineVideoPath.trimmed().isEmpty() && m_selectedCamera == i + 1
+            && ui->mainImageLabel) {
+            stream = ui->mainImageLabel->activeStream();
+        }
+        if (!stream) {
+            ++inactiveCount;
+            continue;
+        }
+        ++streamCount;
+
+        switch (stream->state()) {
+        case RtspStream::State::Playing:
+            ++onlineCount;
+            break;
+        case RtspStream::State::Connecting:
+            ++connectingCount;
+            break;
+        case RtspStream::State::Reconnecting:
+            ++reconnectingCount;
+            break;
+        case RtspStream::State::Error:
+            ++errorCount;
+            errorCameras.append(QStringLiteral("CAM %1").arg(i + 1, 2, 10, QLatin1Char('0')));
+            break;
+        case RtspStream::State::Idle:
+        case RtspStream::State::Stopped:
+            ++inactiveCount;
+            break;
+        }
+    }
+
+    const bool hasRuntimeState = streamCount > 0;
+    ui->cameraStatusValue2->setText(hasRuntimeState
+                                        ? QStringLiteral("%1 / %2").arg(onlineCount).arg(configuredCount)
+                                        : QStringLiteral("未检测"));
+    ui->cameraStatusValue2->setProperty("state", onlineCount > 0
+                                                    ? "success"
+                                                    : (connectingCount > 0 || reconnectingCount > 0)
+                                                          ? "warning"
+                                                          : "muted");
+    ui->cameraStatusValue3->setText(hasRuntimeState ? QString::number(errorCount) : QStringLiteral("—"));
+    ui->cameraStatusValue3->setProperty("state", !hasRuntimeState ? "muted"
+                                                    : errorCount > 0 ? "error" : "success");
+
+    QString tooltip = QStringLiteral("已配置：%1\n在线：%2\n连接中：%3\n重连中：%4\n异常：%5\n未活动：%6")
+                          .arg(configuredCount)
+                          .arg(onlineCount)
+                          .arg(connectingCount)
+                          .arg(reconnectingCount)
+                          .arg(errorCount)
+                          .arg(inactiveCount);
+    if (!errorCameras.isEmpty()) {
+        tooltip += QStringLiteral("\n异常摄像头：\n%1").arg(errorCameras.join(QLatin1Char('\n')));
+    }
+    ui->cameraStatusValue2->setToolTip(tooltip);
+    ui->cameraStatusValue3->setToolTip(tooltip);
+    repolish(ui->cameraStatusValue2);
+    repolish(ui->cameraStatusValue3);
+}
+
+void MainWindow::refreshAnalysisTaskStatus()
+{
+    if (!m_analysisTaskManager) {
+        ui->localResourcesValue2->setText(QStringLiteral("未就绪"));
+        ui->localResourcesValue2->setToolTip(QString());
+        ui->localResourcesValue2->setProperty("state", "muted");
+        repolish(ui->localResourcesValue2);
+        return;
+    }
+
+    int queuedCount = 0;
+    int runningCount = 0;
+    int pausedCount = 0;
+    int completedCount = 0;
+    int failedCount = 0;
+    int cancelledCount = 0;
+    const QVector<AnalysisTask> tasks = m_analysisTaskManager->tasks();
+    for (const AnalysisTask &task : tasks) {
+        const QString status = task.status.trimmed().toLower();
+        if (status == QStringLiteral("queued")) ++queuedCount;
+        else if (status == QStringLiteral("running")) ++runningCount;
+        else if (status == QStringLiteral("paused")) ++pausedCount;
+        else if (status == QStringLiteral("completed")) ++completedCount;
+        else if (status == QStringLiteral("failed")) ++failedCount;
+        else if (status == QStringLiteral("cancelled")) ++cancelledCount;
+    }
+
+    if (tasks.isEmpty() && (!m_trainingRepository || !m_trainingRepository->isOpen())) {
+        ui->localResourcesValue2->setText(QStringLiteral("未同步"));
+        ui->localResourcesValue2->setProperty("state", "muted");
+    } else if (queuedCount + runningCount > 0) {
+        ui->localResourcesValue2->setText(QStringLiteral("%1 个进行中").arg(queuedCount + runningCount));
+        ui->localResourcesValue2->setProperty("state", "success");
+    } else if (pausedCount > 0) {
+        ui->localResourcesValue2->setText(QStringLiteral("%1 个已暂停").arg(pausedCount));
+        ui->localResourcesValue2->setProperty("state", "warning");
+    } else {
+        ui->localResourcesValue2->setText(QStringLiteral("空闲"));
+        ui->localResourcesValue2->setProperty("state", "muted");
+    }
+    ui->localResourcesValue2->setToolTip(
+        QStringLiteral("运行中：%1\n排队：%2\n暂停：%3\n已完成：%4\n失败：%5\n已取消：%6")
+            .arg(runningCount)
+            .arg(queuedCount)
+            .arg(pausedCount)
+            .arg(completedCount)
+            .arg(failedCount)
+            .arg(cancelledCount));
+    repolish(ui->localResourcesValue2);
 }
 
 // 程序退出时保存全部摄像头配置，确保未触发单路保存的变更也会落盘。
@@ -5434,6 +5571,8 @@ void MainWindow::refreshCameraButtons()
 // 刷新实时训练状态、身份检查器和训练操作可用性。
 void MainWindow::refreshStats()
 {
+    refreshAnalysisTaskStatus();
+    refreshCameraRuntimeStatus();
     const qint64 nowMsec = QDateTime::currentMSecsSinceEpoch();
     const bool streamPlaying = ui->mainImageLabel && ui->mainImageLabel->isPlaying();
     const bool selectedFrameFresh = m_lastSelectedFrameReceivedAtMsec > 0
