@@ -3232,20 +3232,36 @@ void MainWindow::initializeTrainingRepository()
     }
 
     QString errorMessage;
-    if (!m_trainingRepository->open(&errorMessage)) {
-        ui->systemStatusLabel->setText(QStringLiteral("服务 · 未连接"));
-        ui->systemStatusLabel->setProperty("state", "error");
-        repolish(ui->systemStatusLabel);
+    const bool connected = m_trainingRepository->open(&errorMessage);
+    refreshTrainingServiceStatus(QDateTime::currentDateTime());
+    if (!connected) {
         ui->saveTipLabel->setText(QStringLiteral("训练服务连接失败：%1").arg(errorMessage));
         ui->saveTipLabel->show();
         qWarning() << "[MainWindow] training service open failed" << errorMessage;
         return;
     }
 
-    ui->systemStatusLabel->setText(QStringLiteral("服务 · 已连接"));
-    ui->systemStatusLabel->setProperty("state", "online");
-    repolish(ui->systemStatusLabel);
     reloadTrainingContext();
+}
+
+void MainWindow::refreshTrainingServiceStatus(const QDateTime &checkedAt)
+{
+    const bool connected = m_trainingRepository->isOpen();
+    ui->systemStatusLabel->setText(connected ? QStringLiteral("服务 · 已连接")
+                                           : QStringLiteral("服务 · 未连接"));
+    ui->systemStatusLabel->setProperty("state", connected ? "online" : "error");
+
+    ui->trainingServiceValue1->setText(connected ? QStringLiteral("已连接") : QStringLiteral("未连接"));
+    ui->trainingServiceValue1->setProperty("state", connected ? "success" : "error");
+    ui->trainingServiceValue1->setToolTip(connected ? QString() : m_trainingRepository->lastError());
+    ui->trainingServiceValue2->setText(connected ? QStringLiteral("正常") : QStringLiteral("未知"));
+    ui->trainingServiceValue2->setProperty("state", connected ? "success" : "muted");
+    ui->trainingServiceValue3->setText(checkedAt.toString(QStringLiteral("hh:mm:ss")));
+    ui->systemStatusEmptyLabel->hide();
+
+    for (QLabel *label : {ui->systemStatusLabel, ui->trainingServiceValue1, ui->trainingServiceValue2}) {
+        repolish(label);
+    }
 }
 
 void MainWindow::resizeEvent(QResizeEvent *event)

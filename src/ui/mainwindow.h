@@ -19,6 +19,7 @@ class QLabel;
 class QCheckBox;
 class QComboBox;
 class QDateEdit;
+class QDateTime;
 class QLineEdit;
 class QSpinBox;
 class QPlainTextEdit;
@@ -71,6 +72,7 @@ private:
     void saveCameraSetting(int cameraIndex);
     void loadTrainingRecords();
     void initializeTrainingRepository();
+    void refreshTrainingServiceStatus(const QDateTime &checkedAt);
     void reloadTrainingContext();
     void reloadHistorySearchOptions();
     SessionSearchFilters currentHistorySearchFilters() const;
