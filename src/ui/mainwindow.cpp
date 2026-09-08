@@ -1121,10 +1121,15 @@ MainWindow::MainWindow(QWidget *parent)
             m_saveTipScrollArea->setWidgetResizable(true);
             m_saveTipScrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
             m_saveTipScrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+            m_saveTipScrollArea->setMinimumHeight(56);
             m_saveTipScrollArea->setMaximumHeight(72);
             auto *tipContent = new QWidget(m_saveTipScrollArea);
             auto *tipLayout = new QVBoxLayout(tipContent);
-            tipLayout->setContentsMargins(0, 0, 0, 0);
+            tipLayout->setContentsMargins(8, 6, 8, 6);
+            tipLayout->setSizeConstraint(QLayout::SetMinAndMaxSize);
+            tipLayout->setAlignment(Qt::AlignTop);
+            ui->saveTipLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+            ui->saveTipLabel->setTextFormat(Qt::PlainText);
             tipLayout->addWidget(ui->saveTipLabel);
             m_saveTipScrollArea->setWidget(tipContent);
             if (tipIndex >= 0) {
@@ -1411,7 +1416,7 @@ void MainWindow::setupUiState()
     for (QLabel *label : {ui->saveTipLabel}) {
         if (label) {
             label->setWordWrap(true);
-            label->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+            label->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         }
     }
     applyCapturePreferencesToUi();
