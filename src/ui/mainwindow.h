@@ -112,6 +112,7 @@ private:
     void persistSystemSettings() const;
     CapturePreferenceSettings capturePreferenceSettingsFromUi() const;
     QString videoStorageRootDir() const;
+    void refreshVideoStorageStatus();
     QString videoStorageStatusSummary(const VideoStorageSettings &settings) const;
     QVector<VideoFileCleanupCandidate> videoCleanupCandidates(const VideoStorageSettings &settings,
                                                               qint64 *existingBytes = nullptr) const;

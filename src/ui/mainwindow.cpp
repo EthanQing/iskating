@@ -2380,6 +2380,7 @@ void MainWindow::loadCameraSettings()
 
     applyCameraSettingsToWidgets(false);
     refreshCameraConfigurationStatus();
+    refreshVideoStorageStatus();
 }
 
 void MainWindow::refreshCameraConfigurationStatus()
@@ -2766,12 +2767,39 @@ void MainWindow::openSystemSettings()
     applyCameraSettingsToWidgets(true);
     saveCameraSettings();
     refreshCameraConfigurationStatus();
+    refreshVideoStorageStatus();
 }
 
 QString MainWindow::videoStorageRootDir() const
 {
     const QString configured = m_videoStorageSettings.rootDir.trimmed();
     return configured.isEmpty() ? defaultVideoStorageRoot() : QFileInfo(configured).absoluteFilePath();
+}
+
+void MainWindow::refreshVideoStorageStatus()
+{
+    if (m_videoStorageSettings.rootDir.trimmed().isEmpty()) {
+        ui->localResourcesValue1->setText(QStringLiteral("未配置"));
+        ui->localResourcesValue1->setProperty("state", "muted");
+        ui->localResourcesValue1->setToolTip(QStringLiteral("尚未配置视频存储目录"));
+    } else {
+        const QString root = videoStorageRootDir();
+        const QFileInfo directory(root);
+        const QStorageInfo storage(root);
+        const bool volumeReady = storage.isValid() && storage.isReady();
+        const bool available = directory.exists() && directory.isDir() && directory.isWritable()
+                               && volumeReady && !storage.isReadOnly();
+        ui->localResourcesValue1->setText(available ? QStringLiteral("可用") : QStringLiteral("不可用"));
+        ui->localResourcesValue1->setProperty("state", available ? "success" : "error");
+        const QString diskText = volumeReady
+                                     ? QStringLiteral("磁盘可用 %1 / 总计 %2")
+                                           .arg(storageSizeLabel(storage.bytesAvailable()),
+                                                storageSizeLabel(storage.bytesTotal()))
+                                     : QStringLiteral("磁盘不可用");
+        ui->localResourcesValue1->setToolTip(QStringLiteral("存储路径：%1\n%2")
+                                               .arg(QDir::toNativeSeparators(root), diskText));
+    }
+    repolish(ui->localResourcesValue1);
 }
 
 QVector<VideoFileCleanupCandidate> MainWindow::videoCleanupCandidates(const VideoStorageSettings &settings,
