@@ -7106,19 +7106,24 @@ void MainWindow::refreshModelStatus(const QString &statusText)
                          || status.contains(QStringLiteral("fail"), Qt::CaseInsensitive)
                          || status.contains(QStringLiteral("错误"))
                          || status.contains(QStringLiteral("失败"));
-    if (status.contains(QStringLiteral("已就绪")) || status.contains(QStringLiteral("运行中"))) {
+    const bool ready = status.contains(QStringLiteral("已就绪")) || status.contains(QStringLiteral("运行中"));
+    const bool initializing = status.contains(QStringLiteral("初始化中"));
+    const bool modelFailure = warning && !ready && !status.contains(QStringLiteral("取帧失败"));
+    if (ready) {
         m_aiAnalysisReady = true;
-    } else if (warning) {
+    } else if (initializing || modelFailure) {
         m_aiAnalysisReady = false;
+        m_identityRecognitionKnown = false;
+        m_identityRecognitionAvailable = false;
     }
-    if (status.contains(QStringLiteral("PersonViT"))) {
+    if (m_aiAnalysisReady && status.contains(QStringLiteral("PersonViT"))) {
         m_identityRecognitionKnown = true;
         m_identityRecognitionAvailable = !status.contains(QStringLiteral("不可用")) && !warning;
     }
     ui->modelStatusLabel->setText(m_aiAnalysisReady ? QStringLiteral("已就绪")
-                                                     : (warning ? QStringLiteral("不可用") : QStringLiteral("—")));
+                                                     : (modelFailure ? QStringLiteral("不可用") : QStringLiteral("—")));
     ui->modelStatusLabel->setToolTip(status);
-    ui->modelStatusLabel->setProperty("state", m_aiAnalysisReady ? "online" : (warning ? "warning" : "muted"));
+    ui->modelStatusLabel->setProperty("state", m_aiAnalysisReady ? "online" : (modelFailure ? "warning" : "muted"));
     if (m_identityAvailabilityLabel) {
         m_identityAvailabilityLabel->setText(m_identityRecognitionAvailable
                                                  ? QStringLiteral("可用")
@@ -7130,6 +7135,23 @@ void MainWindow::refreshModelStatus(const QString &statusText)
         repolish(m_identityAvailabilityLabel);
     }
     repolish(ui->modelStatusLabel);
+
+    ui->aiAnalysisValue1->setText(m_aiAnalysisReady ? QStringLiteral("可用")
+                                                  : (modelFailure ? QStringLiteral("不可用") : QStringLiteral("初始化中")));
+    ui->aiAnalysisValue1->setProperty("state", m_aiAnalysisReady ? "success" : (modelFailure ? "error" : "muted"));
+    ui->aiAnalysisValue2->setText(m_identityRecognitionKnown
+                                    ? (m_identityRecognitionAvailable ? QStringLiteral("可用") : QStringLiteral("不可用"))
+                                    : QStringLiteral("—"));
+    ui->aiAnalysisValue2->setProperty("state", m_identityRecognitionKnown
+                                                 ? (m_identityRecognitionAvailable ? "success" : "warning")
+                                                 : "muted");
+    ui->aiAnalysisValue3->setText(m_aiAnalysisReady ? QStringLiteral("已就绪")
+                                                  : (modelFailure ? QStringLiteral("不可用") : QStringLiteral("初始化中")));
+    ui->aiAnalysisValue3->setProperty("state", m_aiAnalysisReady ? "success" : (modelFailure ? "error" : "muted"));
+    ui->aiAnalysisValue3->setToolTip(statusText);
+    for (QLabel *label : {ui->aiAnalysisValue1, ui->aiAnalysisValue2, ui->aiAnalysisValue3}) {
+        repolish(label);
+    }
 }
 
 void MainWindow::startOfflineAnalysisOverlay(const SessionHistoryItem &record, int cameraId)
