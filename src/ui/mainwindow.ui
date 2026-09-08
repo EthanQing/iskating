@@ -1,4 +1,4 @@
-<?xml version='1.0' encoding='UTF-8'?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <ui version="4.0">
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
@@ -6,71 +6,205 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1826</width>
-    <height>754</height>
+    <width>1600</width>
+    <height>960</height>
    </rect>
   </property>
+  <property name="minimumSize">
+   <size>
+    <width>1100</width>
+    <height>700</height>
+   </size>
+  </property>
   <property name="windowTitle">
-   <string>MainWindow</string>
+   <string>iSkating · 训练工作站</string>
   </property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QHBoxLayout" name="horizontalLayout">
+    <property name="spacing">
+     <number>0</number>
+    </property>
+    <property name="leftMargin">
+     <number>0</number>
+    </property>
+    <property name="topMargin">
+     <number>0</number>
+    </property>
+    <property name="rightMargin">
+     <number>0</number>
+    </property>
+    <property name="bottomMargin">
+     <number>0</number>
+    </property>
     <item>
      <widget class="QFrame" name="sidebar">
-      <property name="frameShape">
-       <enum>QFrame::Shape::NoFrame</enum>
+      <property name="minimumSize">
+       <size>
+        <width>216</width>
+        <height>0</height>
+       </size>
       </property>
-      <property name="frameShadow">
-       <enum>QFrame::Shadow::Plain</enum>
+      <property name="maximumSize">
+       <size>
+        <width>216</width>
+        <height>16777215</height>
+       </size>
+      </property>
+      <property name="frameShape">
+       <enum>QFrame::NoFrame</enum>
       </property>
       <layout class="QVBoxLayout" name="sidebarLayout">
        <property name="spacing">
-        <number>10</number>
+        <number>6</number>
        </property>
        <property name="leftMargin">
-        <number>12</number>
+        <number>14</number>
        </property>
        <property name="topMargin">
-        <number>18</number>
+        <number>16</number>
        </property>
        <property name="rightMargin">
-        <number>12</number>
+        <number>14</number>
        </property>
        <property name="bottomMargin">
-        <number>18</number>
+        <number>16</number>
        </property>
        <item>
-        <widget class="QLabel" name="logoLabel">
+        <layout class="QHBoxLayout" name="brandLayout">
+         <property name="spacing">
+          <number>10</number>
+         </property>
+         <item>
+          <widget class="QLabel" name="brandLogoLabel">
+           <property name="minimumSize">
+            <size>
+             <width>32</width>
+             <height>32</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>32</width>
+             <height>32</height>
+            </size>
+           </property>
+           <property name="text">
+            <string>IS</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <layout class="QVBoxLayout" name="brandTextLayout">
+           <property name="spacing">
+            <number>1</number>
+           </property>
+           <item>
+            <widget class="QLabel" name="brandTitleLabel">
+             <property name="text">
+              <string>iSkating</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="brandSubtitleLabel">
+             <property name="text">
+              <string>SPORTS ANALYSIS</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QLabel" name="sidebarSectionLabel">
          <property name="text">
-          <string>iSkating Coach</string>
+          <string>工作区</string>
          </property>
         </widget>
        </item>
        <item>
-        <widget class="QPushButton" name="navCaptureButton">
+        <widget class="AnimatedButton" name="navCaptureButton">
          <property name="text">
-          <string>运动员检测</string>
+          <string>实时训练</string>
+         </property>
+         <property name="role" stdset="0">
+          <string>nav</string>
+         </property>
+         <property name="iconSource" stdset="0">
+          <string>:/icons/live.svg</string>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>0</width>
+           <height>40</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>16777215</width>
+           <height>40</height>
+          </size>
          </property>
         </widget>
        </item>
        <item>
-        <widget class="QPushButton" name="navHistoryButton">
+        <widget class="AnimatedButton" name="navHistoryButton">
          <property name="text">
-          <string>训练历史与分析</string>
+          <string>历史复盘</string>
+         </property>
+         <property name="role" stdset="0">
+          <string>nav</string>
+         </property>
+         <property name="iconSource" stdset="0">
+          <string>:/icons/history.svg</string>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>0</width>
+           <height>40</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>16777215</width>
+           <height>40</height>
+          </size>
          </property>
         </widget>
        </item>
        <item>
-        <widget class="QPushButton" name="navSuggestionButton">
+        <widget class="AnimatedButton" name="navSuggestionButton">
          <property name="text">
-          <string>动作纠正与建议</string>
+          <string>动作建议</string>
+         </property>
+         <property name="role" stdset="0">
+          <string>nav</string>
+         </property>
+         <property name="iconSource" stdset="0">
+          <string>:/icons/suggestion.svg</string>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>0</width>
+           <height>40</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>16777215</width>
+           <height>40</height>
+          </size>
          </property>
         </widget>
        </item>
        <item>
         <spacer name="sidebarSpacer">
          <property name="orientation">
-          <enum>Qt::Orientation::Vertical</enum>
+          <enum>Qt::Vertical</enum>
          </property>
          <property name="sizeHint" stdset="0">
           <size>
@@ -80,6 +214,126 @@
          </property>
         </spacer>
        </item>
+       <item>
+        <widget class="QLabel" name="sidebarToolsLabel">
+         <property name="text">
+          <string>工具</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="AnimatedButton" name="personManagementButton">
+         <property name="text">
+          <string>人员管理</string>
+         </property>
+         <property name="role" stdset="0">
+          <string>nav</string>
+         </property>
+         <property name="iconSource" stdset="0">
+          <string>:/icons/person.svg</string>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>0</width>
+           <height>38</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>16777215</width>
+           <height>38</height>
+          </size>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="AnimatedButton" name="competitionManagementButton">
+         <property name="text">
+          <string>比赛管理</string>
+         </property>
+         <property name="role" stdset="0">
+          <string>nav</string>
+         </property>
+         <property name="iconSource" stdset="0">
+          <string>:/icons/competition.svg</string>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>0</width>
+           <height>38</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>16777215</width>
+           <height>38</height>
+          </size>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <spacer name="sidebarBottomSpacer">
+         <property name="orientation">
+          <enum>Qt::Vertical</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>20</width>
+           <height>20</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+       <item>
+        <widget class="AnimatedButton" name="settingsButton">
+         <property name="text">
+          <string>系统设置</string>
+         </property>
+         <property name="role" stdset="0">
+          <string>nav</string>
+         </property>
+         <property name="iconSource" stdset="0">
+          <string>:/icons/settings.svg</string>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>0</width>
+           <height>38</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>16777215</width>
+           <height>38</height>
+          </size>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="AnimatedButton" name="toggleSidebarButton">
+         <property name="text">
+          <string>收起侧栏</string>
+         </property>
+         <property name="role" stdset="0">
+          <string>icon</string>
+         </property>
+         <property name="iconSource" stdset="0">
+          <string>:/icons/sidebar.svg</string>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>0</width>
+           <height>36</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>16777215</width>
+           <height>36</height>
+          </size>
+         </property>
+        </widget>
+       </item>
       </layout>
      </widget>
     </item>
@@ -87,13 +341,13 @@
      <widget class="QLabel" name="sideBarAfter">
       <property name="minimumSize">
        <size>
-        <width>4</width>
+        <width>1</width>
         <height>0</height>
        </size>
       </property>
       <property name="maximumSize">
        <size>
-        <width>4</width>
+        <width>1</width>
         <height>16777215</height>
        </size>
       </property>
@@ -104,37 +358,112 @@
     </item>
     <item>
      <layout class="QVBoxLayout" name="verticalLayout">
+      <property name="spacing">
+       <number>0</number>
+      </property>
+      <property name="leftMargin">
+       <number>24</number>
+      </property>
+      <property name="topMargin">
+       <number>0</number>
+      </property>
+      <property name="rightMargin">
+       <number>24</number>
+      </property>
+      <property name="bottomMargin">
+       <number>0</number>
+      </property>
       <item>
        <layout class="QHBoxLayout" name="topbarLayout">
         <property name="spacing">
-         <number>10</number>
-        </property>
-        <property name="leftMargin">
-         <number>0</number>
-        </property>
-        <property name="topMargin">
-         <number>0</number>
-        </property>
-        <property name="rightMargin">
-         <number>0</number>
+         <number>12</number>
         </property>
         <property name="bottomMargin">
-         <number>14</number>
+         <number>12</number>
         </property>
         <item>
-         <widget class="QLabel" name="brandLogoLabel">
+         <widget class="QLabel" name="brandLogoLabelShell">
           <property name="text">
-           <string>❄</string>
-          </property>
-          <property name="alignment">
-           <set>Qt::AlignmentFlag::AlignCenter</set>
+           <string>LIVE</string>
           </property>
          </widget>
         </item>
         <item>
-         <layout class="QVBoxLayout" name="brandTextLayout">
+         <layout class="QVBoxLayout" name="contextHeaderLayout">
           <property name="spacing">
-           <number>2</number>
+           <number>0</number>
+          </property>
+          <item>
+           <widget class="QLabel" name="sessionRoundLabel">
+            <property name="text">
+             <string>实时训练</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="focusTitleLabel">
+            <property name="text">
+             <string>选择视频源开始训练</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <spacer name="topbarSpacer">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+        <item>
+         <widget class="QLabel" name="systemStatusLabel">
+          <property name="text">
+           <string>服务 · 检查中</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="modelStatusLabel">
+          <property name="text">
+           <string>AI · 准备中</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="storageStatusLabel">
+          <property name="text">
+           <string>DB · 未连接</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="sessionTimeLabel">
+          <property name="text">
+           <string>--:--</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QStackedWidget" name="pages">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+          <horstretch>1</horstretch>
+          <verstretch>1</verstretch>
+         </sizepolicy>
+        </property>
+        <widget class="QWidget" name="capturePage">
+         <layout class="QHBoxLayout" name="capturePageLayout">
+          <property name="spacing">
+           <number>16</number>
           </property>
           <property name="leftMargin">
            <number>0</number>
@@ -146,534 +475,483 @@
            <number>0</number>
           </property>
           <property name="bottomMargin">
-           <number>0</number>
+           <number>16</number>
           </property>
           <item>
-           <widget class="QLabel" name="brandTitleLabel">
-            <property name="text">
-             <string>冰刃智训</string>
+           <widget class="QFrame" name="leftCard">
+            <property name="frameShape">
+             <enum>QFrame::NoFrame</enum>
             </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QLabel" name="brandSubtitleLabel">
-            <property name="text">
-             <string>iSkating Coach</string>
-            </property>
-           </widget>
-          </item>
-         </layout>
-        </item>
-        <item>
-         <widget class="QFrame" name="divider1">
-          <property name="minimumSize">
-           <size>
-            <width>1</width>
-            <height>42</height>
-           </size>
-          </property>
-          <property name="maximumSize">
-           <size>
-            <width>1</width>
-            <height>42</height>
-           </size>
-          </property>
-          <property name="frameShape">
-           <enum>QFrame::Shape::NoFrame</enum>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QLabel" name="sessionRoundLabel">
-          <property name="text">
-           <string>⛸  训练轮次Session\n自由滑训练-第3次</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QFrame" name="divider2">
-          <property name="minimumSize">
-           <size>
-            <width>1</width>
-            <height>42</height>
-           </size>
-          </property>
-          <property name="maximumSize">
-           <size>
-            <width>1</width>
-            <height>42</height>
-           </size>
-          </property>
-          <property name="frameShape">
-           <enum>QFrame::Shape::NoFrame</enum>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QLabel" name="sessionTimeLabel">
-          <property name="text">
-           <string>🕒  日期/时间Data/Time\n2026-05-20 16:28:34</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QFrame" name="divider3">
-          <property name="minimumSize">
-           <size>
-            <width>1</width>
-            <height>42</height>
-           </size>
-          </property>
-          <property name="maximumSize">
-           <size>
-            <width>1</width>
-            <height>42</height>
-           </size>
-          </property>
-          <property name="frameShape">
-           <enum>QFrame::Shape::NoFrame</enum>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QLabel" name="systemStatusLabel">
-          <property name="text">
-           <string>⚙  系统状态 System Status\n运行中（正常）</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QFrame" name="divider4">
-          <property name="minimumSize">
-           <size>
-            <width>1</width>
-            <height>42</height>
-           </size>
-          </property>
-          <property name="maximumSize">
-           <size>
-            <width>1</width>
-            <height>42</height>
-           </size>
-          </property>
-          <property name="frameShape">
-           <enum>QFrame::Shape::NoFrame</enum>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QLabel" name="modelStatusLabel">
-          <property name="text">
-           <string>AI  模型状态 Status\n已就绪（v2.3.1）</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QFrame" name="divider5">
-          <property name="minimumSize">
-           <size>
-            <width>1</width>
-            <height>42</height>
-           </size>
-          </property>
-          <property name="maximumSize">
-           <size>
-            <width>1</width>
-            <height>42</height>
-           </size>
-          </property>
-          <property name="frameShape">
-           <enum>QFrame::Shape::NoFrame</enum>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QLabel" name="storageStatusLabel">
-          <property name="text">
-           <string>DB  存储Storage\n1.82T/4.00TB</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <spacer name="topbarSpacer">
-          <property name="orientation">
-           <enum>Qt::Orientation::Horizontal</enum>
-          </property>
-          <property name="sizeHint" stdset="0">
-           <size>
-            <width>40</width>
-            <height>20</height>
-           </size>
-          </property>
-         </spacer>
-        </item>
-        <item>
-         <widget class="QPushButton" name="toggleSidebarButton">
-          <property name="text">
-           <string>▤  隐藏侧栏</string>
-          </property>
-         </widget>
-        </item>
-       </layout>
-      </item>
-      <item>
-       <widget class="QLabel" name="topbarAfter">
-        <property name="minimumSize">
-         <size>
-          <width>0</width>
-          <height>2</height>
-         </size>
-        </property>
-        <property name="maximumSize">
-         <size>
-          <width>16777215</width>
-          <height>2</height>
-         </size>
-        </property>
-        <property name="text">
-         <string />
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QStackedWidget" name="pages">
-        <property name="currentIndex">
-         <number>0</number>
-        </property>
-        <widget class="QWidget" name="capturePage">
-         <property name="sizePolicy">
-          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-           <horstretch>0</horstretch>
-           <verstretch>0</verstretch>
-          </sizepolicy>
-         </property>
-         <layout class="QHBoxLayout" name="horizontalLayout_3">
-          <item>
-           <layout class="QVBoxLayout" name="verticalLayout_2" stretch="1,1">
-            <item>
-             <widget class="QFrame" name="leftCard">
-              <layout class="QVBoxLayout" name="leftCardLayout" stretch="0,1">
+            <layout class="QVBoxLayout" name="leftCardLayout">
+             <property name="spacing">
+              <number>10</number>
+             </property>
+             <property name="leftMargin">
+              <number>0</number>
+             </property>
+             <property name="topMargin">
+              <number>0</number>
+             </property>
+             <property name="rightMargin">
+              <number>0</number>
+             </property>
+             <property name="bottomMargin">
+              <number>0</number>
+             </property>
+             <item>
+              <layout class="QHBoxLayout" name="headlineLayout">
                <property name="spacing">
-                <number>10</number>
-               </property>
-               <property name="leftMargin">
-                <number>12</number>
-               </property>
-               <property name="topMargin">
-                <number>12</number>
-               </property>
-               <property name="rightMargin">
-                <number>12</number>
-               </property>
-               <property name="bottomMargin">
-                <number>12</number>
+                <number>8</number>
                </property>
                <item>
-                <layout class="QHBoxLayout" name="headlineLayout">
+                <widget class="QLabel" name="mainViewTitleLabel">
+                 <property name="text">
+                  <string>主视图</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <spacer name="headlineSpacer">
+                 <property name="orientation">
+                  <enum>Qt::Horizontal</enum>
+                 </property>
+                 <property name="sizeHint" stdset="0">
+                  <size>
+                   <width>20</width>
+                   <height>20</height>
+                  </size>
+                 </property>
+                </spacer>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <widget class="VideoOpenGLWidget" name="mainImageLabel">
+               <property name="minimumSize">
+                <size>
+                 <width>0</width>
+                 <height>280</height>
+                </size>
+               </property>
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+                 <horstretch>1</horstretch>
+                 <verstretch>5</verstretch>
+                </sizepolicy>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QScrollArea" name="cameraScrollArea">
+               <property name="minimumSize">
+                <size>
+                 <width>0</width>
+                 <height>112</height>
+                </size>
+               </property>
+               <property name="maximumSize">
+                <size>
+                 <width>16777215</width>
+                 <height>124</height>
+                </size>
+               </property>
+               <property name="frameShape">
+                <enum>QFrame::NoFrame</enum>
+               </property>
+               <property name="horizontalScrollBarPolicy">
+                <enum>Qt::ScrollBarAsNeeded</enum>
+               </property>
+               <property name="verticalScrollBarPolicy">
+                <enum>Qt::ScrollBarAlwaysOff</enum>
+               </property>
+               <property name="widgetResizable">
+                <bool>true</bool>
+               </property>
+               <widget class="QWidget" name="cameraStrip">
+                <property name="geometry">
+                 <rect>
+                  <x>0</x>
+                  <y>0</y>
+                  <width>2032</width>
+                  <height>104</height>
+                 </rect>
+                </property>
+                <layout class="QHBoxLayout" name="cameraGridLayout">
+                 <property name="spacing">
+                  <number>8</number>
+                 </property>
+                 <property name="leftMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="topMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="rightMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="bottomMargin">
+                  <number>0</number>
+                 </property>
                  <item>
-                  <widget class="QLabel" name="mainViewTitleLabel">
-                   <property name="text">
-                    <string>主视图视频</string>
+                  <widget class="VideoOpenGLWidget" name="cameraButton01">
+                   <property name="minimumSize">
+                    <size>
+                     <width>160</width>
+                     <height>90</height>
+                    </size>
+                   </property>
+                   <property name="maximumSize">
+                    <size>
+                     <width>160</width>
+                     <height>90</height>
+                    </size>
                    </property>
                   </widget>
                  </item>
                  <item>
-                  <spacer name="headlineSpacer">
-                   <property name="orientation">
-                    <enum>Qt::Orientation::Horizontal</enum>
-                   </property>
-                   <property name="sizeHint" stdset="0">
+                  <widget class="VideoOpenGLWidget" name="cameraButton02">
+                   <property name="minimumSize">
                     <size>
-                     <width>40</width>
-                     <height>20</height>
+                     <width>160</width>
+                     <height>90</height>
                     </size>
                    </property>
-                  </spacer>
+                   <property name="maximumSize">
+                    <size>
+                     <width>160</width>
+                     <height>90</height>
+                    </size>
+                   </property>
+                  </widget>
                  </item>
                  <item>
-                  <widget class="QLabel" name="focusTitleLabel">
-                   <property name="text">
-                    <string>当前来源：CAM 01</string>
+                  <widget class="VideoOpenGLWidget" name="cameraButton03">
+                   <property name="minimumSize">
+                    <size>
+                     <width>160</width>
+                     <height>90</height>
+                    </size>
+                   </property>
+                   <property name="maximumSize">
+                    <size>
+                     <width>160</width>
+                     <height>90</height>
+                    </size>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="VideoOpenGLWidget" name="cameraButton04">
+                   <property name="minimumSize">
+                    <size>
+                     <width>160</width>
+                     <height>90</height>
+                    </size>
+                   </property>
+                   <property name="maximumSize">
+                    <size>
+                     <width>160</width>
+                     <height>90</height>
+                    </size>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="VideoOpenGLWidget" name="cameraButton05">
+                   <property name="minimumSize">
+                    <size>
+                     <width>160</width>
+                     <height>90</height>
+                    </size>
+                   </property>
+                   <property name="maximumSize">
+                    <size>
+                     <width>160</width>
+                     <height>90</height>
+                    </size>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="VideoOpenGLWidget" name="cameraButton06">
+                   <property name="minimumSize">
+                    <size>
+                     <width>160</width>
+                     <height>90</height>
+                    </size>
+                   </property>
+                   <property name="maximumSize">
+                    <size>
+                     <width>160</width>
+                     <height>90</height>
+                    </size>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="VideoOpenGLWidget" name="cameraButton07">
+                   <property name="minimumSize">
+                    <size>
+                     <width>160</width>
+                     <height>90</height>
+                    </size>
+                   </property>
+                   <property name="maximumSize">
+                    <size>
+                     <width>160</width>
+                     <height>90</height>
+                    </size>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="VideoOpenGLWidget" name="cameraButton08">
+                   <property name="minimumSize">
+                    <size>
+                     <width>160</width>
+                     <height>90</height>
+                    </size>
+                   </property>
+                   <property name="maximumSize">
+                    <size>
+                     <width>160</width>
+                     <height>90</height>
+                    </size>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="VideoOpenGLWidget" name="cameraButton09">
+                   <property name="minimumSize">
+                    <size>
+                     <width>160</width>
+                     <height>90</height>
+                    </size>
+                   </property>
+                   <property name="maximumSize">
+                    <size>
+                     <width>160</width>
+                     <height>90</height>
+                    </size>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="VideoOpenGLWidget" name="cameraButton10">
+                   <property name="minimumSize">
+                    <size>
+                     <width>160</width>
+                     <height>90</height>
+                    </size>
+                   </property>
+                   <property name="maximumSize">
+                    <size>
+                     <width>160</width>
+                     <height>90</height>
+                    </size>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="VideoOpenGLWidget" name="cameraButton11">
+                   <property name="minimumSize">
+                    <size>
+                     <width>160</width>
+                     <height>90</height>
+                    </size>
+                   </property>
+                   <property name="maximumSize">
+                    <size>
+                     <width>160</width>
+                     <height>90</height>
+                    </size>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="VideoOpenGLWidget" name="cameraButton12">
+                   <property name="minimumSize">
+                    <size>
+                     <width>160</width>
+                     <height>90</height>
+                    </size>
+                   </property>
+                   <property name="maximumSize">
+                    <size>
+                     <width>160</width>
+                     <height>90</height>
+                    </size>
                    </property>
                   </widget>
                  </item>
                 </layout>
-               </item>
-               <item>
-                <widget class="VideoOpenGLWidget" name="mainImageLabel" />
-               </item>
-              </layout>
-             </widget>
-            </item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QVBoxLayout" name="verticalLayout_3">
-            <item>
-             <layout class="QHBoxLayout" name="horizontalLayout_2">
-              <item>
-               <layout class="QVBoxLayout" name="middleLayout">
+               </widget>
+              </widget>
+             </item>
+             <item>
+              <widget class="QFrame" name="trajectoryCard">
+               <property name="minimumSize">
+                <size>
+                 <width>0</width>
+                 <height>160</height>
+                </size>
+               </property>
+               <property name="maximumSize">
+                <size>
+                 <width>16777215</width>
+                 <height>210</height>
+                </size>
+               </property>
+               <layout class="QVBoxLayout" name="trajectoryCardLayout">
                 <property name="spacing">
-                 <number>14</number>
+                 <number>6</number>
                 </property>
                 <property name="leftMargin">
-                 <number>0</number>
+                 <number>10</number>
                 </property>
                 <property name="topMargin">
-                 <number>0</number>
+                 <number>8</number>
                 </property>
                 <property name="rightMargin">
-                 <number>0</number>
+                 <number>10</number>
                 </property>
                 <property name="bottomMargin">
-                 <number>0</number>
+                 <number>8</number>
                 </property>
                 <item>
-                 <layout class="QGridLayout" name="cameraGridLayout">
-                  <property name="leftMargin">
-                   <number>0</number>
-                  </property>
-                  <property name="topMargin">
-                   <number>0</number>
-                  </property>
-                  <property name="rightMargin">
-                   <number>0</number>
-                  </property>
-                  <property name="bottomMargin">
-                   <number>0</number>
-                  </property>
-                  <property name="spacing">
-                   <number>10</number>
-                  </property>
-                  <item row="0" column="0">
-                   <widget class="VideoOpenGLWidget" name="cameraButton01">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
+                 <layout class="QHBoxLayout" name="trajectoryHeaderLayout">
+                  <item>
+                   <widget class="QLabel" name="trajectoryTitleLabel">
+                    <property name="text">
+                     <string>二维滑行轨迹</string>
                     </property>
                    </widget>
                   </item>
-                  <item row="0" column="1">
-                   <widget class="VideoOpenGLWidget" name="cameraButton02">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
+                  <item>
+                   <widget class="QLabel" name="legendTitleLabel">
+                    <property name="text">
+                     <string>当前运动员</string>
                     </property>
                    </widget>
                   </item>
-                  <item row="0" column="2">
-                   <widget class="VideoOpenGLWidget" name="cameraButton03">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
+                  <item>
+                   <widget class="QLabel" name="legendContentLabel">
+                    <property name="text">
+                     <string>未选择</string>
                     </property>
                    </widget>
                   </item>
-                  <item row="0" column="3">
-                   <widget class="VideoOpenGLWidget" name="cameraButton04">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
+                  <item>
+                   <spacer name="trajectorySpacer">
+                    <property name="orientation">
+                     <enum>Qt::Horizontal</enum>
+                    </property>
+                    <property name="sizeHint" stdset="0">
+                     <size>
+                      <width>20</width>
+                      <height>20</height>
+                     </size>
+                    </property>
+                   </spacer>
+                  </item>
+                  <item>
+                   <widget class="AnimatedButton" name="expandTrajectoryButton">
+                    <property name="text">
+                     <string>展开</string>
+                    </property>
+                    <property name="role" stdset="0">
+                     <string>ghost</string>
+                    </property>
+                    <property name="minimumSize">
+                     <size>
+                      <width>64</width>
+                      <height>30</height>
+                     </size>
                     </property>
                    </widget>
                   </item>
-                  <item row="1" column="0">
-                   <widget class="VideoOpenGLWidget" name="cameraButton05">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
+                  <item>
+                   <widget class="AnimatedButton" name="collapseTrajectoryButton">
+                    <property name="text">
+                     <string>收起</string>
                     </property>
-                   </widget>
-                  </item>
-                  <item row="1" column="1">
-                   <widget class="VideoOpenGLWidget" name="cameraButton06">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
+                    <property name="role" stdset="0">
+                     <string>ghost</string>
                     </property>
-                   </widget>
-                  </item>
-                  <item row="1" column="2">
-                   <widget class="VideoOpenGLWidget" name="cameraButton07">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
+                    <property name="visible">
+                     <bool>false</bool>
                     </property>
-                   </widget>
-                  </item>
-                  <item row="1" column="3">
-                   <widget class="VideoOpenGLWidget" name="cameraButton08">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                   </widget>
-                  </item>
-                  <item row="2" column="0">
-                   <widget class="VideoOpenGLWidget" name="cameraButton09">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                   </widget>
-                  </item>
-                  <item row="2" column="1">
-                   <widget class="VideoOpenGLWidget" name="cameraButton10">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                   </widget>
-                  </item>
-                  <item row="2" column="2">
-                   <widget class="VideoOpenGLWidget" name="cameraButton11">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                   </widget>
-                  </item>
-                  <item row="2" column="3">
-                   <widget class="VideoOpenGLWidget" name="cameraButton12">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
+                    <property name="minimumSize">
+                     <size>
+                      <width>64</width>
+                      <height>30</height>
+                     </size>
                     </property>
                    </widget>
                   </item>
                  </layout>
                 </item>
                 <item>
-                 <widget class="QFrame" name="trajectoryCard">
-                  <layout class="QVBoxLayout" name="trajectoryCardLayout">
-                   <property name="spacing">
-                    <number>10</number>
-                   </property>
-                   <property name="leftMargin">
-                    <number>12</number>
-                   </property>
-                   <property name="topMargin">
-                    <number>12</number>
-                   </property>
-                   <property name="rightMargin">
-                    <number>12</number>
-                   </property>
-                   <property name="bottomMargin">
-                    <number>12</number>
-                   </property>
-                   <item>
-                    <layout class="QHBoxLayout" name="trajectoryHeaderLayout">
-                     <item>
-                      <widget class="QLabel" name="trajectoryTitleLabel">
-                       <property name="text">
-                        <string>三维轨迹</string>
-                       </property>
-                      </widget>
-                     </item>
-                     <item>
-                      <spacer name="trajectorySpacer">
-                       <property name="orientation">
-                        <enum>Qt::Orientation::Horizontal</enum>
-                       </property>
-                       <property name="sizeHint" stdset="0">
-                        <size>
-                         <width>40</width>
-                         <height>20</height>
-                        </size>
-                       </property>
-                      </spacer>
-                     </item>
-                     <item>
-                      <widget class="QPushButton" name="expandTrajectoryButton">
-                       <property name="text">
-                        <string>▲</string>
-                       </property>
-                      </widget>
-                     </item>
-                     <item>
-                      <widget class="QPushButton" name="collapseTrajectoryButton">
-                       <property name="text">
-                        <string>▼</string>
-                       </property>
-                      </widget>
-                     </item>
-                    </layout>
-                   </item>
-                   <item>
-                    <widget class="VideoOpenGLWidget" name="trajectoryViewFrame">
-                     <property name="sizePolicy">
-                      <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-                       <horstretch>0</horstretch>
-                       <verstretch>0</verstretch>
-                      </sizepolicy>
-                     </property>
-                    </widget>
-                   </item>
-                   <item>
-                    <widget class="QFrame" name="legendFrame">
-                     <layout class="QVBoxLayout" name="legendLayout">
-                      <property name="leftMargin">
-                       <number>10</number>
-                      </property>
-                      <property name="topMargin">
-                       <number>10</number>
-                      </property>
-                      <property name="rightMargin">
-                       <number>10</number>
-                      </property>
-                      <property name="bottomMargin">
-                       <number>10</number>
-                      </property>
-                      <item>
-                       <widget class="QLabel" name="legendTitleLabel">
-                        <property name="text">
-                         <string>图例说明</string>
-                        </property>
-                       </widget>
-                      </item>
-                      <item>
-                       <widget class="QLabel" name="legendContentLabel">
-                        <property name="text">
-                         <string>━━━━ 运动轨迹    ━━━━ 跑道内道线\n━━━━ 跑道外道线  ● 关键点(1-7)\n➜ 滑行方向        ● ● ● ● ● ● 运动员位置</string>
-                        </property>
-                       </widget>
-                      </item>
-                     </layout>
-                    </widget>
-                   </item>
-                  </layout>
+                 <widget class="VideoOpenGLWidget" name="trajectoryViewFrame">
+                  <property name="minimumSize">
+                   <size>
+                    <width>0</width>
+                    <height>100</height>
+                   </size>
+                  </property>
                  </widget>
                 </item>
                </layout>
-              </item>
-              <item>
-               <layout class="QVBoxLayout" name="rightLayout">
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item>
+           <widget class="QFrame" name="opsCard">
+            <property name="minimumSize">
+             <size>
+              <width>280</width>
+              <height>0</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>280</width>
+              <height>16777215</height>
+             </size>
+            </property>
+            <layout class="QVBoxLayout" name="opsLayout">
+             <property name="spacing">
+              <number>10</number>
+             </property>
+             <property name="leftMargin">
+              <number>16</number>
+             </property>
+             <property name="topMargin">
+              <number>14</number>
+             </property>
+             <property name="rightMargin">
+              <number>16</number>
+             </property>
+             <property name="bottomMargin">
+              <number>14</number>
+             </property>
+             <item>
+              <widget class="QLabel" name="athleteSectionLabel">
+               <property name="text">
+                <string>运动员</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QFrame" name="athleteInspector">
+               <property name="frameShape">
+                <enum>QFrame::NoFrame</enum>
+               </property>
+               <layout class="QVBoxLayout" name="athleteInspectorLayout">
                 <property name="spacing">
-                 <number>10</number>
+                 <number>6</number>
                 </property>
                 <property name="leftMargin">
                  <number>0</number>
@@ -688,169 +966,67 @@
                  <number>0</number>
                 </property>
                 <item>
-                 <widget class="QFrame" name="opsCard">
-                  <layout class="QVBoxLayout" name="opsLayout">
-                   <property name="spacing">
-                    <number>10</number>
-                   </property>
-                   <property name="leftMargin">
-                    <number>10</number>
-                   </property>
-                   <property name="topMargin">
-                    <number>12</number>
-                   </property>
-                   <property name="rightMargin">
-                    <number>10</number>
-                   </property>
-                   <property name="bottomMargin">
-                    <number>12</number>
-                   </property>
-                   <item>
-                    <widget class="QPushButton" name="startCaptureButton">
-                     <property name="text">
-                      <string>▶
-开始采集</string>
-                     </property>
-                    </widget>
-                   </item>
-                   <item>
-                    <widget class="QPushButton" name="pauseCaptureButton">
-                     <property name="text">
-                      <string>⏸
-暂停</string>
-                     </property>
-                    </widget>
-                   </item>
-                   <item>
-                    <widget class="QPushButton" name="stopCaptureButton">
-                     <property name="text">
-                      <string>⏹
-停止</string>
-                     </property>
-                    </widget>
-                   </item>
-                   <item>
-                    <widget class="QPushButton" name="saveRecordButton">
-                     <property name="text">
-                      <string>💾
-保存记录</string>
-                     </property>
-                    </widget>
-                   </item>
-                   <item>
-                    <widget class="QPushButton" name="settingsButton">
-                     <property name="text">
-                      <string>⚙
-系统设置</string>
-                     </property>
-                    </widget>
-                   </item>
-                  </layout>
+                 <widget class="QComboBox" name="athleteComboBox">
+                  <property name="minimumSize">
+                   <size>
+                    <width>0</width>
+                    <height>38</height>
+                   </size>
+                  </property>
                  </widget>
                 </item>
                 <item>
-                 <widget class="QFrame" name="settingsBox">
-                  <layout class="QVBoxLayout" name="settingsLayout">
-                   <property name="spacing">
-                    <number>8</number>
-                   </property>
-                   <property name="leftMargin">
-                    <number>10</number>
-                   </property>
-                   <property name="topMargin">
-                    <number>10</number>
-                   </property>
-                   <property name="rightMargin">
-                    <number>10</number>
-                   </property>
-                   <property name="bottomMargin">
-                    <number>10</number>
-                   </property>
-                   <item>
-                    <widget class="QLabel" name="precisionLabel">
-                     <property name="text">
-                      <string>模型精度</string>
-                     </property>
-                    </widget>
-                   </item>
-                   <item>
-                    <widget class="QComboBox" name="precisionComboBox" />
-                   </item>
-                   <item>
-                    <widget class="QLabel" name="fpsLabel">
-                     <property name="text">
-                      <string>帧率</string>
-                     </property>
-                    </widget>
-                   </item>
-                   <item>
-                    <widget class="QComboBox" name="fpsComboBox" />
-                   </item>
-                  </layout>
+                 <widget class="QLabel" name="athleteIdentityLabel">
+                  <property name="text">
+                   <string>身份 · 未识别</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLabel" name="athleteDetectionLabel">
+                  <property name="text">
+                   <string>检测 · 等待视频</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLabel" name="athleteSourceLabel">
+                  <property name="text">
+                   <string>来源 · 未选择</string>
+                  </property>
                  </widget>
                 </item>
                </layout>
-              </item>
-             </layout>
-            </item>
-            <item>
-             <widget class="QFrame" name="metricsCard">
-              <layout class="QVBoxLayout" name="metricsLayout">
-               <property name="spacing">
-                <number>8</number>
+              </widget>
+             </item>
+             <item>
+              <widget class="QScrollArea" name="inspectorScroll">
+               <property name="frameShape">
+                <enum>QFrame::NoFrame</enum>
                </property>
-               <property name="leftMargin">
-                <number>12</number>
+               <property name="widgetResizable">
+                <bool>true</bool>
                </property>
-               <property name="topMargin">
-                <number>12</number>
+               <property name="horizontalScrollBarPolicy">
+                <enum>Qt::ScrollBarAlwaysOff</enum>
                </property>
-               <property name="rightMargin">
-                <number>12</number>
-               </property>
-               <property name="bottomMargin">
-                <number>12</number>
-               </property>
-               <item alignment="Qt::AlignmentFlag::AlignLeft">
-                <widget class="QLabel" name="metricsTitleLabel">
-                 <property name="text">
-                  <string>训练状态统计</string>
+               <widget class="QWidget" name="inspectorContent">
+                <layout class="QVBoxLayout" name="inspectorContentLayout">
+                 <property name="spacing">
+                  <number>8</number>
                  </property>
-                </widget>
-               </item>
-               <item>
-                <layout class="QHBoxLayout" name="actionStatLayout">
-                 <item>
-                  <widget class="QLabel" name="actionLabel">
-                   <property name="text">
-                    <string>检测目标数</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <spacer name="actionSpacer">
-                   <property name="orientation">
-                    <enum>Qt::Orientation::Horizontal</enum>
-                   </property>
-                   <property name="sizeHint" stdset="0">
-                    <size>
-                     <width>40</width>
-                     <height>20</height>
-                    </size>
-                   </property>
-                  </spacer>
-                 </item>
-                 <item>
-                  <widget class="QLabel" name="actionValueLabel">
-                   <property name="text">
-                    <string>0</string>
-                   </property>
-                  </widget>
-                 </item>
-                </layout>
-               </item>
-               <item>
-                <layout class="QHBoxLayout" name="durationStatLayout">
+                 <property name="leftMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="topMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="rightMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="bottomMargin">
+                  <number>0</number>
+                 </property>
                  <item>
                   <widget class="QLabel" name="durationLabel">
                    <property name="text">
@@ -859,82 +1035,199 @@
                   </widget>
                  </item>
                  <item>
-                  <spacer name="durationSpacer">
-                   <property name="orientation">
-                    <enum>Qt::Orientation::Horizontal</enum>
-                   </property>
-                   <property name="sizeHint" stdset="0">
-                    <size>
-                     <width>40</width>
-                     <height>20</height>
-                    </size>
-                   </property>
-                  </spacer>
-                 </item>
-                 <item>
                   <widget class="QLabel" name="durationValueLabel">
                    <property name="text">
                     <string>00:00</string>
                    </property>
                   </widget>
                  </item>
-                </layout>
-               </item>
-               <item>
-                <layout class="QHBoxLayout" name="scoreStatLayout">
                  <item>
-                  <widget class="QLabel" name="scoreLabel">
+                  <widget class="QLabel" name="actionLabel">
                    <property name="text">
-                    <string>识别状态</string>
+                    <string>检测目标</string>
                    </property>
                   </widget>
                  </item>
                  <item>
-                  <spacer name="scoreSpacer">
-                   <property name="orientation">
-                    <enum>Qt::Orientation::Horizontal</enum>
-                   </property>
-                   <property name="sizeHint" stdset="0">
-                    <size>
-                     <width>40</width>
-                     <height>20</height>
-                    </size>
-                   </property>
-                  </spacer>
-                 </item>
-                 <item>
-                  <widget class="QLabel" name="scoreValueLabel">
+                  <widget class="QLabel" name="actionValueLabel">
                    <property name="text">
-                    <string>等待检测</string>
+                    <string>0</string>
                    </property>
                   </widget>
                  </item>
+                 <item>
+                  <widget class="QFrame" name="settingsBox">
+                   <property name="frameShape">
+                    <enum>QFrame::NoFrame</enum>
+                   </property>
+                   <property name="visible">
+                    <bool>false</bool>
+                   </property>
+                   <layout class="QVBoxLayout" name="settingsLayout">
+                    <property name="spacing">
+                     <number>8</number>
+                    </property>
+                    <property name="leftMargin">
+                     <number>0</number>
+                    </property>
+                    <property name="topMargin">
+                     <number>0</number>
+                    </property>
+                    <property name="rightMargin">
+                     <number>0</number>
+                    </property>
+                    <property name="bottomMargin">
+                     <number>0</number>
+                    </property>
+                    <item>
+                     <widget class="QLabel" name="settingsTitleLabel">
+                      <property name="text">
+                       <string>训练设置</string>
+                      </property>
+                     </widget>
+                    </item>
+                    <item>
+                     <widget class="QLabel" name="precisionLabel">
+                      <property name="text">
+                       <string>模型精度</string>
+                      </property>
+                     </widget>
+                    </item>
+                    <item>
+                     <widget class="QComboBox" name="precisionComboBox" />
+                    </item>
+                    <item>
+                     <widget class="QLabel" name="fpsLabel">
+                      <property name="text">
+                       <string>分析帧率</string>
+                      </property>
+                     </widget>
+                    </item>
+                    <item>
+                     <widget class="QComboBox" name="fpsComboBox" />
+                    </item>
+                   </layout>
+                  </widget>
+                 </item>
                 </layout>
-               </item>
+               </widget>
+              </widget>
+             </item>
+             <item>
+              <widget class="AnimatedButton" name="advancedSettingsButton">
+               <property name="text">
+                <string>训练设置</string>
+               </property>
+               <property name="role" stdset="0">
+                <string>ghost</string>
+               </property>
+               <property name="minimumSize">
+                <size>
+                 <width>0</width>
+                 <height>34</height>
+                </size>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="AnimatedButton" name="manualIdentityButton">
+               <property name="text">
+                <string>人工身份绑定</string>
+               </property>
+               <property name="role" stdset="0">
+                <string>ghost</string>
+               </property>
+               <property name="minimumSize">
+                <size>
+                 <width>0</width>
+                 <height>32</height>
+                </size>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="AnimatedButton" name="startCaptureButton">
+               <property name="text">
+                <string>开始训练</string>
+               </property>
+               <property name="variant" stdset="0">
+                <string>primary</string>
+               </property>
+               <property name="minimumSize">
+                <size>
+                 <width>0</width>
+                 <height>42</height>
+                </size>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <layout class="QHBoxLayout" name="controlRow">
+               <property name="spacing">
+                <number>8</number>
+               </property>
                <item>
-                <widget class="QLabel" name="saveTipLabel">
+                <widget class="AnimatedButton" name="pauseCaptureButton">
                  <property name="text">
-                  <string />
+                  <string>暂停</string>
+                 </property>
+                 <property name="variant" stdset="0">
+                  <string>secondary</string>
+                 </property>
+                 <property name="minimumSize">
+                  <size>
+                   <width>0</width>
+                   <height>36</height>
+                  </size>
                  </property>
                 </widget>
                </item>
                <item>
-                <widget class="QProgressBar" name="scoreProgressBar">
-                 <property name="maximum">
-                  <number>100</number>
+                <widget class="AnimatedButton" name="stopCaptureButton">
+                 <property name="text">
+                  <string>停止</string>
                  </property>
-                 <property name="value">
-                  <number>90</number>
+                 <property name="variant" stdset="0">
+                  <string>danger</string>
                  </property>
-                 <property name="textVisible">
-                  <bool>false</bool>
+                 <property name="minimumSize">
+                  <size>
+                   <width>0</width>
+                   <height>36</height>
+                  </size>
                  </property>
                 </widget>
                </item>
               </layout>
-             </widget>
-            </item>
-           </layout>
+             </item>
+             <item>
+              <widget class="AnimatedButton" name="saveRecordButton">
+               <property name="text">
+                <string>保存训练记录</string>
+               </property>
+               <property name="role" stdset="0">
+                <string>secondary</string>
+               </property>
+               <property name="minimumSize">
+                <size>
+                 <width>0</width>
+                 <height>34</height>
+                </size>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="saveTipLabel">
+               <property name="text">
+                <string />
+               </property>
+               <property name="wordWrap">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
           </item>
          </layout>
         </widget>
@@ -953,20 +1246,45 @@
            <number>0</number>
           </property>
           <property name="bottomMargin">
-           <number>0</number>
+           <number>16</number>
           </property>
           <item>
-           <layout class="QGridLayout" name="summaryGridLayout">
-            <property name="spacing">
-             <number>12</number>
+           <widget class="QLabel" name="historyTitleLabel">
+            <property name="text">
+             <string>历史复盘</string>
             </property>
-            <item row="0" column="0">
+           </widget>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="summaryGridLayout">
+            <property name="spacing">
+             <number>10</number>
+            </property>
+            <item>
              <widget class="QFrame" name="summarySessionsCard">
+              <property name="frameShape">
+               <enum>QFrame::NoFrame</enum>
+              </property>
               <layout class="QVBoxLayout" name="summarySessionsLayout">
+               <property name="spacing">
+                <number>2</number>
+               </property>
+               <property name="leftMargin">
+                <number>12</number>
+               </property>
+               <property name="topMargin">
+                <number>10</number>
+               </property>
+               <property name="rightMargin">
+                <number>12</number>
+               </property>
+               <property name="bottomMargin">
+                <number>10</number>
+               </property>
                <item>
                 <widget class="QLabel" name="summarySessionsLabel">
                  <property name="text">
-                  <string>训练次数</string>
+                  <string>训练场次</string>
                  </property>
                 </widget>
                </item>
@@ -980,13 +1298,31 @@
               </layout>
              </widget>
             </item>
-            <item row="0" column="1">
+            <item>
              <widget class="QFrame" name="summaryActionsCard">
+              <property name="frameShape">
+               <enum>QFrame::NoFrame</enum>
+              </property>
               <layout class="QVBoxLayout" name="summaryActionsLayout">
+               <property name="spacing">
+                <number>2</number>
+               </property>
+               <property name="leftMargin">
+                <number>12</number>
+               </property>
+               <property name="topMargin">
+                <number>10</number>
+               </property>
+               <property name="rightMargin">
+                <number>12</number>
+               </property>
+               <property name="bottomMargin">
+                <number>10</number>
+               </property>
                <item>
                 <widget class="QLabel" name="summaryActionsLabel">
                  <property name="text">
-                  <string>检测结果数</string>
+                  <string>动作数量</string>
                  </property>
                 </widget>
                </item>
@@ -1000,9 +1336,27 @@
               </layout>
              </widget>
             </item>
-            <item row="0" column="2">
+            <item>
              <widget class="QFrame" name="summaryAvgCard">
+              <property name="frameShape">
+               <enum>QFrame::NoFrame</enum>
+              </property>
               <layout class="QVBoxLayout" name="summaryAvgLayout">
+               <property name="spacing">
+                <number>2</number>
+               </property>
+               <property name="leftMargin">
+                <number>12</number>
+               </property>
+               <property name="topMargin">
+                <number>10</number>
+               </property>
+               <property name="rightMargin">
+                <number>12</number>
+               </property>
+               <property name="bottomMargin">
+                <number>10</number>
+               </property>
                <item>
                 <widget class="QLabel" name="summaryAvgLabel">
                  <property name="text">
@@ -1020,13 +1374,31 @@
               </layout>
              </widget>
             </item>
-            <item row="0" column="3">
+            <item>
              <widget class="QFrame" name="summaryBestCard">
+              <property name="frameShape">
+               <enum>QFrame::NoFrame</enum>
+              </property>
               <layout class="QVBoxLayout" name="summaryBestLayout">
+               <property name="spacing">
+                <number>2</number>
+               </property>
+               <property name="leftMargin">
+                <number>12</number>
+               </property>
+               <property name="topMargin">
+                <number>10</number>
+               </property>
+               <property name="rightMargin">
+                <number>12</number>
+               </property>
+               <property name="bottomMargin">
+                <number>10</number>
+               </property>
                <item>
                 <widget class="QLabel" name="summaryBestLabel">
                  <property name="text">
-                  <string>最佳分数</string>
+                  <string>最佳分</string>
                  </property>
                 </widget>
                </item>
@@ -1043,36 +1415,20 @@
            </layout>
           </item>
           <item>
-           <layout class="QVBoxLayout" name="historyListLayout">
-            <property name="spacing">
-             <number>10</number>
-            </property>
-            <property name="leftMargin">
-             <number>0</number>
-            </property>
-            <property name="topMargin">
-             <number>0</number>
-            </property>
-            <property name="rightMargin">
-             <number>0</number>
-            </property>
-            <property name="bottomMargin">
-             <number>0</number>
-            </property>
-           </layout>
-          </item>
-          <item>
            <spacer name="historySpacer">
             <property name="orientation">
-             <enum>Qt::Orientation::Vertical</enum>
+             <enum>Qt::Vertical</enum>
             </property>
             <property name="sizeHint" stdset="0">
              <size>
               <width>20</width>
-              <height>40</height>
+              <height>20</height>
              </size>
             </property>
            </spacer>
+          </item>
+          <item>
+           <layout class="QVBoxLayout" name="historyListLayout" />
           </item>
          </layout>
         </widget>
@@ -1091,53 +1447,37 @@
            <number>0</number>
           </property>
           <property name="bottomMargin">
-           <number>0</number>
+           <number>16</number>
           </property>
           <item>
            <widget class="QLabel" name="suggestionTitleLabel">
             <property name="text">
-             <string>身份识别与训练记录</string>
+             <string>动作建议</string>
             </property>
            </widget>
           </item>
           <item>
            <widget class="QLabel" name="suggestionSubtitleLabel">
             <property name="text">
-             <string>当前版本不提供姿态评分和自动动作计数</string>
+             <string>基于历史训练记录整理的复盘建议</string>
             </property>
            </widget>
           </item>
           <item>
-           <layout class="QVBoxLayout" name="suggestionListLayout">
-            <property name="spacing">
-             <number>10</number>
-            </property>
-            <property name="leftMargin">
-             <number>0</number>
-            </property>
-            <property name="topMargin">
-             <number>0</number>
-            </property>
-            <property name="rightMargin">
-             <number>0</number>
-            </property>
-            <property name="bottomMargin">
-             <number>0</number>
-            </property>
-           </layout>
-          </item>
-          <item>
            <spacer name="suggestionSpacer">
             <property name="orientation">
-             <enum>Qt::Orientation::Vertical</enum>
+             <enum>Qt::Vertical</enum>
             </property>
             <property name="sizeHint" stdset="0">
              <size>
               <width>20</width>
-              <height>40</height>
+              <height>20</height>
              </size>
             </property>
            </spacer>
+          </item>
+          <item>
+           <layout class="QVBoxLayout" name="suggestionListLayout" />
           </item>
          </layout>
         </widget>
@@ -1152,14 +1492,19 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1826</width>
-     <height>33</height>
+     <width>1600</width>
+     <height>22</height>
     </rect>
    </property>
   </widget>
   <widget class="QStatusBar" name="statusbar" />
  </widget>
  <customwidgets>
+  <customwidget>
+   <class>AnimatedButton</class>
+   <extends>QPushButton</extends>
+   <header>animatedbutton.h</header>
+  </customwidget>
   <customwidget>
    <class>VideoOpenGLWidget</class>
    <extends>QWidget</extends>

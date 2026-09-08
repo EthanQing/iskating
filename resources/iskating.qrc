@@ -16,5 +16,13 @@
         <file alias="stop.svg">icons/stop.svg</file>
         <file alias="suspend.svg">icons/suspend.svg</file>
         <file alias="video.svg">icons/video.svg</file>
+        <file alias="live.svg">icons/live.svg</file>
+        <file alias="history.svg">icons/history.svg</file>
+        <file alias="suggestion.svg">icons/suggestion.svg</file>
+        <file alias="person.svg">icons/person.svg</file>
+        <file alias="competition.svg">icons/competition.svg</file>
+        <file alias="chevron-down.svg">icons/chevron-down.svg</file>
+        <file alias="chevron-up.svg">icons/chevron-up.svg</file>
+        <file alias="check.svg">icons/check.svg</file>
     </qresource>
 </RCC>

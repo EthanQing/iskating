@@ -23,9 +23,11 @@ Windows Qt 客户端负责：
 
 ### ui
 
-- `mainwindow.ui`：稳定基础布局。
+- `mainwindow.ui`：应用侧栏、轻量上下文页头和实时训练工作区；历史/建议保留现有业务入口。
 - `mainwindow.cpp/.h`：集中式业务编排、采集状态、保存、历史、报告和建议。
-- `videoopenglwidget.*`：视频控件与叠加层 UI。
+- `animatedbutton.*`：按钮背景、描边、文字/图标颜色的轻量动画，以及侧栏文字淡出；沿用 QPushButton 的点击和键盘语义。
+- `videoopenglwidget.*`：视频控件与叠加层 UI；视频源模式支持单击、键盘选择、选中状态及播放控制菜单。
+- `resources/styles/iskating.qss`：全局语义颜色、输入控件、菜单、对话框、滚动条和状态样式；动画按钮的过渡由 C++ 绘制。
 - `systemsettingsdialog.*`：RTSP、12 路机位、四点标定、AI 策略、存储和连通测试。
 - `personmanagementdialog.*`：运动员/教练/ReID 样本。
 - `trainingreviewdialog.*`：旧动作数据复核和回放。
@@ -53,6 +55,14 @@ Windows Qt 客户端负责：
 - `AnalysisTaskManager` 在独立线程中创建独立 Repository，按 FIFO 单并发执行。
 - `TrainingRepository` API 是同步请求；新增调用必须避免在 UI 线程形成长时间批量阻塞。
 - 应用重启后任务状态可恢复展示，但未重建 job 参数，`resumeTask()` 不能继续这些恢复任务。
+
+## 实时训练界面
+
+- 侧栏展开/折叠宽度为 216/68px，宽度和文字透明度同时过渡；折叠后保留导航图标。
+- 主视频继续使用真实 `VideoOpenGLWidget`，下方 12 路视频源以横向滚动带排列；二维轨迹独立位于下方。
+- 右侧检查器宽度固定为 280px，集中展示运动员、识别状态和训练操作。模型精度、分析 FPS 和训练上下文在默认收起的训练设置中。
+- 不再在实时页面展示旧评分或历史汇总卡片；动作标准和目标字段保留为训练保存协议的兼容元数据。
+- D3D 视频使用原生子窗口，页面切换不能直接对其父容器应用透明度效果；当前过渡使用独立覆盖层。
 
 ## QSettings 边界
 

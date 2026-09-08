@@ -23,8 +23,9 @@ class QLineEdit;
 class QSpinBox;
 class QPlainTextEdit;
 class QEvent;
-class QProgressBar;
 class QPushButton;
+class QScrollArea;
+class QVariantAnimation;
 class QVBoxLayout;
 class VideoOpenGLWidget;
 class TrajectoryWidget;
@@ -51,10 +52,8 @@ protected:
 private:
     void setupUiState();
     void setupConnections();
-    void installMetricBars();
     void installTrainingContextPanel();
     void installHistorySearchPanel();
-    void installStaticImages();
     void applyStyleSheet();
     void loadCameraSettings();
     void saveCameraSettings();
@@ -118,6 +117,7 @@ private:
     void refreshNavButtons();
     void refreshCameraButtons();
     void refreshStats();
+    void showTrajectorySnapshot();
     void refreshHistory();
     void refreshSuggestions();
     void openSessionVideo(const SessionHistoryItem &record,
@@ -151,8 +151,6 @@ private:
     QVector<QPushButton *> m_navButtons;
     QVector<VideoOpenGLWidget *> m_cameraButtons;
     QVector<QLabel *> m_summaryValues;
-    QVector<QProgressBar *> m_metricBars;
-    QVector<QLabel *> m_metricValueLabels;
     QPushButton *m_fullScreenButton = nullptr;
     QPushButton *m_importVideoButton = nullptr;
     QPushButton *m_fullRateAnalysisButton = nullptr;
@@ -177,6 +175,9 @@ private:
     QPlainTextEdit *m_trainingNotesEdit = nullptr;
     QLabel *m_standardDetailLabel = nullptr;
     QLabel *m_trainingTargetLabel = nullptr;
+    QLabel *m_trainingStateLabel = nullptr;
+    QLabel *m_speedStatusLabel = nullptr;
+    QScrollArea *m_saveTipScrollArea = nullptr;
     QWidget *m_historySearchPanel = nullptr;
     QComboBox *m_historyAthleteComboBox = nullptr;
     QComboBox *m_historyCoachComboBox = nullptr;
@@ -197,6 +198,7 @@ private:
     QPushButton *m_historyNextPageButton = nullptr;
 
     QTimer m_timer;
+    QTimer m_statusTimer;
     QTimer m_analysisOverlayTimer;
     QVector<SessionHistoryItem> m_records;
     QVector<AthleteProfile> m_athletes;
@@ -211,6 +213,7 @@ private:
     QHash<QString, TrackPoint> m_latestTrackPoints;
     TrajectoryWidget *m_trajectoryWidget = nullptr;
     AthleteFrameResult m_lastAthleteFrame;
+    qint64 m_lastSelectedFrameReceivedAtMsec = 0;
     QVector<AthleteIdentityBinding> m_manualIdentityBindings;
     QString m_lastSavedAt;
     int m_historyPageNumber = 1;
@@ -219,14 +222,9 @@ private:
 
     int m_activePage = 0;
     bool m_sidebarVisible = true;
-    bool m_sidebarMetricsCaptured = false;
-    QMargins m_sidebarLayoutMargins;
-    int m_sidebarLayoutSpacing = 10;
-    int m_sidebarNormalMinimumWidth = 0;
-    int m_sidebarNormalMaximumWidth = QWIDGETSIZE_MAX;
-    int m_middleLayoutNormalSpacing = 14;
-    int m_middleLayoutNormalStretch0 = 0;
-    int m_middleLayoutNormalStretch1 = 0;
+    QVariantAnimation *m_sidebarAnimation = nullptr;
+    QVariantAnimation *m_settingsAnimation = nullptr;
+    bool m_settingsExpanded = false;
     int m_cameraGridNormalSpacing = 10;
     int m_selectedCamera = 1;
     bool m_isRecording = false;

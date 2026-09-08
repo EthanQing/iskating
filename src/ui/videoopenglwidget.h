@@ -11,12 +11,15 @@
 #include <memory>
 
 class QEnterEvent;
+class QContextMenuEvent;
 class QEvent;
+class QKeyEvent;
 class QLabel;
 class QMouseEvent;
 class QPaintEvent;
 class QToolButton;
 class QTimer;
+class QVariantAnimation;
 class D3DVideoSurface;
 class RtspStream;
 
@@ -63,6 +66,12 @@ public:
     void playMainUrlWithFallback(const QString &mainUrl, const QString &fallbackUrl);
     std::shared_ptr<RtspStream> activeStream() const;
     void setAthleteFrame(const AthleteFrameResult &frame);
+    void setSourceTile(bool enabled);
+    bool isSourceTile() const;
+    void setSelected(bool selected);
+    bool isSelected() const;
+    void setClickHandler(std::function<void(VideoOpenGLWidget *)> handler);
+    QString sourceState() const;
     void setDoubleClickHandler(std::function<void(VideoOpenGLWidget *)> handler);
     void setConfigChangedHandler(std::function<void(VideoOpenGLWidget *)> handler);
     void setStreamChangedHandler(std::function<void(VideoOpenGLWidget *)> handler);
@@ -72,6 +81,11 @@ protected:
     void enterEvent(QEnterEvent *event) override;
     void leaveEvent(QEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
+    void keyReleaseEvent(QKeyEvent *event) override;
+    void contextMenuEvent(QContextMenuEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
     void mouseDoubleClickEvent(QMouseEvent *event) override;
 
 private:
@@ -82,11 +96,18 @@ private:
     void notifyStreamChanged();
     void refreshVideoFrame();
     void refreshAthleteLabels();
+    void layoutVideoSurface();
+    void animateTile(qreal target, int duration);
+    QString cameraDisplayName() const;
 
     bool m_playing = false;
     bool m_placeholderIconVisible = true;
     bool m_overlayControlsVisible = false;
     bool m_configButtonVisible = true;
+    bool m_sourceTile = false;
+    bool m_selected = false;
+    qreal m_tileHoverProgress = 0.0;
+    qreal m_tilePressProgress = 0.0;
     QString m_placeholderText;
     QString m_channelName;
     QString m_streamIp;
@@ -102,6 +123,8 @@ private:
     QSvgRenderer m_placeholderRenderer;
     D3DVideoSurface *m_videoSurface = nullptr;
     QTimer *m_renderTimer = nullptr;
+    QVariantAnimation *m_tileHoverAnimation = nullptr;
+    QVariantAnimation *m_tilePressAnimation = nullptr;
     std::shared_ptr<RtspStream> m_stream;
     QToolButton *m_playButton = nullptr;
     QToolButton *m_pauseButton = nullptr;
@@ -110,6 +133,7 @@ private:
     QVector<QLabel *> m_athleteLabels;
     AthleteFrameResult m_athleteFrame;
     std::function<void(VideoOpenGLWidget *)> m_doubleClickHandler;
+    std::function<void(VideoOpenGLWidget *)> m_clickHandler;
     std::function<void(VideoOpenGLWidget *)> m_configChangedHandler;
     std::function<void(VideoOpenGLWidget *)> m_streamChangedHandler;
 };
