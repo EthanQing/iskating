@@ -192,10 +192,6 @@ void CompetitionManagementDialog::buildUi()
     m_competitionTable = new QTableWidget(0, 1, m_competitionStack);
     m_competitionTable->setObjectName(QStringLiteral("competitionTable"));
     configureTable(m_competitionTable);
-    m_competitionTable->setStyleSheet(QStringLiteral(
-        "QTableWidget#competitionTable::item:selected {"
-        " background-color: #1D3042; color: #F4F7FA;"
-        " border-left: 3px solid #38BDF8; }"));
     m_competitionTable->horizontalHeader()->hide();
     m_competitionTable->verticalHeader()->setDefaultSectionSize(68);
     m_competitionTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
@@ -290,6 +286,7 @@ void CompetitionManagementDialog::buildUi()
         emptyState(QStringLiteral("暂无比赛场次"), {}, &m_emptyEventButton, QStringLiteral("新增场次"), m_eventStack));
     eventBodyLayout->addWidget(m_eventStack, 43);
     auto *eventDetail = new QWidget(eventBody);
+    m_eventDetail = eventDetail;
     auto *eventDetailLayout = new QVBoxLayout(eventDetail);
     eventDetailLayout->setContentsMargins(0, 0, 0, 0);
     eventDetailLayout->setSpacing(7);
@@ -448,8 +445,14 @@ void CompetitionManagementDialog::reloadCompetitions(const QString &selectedId)
         m_athletes = m_repository->athletes();
     }
     applyCompetitionFilter();
+    if (m_competitionTable->rowCount() == 0 && !m_competitions.isEmpty())
+    {
+        const QSignalBlocker blocker(m_searchEdit);
+        m_searchEdit->clear();
+        applyCompetitionFilter();
+    }
     int row = competitionRowForId(selectedId);
-    if (row < 0 && selectedId.isEmpty() && !m_competitions.isEmpty())
+    if (row < 0 && m_competitionTable->rowCount() > 0)
         row = 0;
     if (row >= 0)
     {
@@ -542,7 +545,9 @@ void CompetitionManagementDialog::reloadEvents(const QString &selectedId)
     }
     m_eventCount->setText(QStringLiteral("共 %1 个场次").arg(m_events.size()));
     m_eventStack->setCurrentIndex(m_events.isEmpty() ? 1 : 0);
-    const int row = eventRowForId(selectedId);
+    int row = eventRowForId(selectedId);
+    if (row < 0 && !m_events.isEmpty())
+        row = 0;
     if (row >= 0)
     {
         m_eventTable->setCurrentCell(row, 0);
@@ -554,6 +559,7 @@ void CompetitionManagementDialog::reloadEvents(const QString &selectedId)
 
 void CompetitionManagementDialog::selectEvent(int row)
 {
+    m_creatingEvent = false;
     CompetitionEvent selected;
     if (row >= 0 && row < m_events.size())
         selected = m_events.at(row);
@@ -587,7 +593,9 @@ void CompetitionManagementDialog::reloadEventAthletes(const QString &selectedId)
     }
     m_eventAthleteCount->setText(QStringLiteral("共 %1 人").arg(m_eventAthletes.size()));
     m_eventAthleteStack->setCurrentIndex(m_eventAthletes.isEmpty() ? 1 : 0);
-    const int row = eventAthleteRowForId(selectedId);
+    int row = eventAthleteRowForId(selectedId);
+    if (row < 0 && !m_eventAthletes.isEmpty())
+        row = 0;
     if (row >= 0)
     {
         m_eventAthleteTable->setCurrentCell(row, 0);
@@ -599,6 +607,7 @@ void CompetitionManagementDialog::reloadEventAthletes(const QString &selectedId)
 
 void CompetitionManagementDialog::selectEventAthlete(int row)
 {
+    m_creatingEventAthlete = false;
     EventAthlete selected;
     if (row >= 0 && row < m_eventAthletes.size())
         selected = m_eventAthletes.at(row);
@@ -632,6 +641,7 @@ void CompetitionManagementDialog::newEvent()
         m_eventTable->setCurrentCell(-1, -1);
     }
     m_currentEventId.clear();
+    m_creatingEvent = true;
     CompetitionEvent event;
     event.competitionId = m_currentCompetitionId;
     setEventForm(event);
@@ -651,6 +661,7 @@ void CompetitionManagementDialog::newEventAthlete()
         m_eventAthleteTable->setCurrentCell(-1, -1);
     }
     m_currentEventAthleteId.clear();
+    m_creatingEventAthlete = true;
     EventAthlete entry;
     entry.eventId = m_currentEventId;
     setEventAthleteForm(entry);
@@ -674,7 +685,7 @@ void CompetitionManagementDialog::setCompetitionForm(const Competition &competit
 
 void CompetitionManagementDialog::setEventForm(const CompetitionEvent &event)
 {
-    m_eventTitle->setText(event.id.isEmpty() ? QStringLiteral("新增场次") : QStringLiteral("场次详情"));
+    m_eventTitle->setText(m_creatingEvent ? QStringLiteral("新增场次") : QStringLiteral("场次详情"));
     m_raceEdit->setText(event.raceName);
     m_eventNameEdit->setText(event.eventName);
     m_groupEdit->setText(event.groupName);
@@ -766,7 +777,8 @@ void CompetitionManagementDialog::saveCompetition()
 
 void CompetitionManagementDialog::saveEvent()
 {
-    if (!m_repository || !m_repository->isOpen() || m_currentCompetitionId.isEmpty())
+    if (!m_repository || !m_repository->isOpen() || m_currentCompetitionId.isEmpty() ||
+        (m_currentEventId.isEmpty() && !m_creatingEvent))
         return;
     CompetitionEvent event;
     for (const CompetitionEvent &value : std::as_const(m_events))
@@ -803,7 +815,8 @@ void CompetitionManagementDialog::saveEvent()
 
 void CompetitionManagementDialog::saveEventAthlete()
 {
-    if (!m_repository || !m_repository->isOpen() || m_currentEventId.isEmpty())
+    if (!m_repository || !m_repository->isOpen() || m_currentEventId.isEmpty() ||
+        (m_currentEventAthleteId.isEmpty() && !m_creatingEventAthlete))
         return;
     EventAthlete entry;
     for (const EventAthlete &value : std::as_const(m_eventAthletes))
@@ -911,6 +924,8 @@ void CompetitionManagementDialog::updateAvailability()
     const bool hasCompetition = !m_currentCompetitionId.isEmpty();
     const bool hasEvent = !m_currentEventId.isEmpty();
     const bool hasEntry = !m_currentEventAthleteId.isEmpty();
+    const bool editEvent = hasCompetition && (hasEvent || m_creatingEvent);
+    const bool editEntry = hasEvent && (hasEntry || m_creatingEventAthlete);
     m_serviceWarning->setVisible(!available);
     m_searchEdit->setEnabled(available);
     m_newCompetitionButton->setEnabled(available);
@@ -922,15 +937,17 @@ void CompetitionManagementDialog::updateAvailability()
     m_eventBody->setVisible(hasCompetition);
     m_newEventButton->setEnabled(available && hasCompetition);
     m_emptyEventButton->setEnabled(available && hasCompetition);
-    m_eventEditors->setEnabled(available && hasCompetition);
-    m_saveEventButton->setEnabled(available && hasCompetition);
+    m_eventDetail->setVisible(editEvent);
+    m_eventEditors->setEnabled(available && editEvent);
+    m_saveEventButton->setEnabled(available && editEvent);
     m_archiveEventButton->setEnabled(available && hasEvent);
     m_athleteParentHint->setVisible(!hasEvent);
     m_athleteBody->setVisible(hasEvent);
     m_newEventAthleteButton->setEnabled(available && hasEvent);
     m_emptyEventAthleteButton->setEnabled(available && hasEvent);
-    m_eventAthleteEditors->setEnabled(available && hasEvent);
-    m_saveEventAthleteButton->setEnabled(available && hasEvent && m_athleteCombo->count() > 0);
+    m_eventAthleteEditors->setVisible(editEntry);
+    m_eventAthleteEditors->setEnabled(available && editEntry);
+    m_saveEventAthleteButton->setEnabled(available && editEntry && m_athleteCombo->count() > 0);
     m_removeEventAthleteButton->setEnabled(available && hasEntry);
 }
 

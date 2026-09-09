@@ -57,6 +57,8 @@ class CompetitionManagementDialog : public FramelessDialog
 
     TrainingRepository *m_repository = nullptr;
     bool m_changed = false;
+    bool m_creatingEvent = false;
+    bool m_creatingEventAthlete = false;
     QVector<Competition> m_competitions;
     QVector<CompetitionEvent> m_events;
     QVector<EventAthlete> m_eventAthletes;
@@ -94,6 +96,7 @@ class CompetitionManagementDialog : public FramelessDialog
     QPushButton *m_newEventButton = nullptr;
     QPushButton *m_emptyEventButton = nullptr;
     QLabel *m_eventTitle = nullptr;
+    QWidget *m_eventDetail = nullptr;
     QWidget *m_eventEditors = nullptr;
     QLineEdit *m_raceEdit = nullptr;
     QLineEdit *m_eventNameEdit = nullptr;

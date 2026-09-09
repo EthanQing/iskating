@@ -756,6 +756,11 @@ QDialog#framelessDialog QWidget#settingsBody QTableWidget {
     alternate-background-color: #16212E;
     gridline-color: #243244;
 }
+QTableWidget#competitionTable::item:selected {
+    background-color: #1D3042;
+    color: #F4F7FA;
+    border-left: 3px solid #38BDF8;
+}
 QDialog#framelessDialog QWidget#settingsBody QHeaderView::section {
     min-height: 34px;
     padding: 4px 7px;
