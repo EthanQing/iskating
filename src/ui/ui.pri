@@ -1,6 +1,7 @@
 SOURCES += \
     $$SRC_ROOT/ui/analysistaskcenterdialog.cpp \
     $$SRC_ROOT/ui/animatedbutton.cpp \
+    $$SRC_ROOT/ui/competitionmanagementdialog.cpp \
     $$SRC_ROOT/ui/framelessdialog.cpp \
     $$SRC_ROOT/ui/iconutils.cpp \
     $$SRC_ROOT/ui/mainwindow.cpp \
@@ -14,6 +15,7 @@ SOURCES += \
 HEADERS += \
     $$SRC_ROOT/ui/analysistaskcenterdialog.h \
     $$SRC_ROOT/ui/animatedbutton.h \
+    $$SRC_ROOT/ui/competitionmanagementdialog.h \
     $$SRC_ROOT/ui/framelessdialog.h \
     $$SRC_ROOT/ui/iconutils.h \
     $$SRC_ROOT/ui/mainwindow.h \
