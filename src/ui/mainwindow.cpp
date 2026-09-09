@@ -2039,7 +2039,7 @@ void MainWindow::rebuildWorkspaceLayout()
     ui->leftCardLayout->removeWidget(ui->trajectoryCard);
     m_cameraTrajectoryRow = new QWidget(ui->leftCard);
     m_cameraTrajectoryRow->setObjectName(QStringLiteral("cameraTrajectoryRow"));
-    m_cameraTrajectoryRow->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    m_cameraTrajectoryRow->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_cameraTrajectoryRow->installEventFilter(this);
     m_cameraTrajectoryLayout = new QHBoxLayout(m_cameraTrajectoryRow);
     m_cameraTrajectoryLayout->setContentsMargins(0, 0, 0, 0);
@@ -2047,19 +2047,18 @@ void MainWindow::rebuildWorkspaceLayout()
 
     m_cameraGridContainer = new QWidget(m_cameraTrajectoryRow);
     m_cameraGridContainer->setObjectName(QStringLiteral("cameraGridContainer"));
-    m_cameraGridContainer->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    m_cameraGridContainer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     m_cameraGridContainer->installEventFilter(this);
     m_cameraGridLayout = new QGridLayout(m_cameraGridContainer);
     m_cameraGridLayout->setContentsMargins(0, 0, 0, 0);
     m_cameraGridLayout->setHorizontalSpacing(8);
     m_cameraGridLayout->setVerticalSpacing(8);
-    m_cameraGridLayout->setAlignment(Qt::AlignHCenter | Qt::AlignVCenter);
     m_cameraTrajectoryLayout->addWidget(m_cameraGridContainer, 1);
     ui->trajectoryCard->setParent(m_cameraTrajectoryRow);
-    ui->trajectoryCard->setMinimumWidth(340);
-    ui->trajectoryCard->setMaximumWidth(380);
+    ui->trajectoryCard->setMinimumWidth(260);
+    ui->trajectoryCard->setMaximumWidth(360);
     ui->trajectoryCard->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
-    m_cameraTrajectoryLayout->addWidget(ui->trajectoryCard);
+    m_cameraTrajectoryLayout->addWidget(ui->trajectoryCard, 0);
     ui->trajectoryCard->show();
     ui->leftCardLayout->insertWidget(std::max(0, cameraAreaIndex), m_cameraTrajectoryRow);
 
@@ -2231,7 +2230,7 @@ void MainWindow::updateCameraGrid()
     }
     if (m_cameraTrajectoryRow) {
         const int rowWidth = m_cameraTrajectoryRow->contentsRect().width();
-        const int trajectoryWidth = std::clamp(qRound(rowWidth * 0.28), 340, 380);
+        const int trajectoryWidth = std::clamp(qRound(rowWidth * 0.25), 260, 360);
         if (ui->trajectoryCard->width() != trajectoryWidth) {
             ui->trajectoryCard->setFixedWidth(trajectoryWidth);
         }
@@ -2239,12 +2238,11 @@ void MainWindow::updateCameraGrid()
     const QMargins margins = ui->leftCardLayout->contentsMargins();
     const int layoutSpacing = ui->leftCardLayout->spacing()
                               * std::max(0, ui->leftCardLayout->count() - 1);
-    const int remainingHeight = std::max(0, ui->leftCard->height()
-        - margins.top() - margins.bottom() - layoutSpacing
-        - ui->mainImageLabel->minimumHeight());
-    // 两种列数都限制网格高度，为主视频保留空间。
-    const int preferredHeight = ui->leftCard->height() * 35 / 100;
-    const int heightLimit = std::min(preferredHeight, remainingHeight);
+    const int availableHeight = std::max(0, ui->leftCard->height()
+        - margins.top() - margins.bottom() - layoutSpacing);
+    // 优先容纳按宽度计算的画面高度，同时让主视频至少比下半区高 64px。
+    const int heightLimit = std::max(0, std::min(availableHeight - ui->mainImageLabel->minimumHeight(),
+                                               (availableHeight - 64) / 2));
     const int gridWidth = m_cameraGridContainer->contentsRect().width();
     int columns = 4;
     // 最大化和全屏始终三行；普通矮窗口才退回两行，并保留可读的画面宽度。
@@ -2253,17 +2251,19 @@ void MainWindow::updateCameraGrid()
         columns = 6;
     }
     const int rows = (m_cameraButtons.size() + columns - 1) / columns;
-    const int availableWidth = std::max(0, gridWidth - (columns - 1) * 8);
-    int tileWidth = columns > 0 ? availableWidth / columns : 0;
-    const int maxTileHeight = std::max(0, heightLimit - (rows - 1) * 8)
+    const QMargins gridMargins = m_cameraGridLayout->contentsMargins();
+    const int columnSpacing = m_cameraGridLayout->horizontalSpacing();
+    const int rowSpacing = m_cameraGridLayout->verticalSpacing();
+    const int availableWidth = std::max(0, gridWidth - gridMargins.left() - gridMargins.right()
+                                           - (columns - 1) * columnSpacing);
+    const int tileWidth = columns > 0 ? availableWidth / columns : 0;
+    const int maxTileHeight = std::max(0, heightLimit - gridMargins.top() - gridMargins.bottom()
+                                           - (rows - 1) * rowSpacing)
                                / std::max(1, rows);
-    int tileHeight = qRound(tileWidth * 9.0 / 16.0);
-    if (tileHeight > maxTileHeight) {
-        tileWidth = std::min(tileWidth, maxTileHeight * 16 / 9);
-        tileHeight = qRound(tileWidth * 9.0 / 16.0);
-    }
+    const int tileHeight = std::min(qRound(tileWidth * 9.0 / 16.0), maxTileHeight);
     const QSize tileSize(tileWidth, tileHeight);
-    const int naturalGridHeight = rows * tileHeight + std::max(0, rows - 1) * 8;
+    const int naturalGridHeight = rows * tileHeight + std::max(0, rows - 1) * rowSpacing
+                                  + gridMargins.top() + gridMargins.bottom();
     const int rowHeight = std::min(std::max(naturalGridHeight, 210), heightLimit);
     if (m_cameraTrajectoryRow && (m_cameraTrajectoryRow->minimumHeight() != rowHeight
                                   || m_cameraTrajectoryRow->maximumHeight() != rowHeight)) {
@@ -2283,6 +2283,9 @@ void MainWindow::updateCameraGrid()
         for (int row = 0; row < 3; ++row) {
             m_cameraGridLayout->setRowStretch(row, row < rows ? 1 : 0);
         }
+        for (int column = 0; column < 6; ++column) {
+            m_cameraGridLayout->setColumnStretch(column, column < columns ? 1 : 0);
+        }
         for (int index = 0; index < m_cameraButtons.size(); ++index) {
             VideoOpenGLWidget *camera = m_cameraButtons.at(index);
             if (camera->parentWidget() != m_cameraGridContainer) {
@@ -2290,23 +2293,19 @@ void MainWindow::updateCameraGrid()
             }
             camera->setMinimumSize(0, 0);
             camera->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+            camera->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
             if (!camera->isVisible()) {
                 camera->show();
             }
-            m_cameraGridLayout->addWidget(camera,
-                                          index / columns,
-                                          index % columns,
-                                          Qt::AlignHCenter | Qt::AlignVCenter);
+            m_cameraGridLayout->addWidget(camera, index / columns, index % columns);
         }
     }
 
     if (columnsChanged || sizeChanged) {
         m_cameraTileSize = tileSize;
         for (VideoOpenGLWidget *camera : m_cameraButtons) {
-            if (camera->size() != tileSize
-                || camera->minimumSize() != tileSize
-                || camera->maximumSize() != tileSize) {
-                camera->setFixedSize(tileSize);
+            if (camera->minimumHeight() != tileHeight || camera->maximumHeight() != tileHeight) {
+                camera->setFixedHeight(tileHeight);
             }
         }
     }
