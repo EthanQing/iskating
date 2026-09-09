@@ -179,7 +179,7 @@
        <item>
         <widget class="AnimatedButton" name="navSuggestionButton">
          <property name="text">
-          <string>动作建议</string>
+          <string>训练洞察</string>
          </property>
          <property name="role" stdset="0">
           <string>nav</string>
@@ -1496,32 +1496,39 @@
           <item>
            <widget class="QLabel" name="suggestionTitleLabel">
             <property name="text">
-             <string>动作建议</string>
+             <string>训练洞察</string>
             </property>
            </widget>
           </item>
           <item>
            <widget class="QLabel" name="suggestionSubtitleLabel">
             <property name="text">
-             <string>基于历史训练记录整理的复盘建议</string>
+             <string>基于训练历史、趋势与复盘结果整理可关注的信息</string>
             </property>
            </widget>
           </item>
           <item>
-           <spacer name="suggestionSpacer">
-            <property name="orientation">
-             <enum>Qt::Vertical</enum>
-            </property>
-            <property name="sizeHint" stdset="0">
-             <size>
-              <width>20</width>
-              <height>20</height>
-             </size>
-            </property>
-           </spacer>
+           <layout class="QHBoxLayout" name="suggestionContextLayout">
+            <property name="spacing"><number>10</number></property>
+            <item><widget class="QLabel" name="suggestionAthleteLabel"><property name="text"><string>运动员</string></property><property name="role" stdset="0"><string>muted</string></property></widget></item>
+            <item><widget class="QComboBox" name="suggestionAthleteComboBox"/></item>
+            <item><widget class="QLabel" name="suggestionActionLabel"><property name="text"><string>动作项目</string></property><property name="role" stdset="0"><string>muted</string></property></widget></item>
+            <item><widget class="QComboBox" name="suggestionActionComboBox"/></item>
+            <item><spacer name="suggestionContextSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+            <item><widget class="QPushButton" name="suggestionHistoryButton"><property name="text"><string>查看历史复盘</string></property><property name="role" stdset="0"><string>subtle</string></property></widget></item>
+           </layout>
           </item>
           <item>
-           <layout class="QVBoxLayout" name="suggestionListLayout" />
+           <widget class="QScrollArea" name="suggestionScrollArea">
+            <property name="widgetResizable"><bool>true</bool></property>
+            <property name="frameShape"><enum>QFrame::NoFrame</enum></property>
+            <widget class="QWidget" name="suggestionScrollContent">
+             <layout class="QVBoxLayout" name="suggestionListLayout">
+              <property name="spacing"><number>16</number></property>
+              <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
+             </layout>
+            </widget>
+           </widget>
           </item>
          </layout>
         </widget>

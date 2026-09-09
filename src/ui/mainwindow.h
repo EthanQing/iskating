@@ -148,6 +148,7 @@ private:
     const SessionHistoryItem *historySessionById(const QString &sessionId) const;
     bool historySessionHasPlayableVideo(const SessionHistoryItem &record) const;
     void refreshSuggestions();
+    void prepareSuggestionContext(bool resetToDefault);
     void openSessionVideo(const SessionHistoryItem &record,
                           int offsetMs = 0,
                           int endOffsetMs = -1,
@@ -259,6 +260,9 @@ private:
     QPushButton *m_historyReportCenterButton = nullptr;
     QString m_selectedHistorySessionId;
     bool m_historyServiceAvailable = false;
+    SessionHistoryItem m_suggestionLatestRecord;
+    bool m_hasSuggestionLatestRecord = false;
+    bool m_refreshingSuggestions = false;
 
     QTimer m_timer;
     QTimer m_statusTimer;

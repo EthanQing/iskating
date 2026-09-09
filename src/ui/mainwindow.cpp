@@ -702,82 +702,6 @@ QString qualityLabel(int score, bool valid)
     return QStringLiteral("待纠正");
 }
 
-int trendMetricValue(const TrainingTrendWindow &trend, const QString &metricName)
-{
-    if (metricName == QStringLiteral("关键点")) {
-        return trend.detectionScore;
-    }
-    if (metricName == QStringLiteral("对称")) {
-        return trend.symmetryScore;
-    }
-    if (metricName == QStringLiteral("重心")) {
-        return trend.balanceScore;
-    }
-    if (metricName == QStringLiteral("稳定")) {
-        return trend.stabilityScore;
-    }
-    if (metricName == QStringLiteral("3D")) {
-        return trend.depthScore;
-    }
-    return 0;
-}
-
-QString trendWindowLine(const TrainingTrendWindow &trend)
-{
-    return QStringLiteral("近 %1 天：训练 %2 次 · 均分 %3 · 最佳 %4 · 完成动作 %5 个")
-        .arg(trend.days)
-        .arg(trend.sessionCount)
-        .arg(trend.averageScore)
-        .arg(trend.bestScore)
-        .arg(trend.completedReps);
-}
-
-bool trendHasMetricData(const TrainingTrendWindow &trend)
-{
-    return trend.detectionScore > 0
-           || trend.symmetryScore > 0
-           || trend.balanceScore > 0
-           || trend.stabilityScore > 0
-           || trend.depthScore > 0;
-}
-
-QString weakTrendSummary(const TrainingTrendWindow &recentTrend,
-                         const TrainingTrendWindow &baselineTrend)
-{
-    if (recentTrend.sessionCount <= 0) {
-        return QStringLiteral("近 7 天暂无训练记录，先保存一次训练后即可生成弱项变化。");
-    }
-    if (!trendHasMetricData(recentTrend)) {
-        return QStringLiteral("近 7 天暂无可用分项分，继续采集有效动作后会补齐弱项变化。");
-    }
-    if (recentTrend.weakestMetricName.trimmed().isEmpty()) {
-        return QStringLiteral("弱项数据不足，继续采集有效动作后会补齐分项趋势。");
-    }
-
-    const int recentScore = recentTrend.weakestMetricScore;
-    const int baselineScore = trendMetricValue(baselineTrend, recentTrend.weakestMetricName);
-    if (baselineTrend.sessionCount <= 0 || baselineScore <= 0) {
-        return QStringLiteral("当前弱项为%1（%2 分），暂无近 30 天对照基线。")
-            .arg(recentTrend.weakestMetricName)
-            .arg(recentScore);
-    }
-
-    const int delta = recentScore - baselineScore;
-    if (std::abs(delta) <= 2) {
-        return QStringLiteral("当前弱项为%1（%2 分），相对近 30 天基本持平。")
-            .arg(recentTrend.weakestMetricName)
-            .arg(recentScore);
-    }
-    if (delta > 0) {
-        return QStringLiteral("当前弱项仍是%1，但近 7 天比近 30 天提升 %2 分。")
-            .arg(recentTrend.weakestMetricName)
-            .arg(delta);
-    }
-    return QStringLiteral("当前弱项为%1，近 7 天比近 30 天下滑 %2 分，需要优先回看最近动作。")
-        .arg(recentTrend.weakestMetricName)
-        .arg(-delta);
-}
-
 QString identityStatusLabel(const QString &status)
 {
     if (status == QStringLiteral("identified")) {
@@ -1375,7 +1299,7 @@ void MainWindow::setupUiState()
     const QVector<QString> navigationLabels = {
         QStringLiteral("实时训练"),
         QStringLiteral("历史复盘"),
-        QStringLiteral("训练建议"),
+        QStringLiteral("训练洞察"),
         QStringLiteral("系统状态")
     };
     for (int index = 0; index < m_navButtons.size(); ++index) {
@@ -1477,6 +1401,15 @@ void MainWindow::setupConnections()
     });
     connect(ui->navSuggestionButton, &QPushButton::clicked, this, [this]() {
         switchPage(kSuggestionPage);
+    });
+    connect(ui->suggestionHistoryButton, &QPushButton::clicked, this, [this]() {
+        switchPage(kHistoryPage);
+    });
+    connect(ui->suggestionAthleteComboBox, qOverload<int>(&QComboBox::currentIndexChanged), this, [this]() {
+        refreshSuggestions();
+    });
+    connect(ui->suggestionActionComboBox, qOverload<int>(&QComboBox::currentIndexChanged), this, [this]() {
+        refreshSuggestions();
     });
     connect(ui->navSystemStatusButton, &QPushButton::clicked, this, [this]() {
         switchPage(kSystemStatusPage);
@@ -4704,8 +4637,6 @@ void MainWindow::switchPage(int pageIndex)
 
     if (pageIndex == kHistoryPage) {
         refreshHistory();
-    } else if (pageIndex == kSuggestionPage) {
-        refreshSuggestions();
     }
 
     ui->pages->setCurrentIndex(pageIndex);
@@ -4713,7 +4644,7 @@ void MainWindow::switchPage(int pageIndex)
     const QString pageTitle = pageIndex == kHistoryPage
                                   ? QStringLiteral("历史复盘")
                                   : (pageIndex == kSuggestionPage
-                                         ? QStringLiteral("训练建议")
+                                         ? QStringLiteral("训练洞察")
                                          : QStringLiteral("实时训练"));
     ui->sessionRoundLabel->setText(pageIndex == kSystemStatusPage ? QStringLiteral("系统状态") : pageTitle);
     ui->systemStatusSubtitleLabel->setVisible(pageIndex == kSystemStatusPage);
@@ -4743,6 +4674,12 @@ void MainWindow::switchPage(int pageIndex)
     fade->setStartValue(1.0);
     fade->setEndValue(0.0);
     fade->start();
+    if (pageIndex == kSuggestionPage) {
+        if (!m_refreshingSuggestions) {
+            prepareSuggestionContext(true);
+        }
+        refreshSuggestions();
+    }
 
 }
 
@@ -5915,139 +5852,336 @@ void MainWindow::refreshHistory()
 }
 
 
-// 刷新动作纠正建议列表。
+void MainWindow::prepareSuggestionContext(bool resetToDefault)
+{
+    const QString previousAthleteId = ui->suggestionAthleteComboBox->currentData().toString();
+    const QString previousActionId = ui->suggestionActionComboBox->currentData().toString();
+
+    SessionHistoryItem newestRecord;
+    bool hasNewestRecord = false;
+    for (const SessionHistoryItem &record : std::as_const(m_records)) {
+        if (!hasNewestRecord || record.startedAt > newestRecord.startedAt) {
+            newestRecord = record;
+            hasNewestRecord = true;
+        }
+    }
+    if (m_hasSuggestionLatestRecord
+        && (!hasNewestRecord || m_suggestionLatestRecord.startedAt > newestRecord.startedAt)) {
+        newestRecord = m_suggestionLatestRecord;
+        hasNewestRecord = true;
+    }
+
+    QString athleteId = resetToDefault ? selectedAthleteId() : previousAthleteId;
+    QString actionId = resetToDefault ? selectedActionStandard().id : previousActionId;
+    if (athleteId.isEmpty() && hasNewestRecord) {
+        athleteId = newestRecord.athleteId;
+    }
+    if (actionId.isEmpty() && hasNewestRecord) {
+        actionId = newestRecord.actionStandardId;
+    }
+
+    const QSignalBlocker athleteBlocker(ui->suggestionAthleteComboBox);
+    const QSignalBlocker actionBlocker(ui->suggestionActionComboBox);
+    ui->suggestionAthleteComboBox->clear();
+    ui->suggestionActionComboBox->clear();
+    QSet<QString> athleteIds;
+    for (const AthleteProfile &athlete : std::as_const(m_athletes)) {
+        ui->suggestionAthleteComboBox->addItem(athlete.name, athlete.id);
+        athleteIds.insert(athlete.id);
+    }
+    QSet<QString> actionIds;
+    for (const ActionStandard &standard : std::as_const(m_actionStandards)) {
+        ui->suggestionActionComboBox->addItem(standard.name, standard.id);
+        actionIds.insert(standard.id);
+    }
+    for (const SessionHistoryItem &record : std::as_const(m_records)) {
+        if (!record.athleteId.isEmpty() && !athleteIds.contains(record.athleteId)) {
+            ui->suggestionAthleteComboBox->addItem(record.athleteName.isEmpty() ? record.athleteId : record.athleteName,
+                                                   record.athleteId);
+            athleteIds.insert(record.athleteId);
+        }
+        if (!record.actionStandardId.isEmpty() && !actionIds.contains(record.actionStandardId)) {
+            ui->suggestionActionComboBox->addItem(record.actionName.isEmpty() ? record.actionStandardId : record.actionName,
+                                                  record.actionStandardId);
+            actionIds.insert(record.actionStandardId);
+        }
+    }
+    if (m_hasSuggestionLatestRecord) {
+        const SessionHistoryItem &record = m_suggestionLatestRecord;
+        if (!record.athleteId.isEmpty() && !athleteIds.contains(record.athleteId)) {
+            ui->suggestionAthleteComboBox->addItem(record.athleteName.isEmpty() ? record.athleteId : record.athleteName,
+                                                   record.athleteId);
+        }
+        if (!record.actionStandardId.isEmpty() && !actionIds.contains(record.actionStandardId)) {
+            ui->suggestionActionComboBox->addItem(record.actionName.isEmpty() ? record.actionStandardId : record.actionName,
+                                                  record.actionStandardId);
+        }
+    }
+    int index = ui->suggestionAthleteComboBox->findData(athleteId);
+    ui->suggestionAthleteComboBox->setCurrentIndex(index >= 0 ? index : (ui->suggestionAthleteComboBox->count() > 0 ? 0 : -1));
+    index = ui->suggestionActionComboBox->findData(actionId);
+    ui->suggestionActionComboBox->setCurrentIndex(index >= 0 ? index : (ui->suggestionActionComboBox->count() > 0 ? 0 : -1));
+}
+
+// 只根据已保存的训练记录、趋势和复盘内容整理训练洞察。
 void MainWindow::refreshSuggestions()
 {
-    if (!ui->suggestionListLayout) {
+    if (m_activePage != kSuggestionPage || !ui->suggestionListLayout || m_refreshingSuggestions) {
         return;
+    }
+    m_refreshingSuggestions = true;
+    struct RefreshGuard { bool &value; ~RefreshGuard() { value = false; } } refreshGuard{m_refreshingSuggestions};
+    prepareSuggestionContext(false);
+    ui->suggestionAthleteComboBox->setEnabled(false);
+    ui->suggestionActionComboBox->setEnabled(false);
+    struct ContextControlGuard {
+        QComboBox *athlete = nullptr;
+        QComboBox *action = nullptr;
+        ~ContextControlGuard() { athlete->setEnabled(true); action->setEnabled(true); }
+    } contextControlGuard{ui->suggestionAthleteComboBox, ui->suggestionActionComboBox};
+
+    const QString athleteId = ui->suggestionAthleteComboBox->currentData().toString();
+    const QString actionId = ui->suggestionActionComboBox->currentData().toString();
+    const bool repositoryAvailable = m_trainingRepository && m_trainingRepository->isOpen();
+    bool querySynchronized = repositoryAvailable;
+    bool hasLatest = false;
+    SessionHistoryItem latest;
+
+    if (repositoryAvailable && !athleteId.isEmpty() && !actionId.isEmpty()) {
+        SessionSearchFilters filters;
+        filters.athleteId = athleteId;
+        filters.actionStandardId = actionId;
+        SessionSearchPage page;
+        page.pageSize = 1;
+        const SessionSearchResult result = m_trainingRepository->searchSessions(filters, page, {});
+        // The repository currently has no per-request error result; successful responses echo pageSize.
+        querySynchronized = result.pageSize == page.pageSize;
+        if (querySynchronized) {
+            if (!result.items.isEmpty()) {
+                latest = result.items.first();
+                hasLatest = true;
+                m_suggestionLatestRecord = latest;
+                m_hasSuggestionLatestRecord = true;
+            } else {
+                m_hasSuggestionLatestRecord = false;
+            }
+        }
+    }
+    if (!querySynchronized || !repositoryAvailable) {
+        if (m_hasSuggestionLatestRecord
+            && m_suggestionLatestRecord.athleteId == athleteId
+            && m_suggestionLatestRecord.actionStandardId == actionId) {
+            latest = m_suggestionLatestRecord;
+            hasLatest = true;
+        }
+        for (const SessionHistoryItem &record : std::as_const(m_records)) {
+            if (record.athleteId == athleteId && record.actionStandardId == actionId
+                && (!hasLatest || record.startedAt > latest.startedAt)) {
+                latest = record;
+                hasLatest = true;
+            }
+        }
     }
 
     clearLayout(ui->suggestionListLayout);
-
-    if (m_records.isEmpty()) {
-        auto *emptyLabel = new QLabel(QStringLiteral("暂无可生成建议的训练记录。\n保存至少一条训练记录后，这里会自动给出动作纠正与下次训练建议。"),
-                                      ui->suggestionPage);
-        emptyLabel->setProperty("role", "emptyBox");
-        emptyLabel->setAlignment(Qt::AlignCenter);
-        emptyLabel->setWordWrap(true);
-        ui->suggestionListLayout->addWidget(emptyLabel);
-        return;
-    }
-
-    const SessionHistoryItem &latest = m_records.first();
-    int totalScore = 0;
-    for (const SessionHistoryItem &record : std::as_const(m_records)) {
-        totalScore += record.score;
-    }
-    const int averageScore = (totalScore + m_records.size() / 2) / m_records.size();
-
-    auto addSuggestionCard = [this](const QString &title, const QString &tag, const QString &body) {
-        auto *card = new QFrame(ui->suggestionPage);
-        setRole(card, "suggestionCard");
-
-        auto *cardLayout = new QVBoxLayout(card);
-        cardLayout->setContentsMargins(14, 14, 14, 14);
-        cardLayout->setSpacing(10);
-
-        auto *headerLayout = new QHBoxLayout();
-        headerLayout->setContentsMargins(0, 0, 0, 0);
-        headerLayout->setSpacing(8);
-
-        auto *titleLabel = new QLabel(title, card);
-        titleLabel->setProperty("role", "sectionTitle");
-
-        headerLayout->addWidget(titleLabel, 1);
-        if (!tag.isEmpty()) {
-            auto *tagLabel = new QLabel(tag, card);
-            tagLabel->setProperty("role", "scoreTag");
-            tagLabel->setAlignment(Qt::AlignCenter);
-            headerLayout->addWidget(tagLabel, 0, Qt::AlignRight | Qt::AlignTop);
-        }
-        cardLayout->addLayout(headerLayout);
-
-        auto *bodyLabel = new QLabel(body, card);
-        bodyLabel->setWordWrap(true);
-        cardLayout->addWidget(bodyLabel);
-
-        ui->suggestionListLayout->addWidget(card);
+    auto addTitle = [this](QVBoxLayout *layout, const QString &text) {
+        auto *label = new QLabel(text, ui->suggestionScrollContent);
+        setRole(label, "sectionTitle");
+        layout->addWidget(label);
+    };
+    auto addText = [this](QVBoxLayout *layout, const QString &text, bool muted = false) {
+        auto *label = new QLabel(text, ui->suggestionScrollContent);
+        label->setTextFormat(Qt::PlainText);
+        label->setWordWrap(true);
+        if (muted) setRole(label, "muted");
+        layout->addWidget(label);
+    };
+    auto addGridRow = [this](QGridLayout *grid, int row, const QString &name, const QString &value, int column = 0) {
+        auto *nameLabel = new QLabel(name, ui->suggestionScrollContent);
+        setRole(nameLabel, "muted");
+        auto *valueLabel = new QLabel(value, ui->suggestionScrollContent);
+        valueLabel->setTextFormat(Qt::PlainText);
+        valueLabel->setWordWrap(true);
+        grid->addWidget(nameLabel, row, column * 2);
+        grid->addWidget(valueLabel, row, column * 2 + 1);
     };
 
-    QString summaryText;
-    if (latest.score >= 90) {
-        summaryText = QStringLiteral("最新训练中“%1”整体表现优秀，可以在保持稳定的前提下继续打磨动作细节。").arg(latest.actionName);
-    } else if (latest.score >= 75) {
-        summaryText = QStringLiteral("最新训练中“%1”整体较稳定，已经具备继续提分的基础，适合做针对性微调。").arg(latest.actionName);
-    } else if (latest.score >= 60) {
-        summaryText = QStringLiteral("最新训练中“%1”基础动作已建立，但还需要更有针对性的纠正训练来提升完成度。").arg(latest.actionName);
+    if (!querySynchronized) {
+        addText(ui->suggestionListLayout, QStringLiteral("训练服务未同步，以下最近记录来自本地缓存。"), true);
+    }
+
+    if (!hasLatest) {
+        auto *empty = new QFrame(ui->suggestionScrollContent);
+        setRole(empty, "panel");
+        auto *layout = new QVBoxLayout(empty);
+        layout->setContentsMargins(20, 20, 20, 20);
+        addTitle(layout, QStringLiteral("暂无可用训练数据"));
+        addText(layout, QStringLiteral("完成并保存训练后，这里会根据历史记录整理趋势和复盘关注点。"), true);
+        auto *actions = new QHBoxLayout();
+        auto *liveButton = new QPushButton(QStringLiteral("前往实时训练"), empty);
+        setRole(liveButton, "primary");
+        auto *historyButton = new QPushButton(QStringLiteral("查看历史复盘"), empty);
+        setRole(historyButton, "subtle");
+        connect(liveButton, &QPushButton::clicked, this, [this]() { switchPage(kCapturePage); });
+        connect(historyButton, &QPushButton::clicked, this, [this]() { switchPage(kHistoryPage); });
+        actions->addWidget(liveButton);
+        actions->addWidget(historyButton);
+        actions->addStretch();
+        layout->addLayout(actions);
+        ui->suggestionListLayout->addWidget(empty);
     } else {
-        summaryText = QStringLiteral("最新训练中“%1”得分偏低，建议先放慢节奏，优先保证动作质量和姿态完整性。").arg(latest.actionName);
+        auto *recentPanel = new QFrame(ui->suggestionScrollContent);
+        setRole(recentPanel, "panel");
+        auto *recentLayout = new QVBoxLayout(recentPanel);
+        recentLayout->setContentsMargins(20, 16, 20, 16);
+        recentLayout->setSpacing(10);
+        addTitle(recentLayout, QStringLiteral("最近训练"));
+        auto *summary = new QGridLayout();
+        summary->setHorizontalSpacing(18);
+        addGridRow(summary, 0, QStringLiteral("日期"), latest.startedAt.isValid() ? latest.startedAt.toString(QStringLiteral("MM-dd HH:mm")) : QStringLiteral("—"));
+        addGridRow(summary, 0, QStringLiteral("平均分"), latest.score > 0 ? QString::number(latest.score) : QStringLiteral("—"), 1);
+        addGridRow(summary, 0, QStringLiteral("最佳分"), latest.bestScore > 0 ? QString::number(latest.bestScore) : QStringLiteral("—"), 2);
+        addGridRow(summary, 1, QStringLiteral("总动作"), latest.totalReps >= 0 ? QString::number(latest.totalReps) : QStringLiteral("—"));
+        addGridRow(summary, 1, QStringLiteral("有效动作"), latest.validReps >= 0 ? QStringLiteral("%1 / %2").arg(latest.validReps).arg(latest.totalReps) : QStringLiteral("—"), 1);
+        addGridRow(summary, 1, QStringLiteral("训练时长"), latest.duration > 0 ? formatTime(latest.duration) : QStringLiteral("—"), 2);
+        recentLayout->addLayout(summary);
+        auto *recentActions = new QHBoxLayout();
+        auto *reviewButton = new QPushButton(QStringLiteral("复盘最近训练"), recentPanel);
+        auto *trackButton = new QPushButton(QStringLiteral("查看轨迹 / 速度"), recentPanel);
+        setRole(reviewButton, "primary");
+        setRole(trackButton, "subtle");
+        reviewButton->setEnabled(repositoryAvailable && querySynchronized);
+        trackButton->setEnabled(repositoryAvailable && querySynchronized);
+        connect(reviewButton, &QPushButton::clicked, this, [this, latest]() { openTrainingReview(latest); });
+        connect(trackButton, &QPushButton::clicked, this, [this, latest]() { openTrackPointReview(latest); });
+        recentActions->addWidget(reviewButton);
+        recentActions->addWidget(trackButton);
+        recentActions->addStretch();
+        recentLayout->addLayout(recentActions);
+        ui->suggestionListLayout->addWidget(recentPanel);
     }
-    addSuggestionCard(QStringLiteral("综合结论"),
-                      QStringLiteral("%1 分").arg(latest.score),
-                      QStringLiteral("%1 运动员：%2。当前反馈：%3")
-                          .arg(summaryText, latest.athleteName, latest.feedback));
 
-    if (m_trainingRepository && m_trainingRepository->isOpen()) {
-        const TrainingTrendWindow sevenDayTrend = m_trainingRepository->trendForRecentDays(7);
-        const TrainingTrendWindow thirtyDayTrend = m_trainingRepository->trendForRecentDays(30);
-        addSuggestionCard(QStringLiteral("训练趋势"),
-                          QStringLiteral("7/30 天"),
-                          QStringLiteral("%1\n%2\n弱项变化：%3")
-                              .arg(trendWindowLine(sevenDayTrend),
-                                   trendWindowLine(thirtyDayTrend),
-                                   weakTrendSummary(sevenDayTrend, thirtyDayTrend)));
+    auto *detailsPanel = new QFrame(ui->suggestionScrollContent);
+    setRole(detailsPanel, "panel");
+    auto *details = new QVBoxLayout(detailsPanel);
+    details->setContentsMargins(20, 18, 20, 18);
+    details->setSpacing(12);
+
+    addTitle(details, QStringLiteral("近期趋势"));
+    addText(details, QStringLiteral("全部训练（现有统计范围，不随上方筛选变化）"), true);
+    auto *trendGrid = new QGridLayout();
+    trendGrid->setHorizontalSpacing(24);
+    trendGrid->addWidget(new QLabel(QStringLiteral("近 7 天"), detailsPanel), 0, 1);
+    trendGrid->addWidget(new QLabel(QStringLiteral("近 30 天"), detailsPanel), 0, 3);
+    TrainingTrendWindow sevenDayTrend;
+    TrainingTrendWindow thirtyDayTrend;
+    bool trendsSynchronized = false;
+    if (repositoryAvailable) {
+        sevenDayTrend = m_trainingRepository->trendForRecentDays(7);
+        thirtyDayTrend = m_trainingRepository->trendForRecentDays(30);
+        trendsSynchronized = sevenDayTrend.days == 7 && thirtyDayTrend.days == 30;
+    }
+    const auto trendCount = [trendsSynchronized](int value) { return trendsSynchronized ? QString::number(value) : QStringLiteral("未同步"); };
+    const auto trendScore = [trendsSynchronized](const TrainingTrendWindow &trend, int value) {
+        return trendsSynchronized ? (trend.sessionCount > 0 && value > 0 ? QString::number(value) : QStringLiteral("—"))
+                                  : QStringLiteral("未同步");
+    };
+    addGridRow(trendGrid, 1, QStringLiteral("训练次数"), trendCount(sevenDayTrend.sessionCount));
+    addGridRow(trendGrid, 1, QString(), trendCount(thirtyDayTrend.sessionCount), 1);
+    addGridRow(trendGrid, 2, QStringLiteral("平均分"), trendScore(sevenDayTrend, sevenDayTrend.averageScore));
+    addGridRow(trendGrid, 2, QString(), trendScore(thirtyDayTrend, thirtyDayTrend.averageScore), 1);
+    addGridRow(trendGrid, 3, QStringLiteral("最佳分"), trendScore(sevenDayTrend, sevenDayTrend.bestScore));
+    addGridRow(trendGrid, 3, QString(), trendScore(thirtyDayTrend, thirtyDayTrend.bestScore), 1);
+    addGridRow(trendGrid, 4, QStringLiteral("完成动作"), trendCount(sevenDayTrend.completedReps));
+    addGridRow(trendGrid, 4, QString(), trendCount(thirtyDayTrend.completedReps), 1);
+    addGridRow(trendGrid, 5, QStringLiteral("相对低项"), trendsSynchronized && sevenDayTrend.sessionCount > 0 && sevenDayTrend.weakestMetricScore > 0 ? sevenDayTrend.weakestMetricName : (trendsSynchronized ? QStringLiteral("—") : QStringLiteral("未同步")));
+    addGridRow(trendGrid, 5, QString(), trendsSynchronized && thirtyDayTrend.sessionCount > 0 && thirtyDayTrend.weakestMetricScore > 0 ? thirtyDayTrend.weakestMetricName : (trendsSynchronized ? QStringLiteral("—") : QStringLiteral("未同步")), 1);
+    details->addLayout(trendGrid);
+    if (trendsSynchronized && (sevenDayTrend.sessionCount < 2 || thirtyDayTrend.sessionCount < 3)) {
+        addText(details, QStringLiteral("数据不足，暂不判断趋势。"), true);
     }
 
-    struct MetricAdvice {
-        QString name;
-        int value = 0;
-        QString advice;
-    };
-
-    QVector<MetricAdvice> metrics = {
-        {QStringLiteral("关键点"), latest.detectionScore,
-         QStringLiteral("优先检查站位是否完整入镜，并保持机位稳定，确保关键点持续可见。")},
-        {QStringLiteral("对称"), latest.symmetryScore,
-         QStringLiteral("加强左右发力和肢体展开的一致性，减少单侧代偿和发力不均。")},
-        {QStringLiteral("重心"), latest.balanceScore,
-         QStringLiteral("训练时注意核心收紧与落刃重心控制，减少重心前后漂移。")},
-        {QStringLiteral("稳定"), latest.stabilityScore,
-         QStringLiteral("先放慢节奏，减少多余摆动，稳定住主干后再逐步提速。")},
-        {QStringLiteral("3D"), latest.depthScore,
-         QStringLiteral("调整相机角度并保持身体朝向清晰，提升立体姿态的可辨识度。")}
-    };
-
-    MetricAdvice weakestMetric = metrics.first();
-    for (const MetricAdvice &metric : std::as_const(metrics)) {
-        if (metric.value < weakestMetric.value) {
-            weakestMetric = metric;
+    addTitle(details, QStringLiteral("历史基线"));
+    if (!repositoryAvailable || !querySynchronized || !trendsSynchronized) {
+        addText(details, QStringLiteral("未同步"), true);
+    } else if (athleteId.isEmpty() || actionId.isEmpty()) {
+        addText(details, QStringLiteral("请选择运动员和动作项目"), true);
+    } else {
+        const TrainingBaseline baseline = m_trainingRepository->baselineFor(athleteId, actionId);
+        if (baseline.sessionCount <= 0) {
+            addText(details, QStringLiteral("暂无可用历史基线"), true);
+        } else {
+            auto *baselineGrid = new QGridLayout();
+            addGridRow(baselineGrid, 0, QStringLiteral("历史训练次数"), QString::number(baseline.sessionCount));
+            addGridRow(baselineGrid, 0, QStringLiteral("历史平均分"), QString::number(baseline.averageScore), 1);
+            addGridRow(baselineGrid, 0, QStringLiteral("平均有效动作数"), QString::number(baseline.averageValidReps), 2);
+            details->addLayout(baselineGrid);
         }
     }
-    addSuggestionCard(QStringLiteral("重点纠正"),
-                      QStringLiteral("%1 %2 分").arg(weakestMetric.name).arg(weakestMetric.value),
-                      QStringLiteral("问题部位：%1。触发原因：%2 分低于动作标准预期。建议动作：%3 优先级：P1。")
-                          .arg(weakestMetric.name)
-                          .arg(weakestMetric.name)
-                          .arg(weakestMetric.advice));
 
-    QString nextTrainingText;
-    if (latest.duration < 300) {
-        nextTrainingText = QStringLiteral("本次有效训练时长为 %1，建议下次先把单次有效训练稳定提升到 5 分钟以上，再观察动作质量变化。")
-                               .arg(formatTime(latest.duration));
-    } else if (latest.targetReps > 0 && latest.validReps < latest.targetReps) {
-        nextTrainingText = QStringLiteral("本次有效动作 %1/%2，建议下次先把同一动作做到足量达标，再增加节奏或难度。")
-                               .arg(latest.validReps)
-                               .arg(latest.targetReps);
-    } else if (averageScore - latest.score >= 8) {
-        nextTrainingText = QStringLiteral("最新得分比历史均分低 %1 分，建议下次放慢节奏，优先做纠正训练，再逐步恢复速度。")
-                               .arg(averageScore - latest.score);
-    } else {
-        nextTrainingText = QStringLiteral("当前训练节奏较稳，建议保持现有强度，继续围绕“%1”细化动作，冲击更高分。")
-                               .arg(weakestMetric.name);
+    if (hasLatest) {
+        struct Metric { QString name; int value; QString advice; };
+        const QVector<Metric> metrics = {
+            {QStringLiteral("关键点"), latest.detectionScore, QStringLiteral("建议优先复盘该项相关的低分片段，确认检测完整性和动作记录质量。")},
+            {QStringLiteral("对称"), latest.symmetryScore, QStringLiteral("建议结合训练录像和教练复核，比较左右动作表现。")},
+            {QStringLiteral("重心"), latest.balanceScore, QStringLiteral("建议结合已有轨迹 / 速度记录和录像进行复盘。")},
+            {QStringLiteral("稳定"), latest.stabilityScore, QStringLiteral("建议查看连续训练片段和已有教练批注，确认低分出现的具体阶段。")},
+            {QStringLiteral("3D"), latest.depthScore, QStringLiteral("该数值仅为历史已有评分，当前不提供 3D 姿态原因诊断。")}
+        };
+        const Metric *weakest = nullptr;
+        for (const Metric &metric : metrics) {
+            if (metric.value > 0 && (!weakest || metric.value < weakest->value)) weakest = &metric;
+        }
+        addTitle(details, QStringLiteral("当前关注点"));
+        if (weakest) {
+            addText(details, QStringLiteral("%1 · %2 分\n当前该项评分在本次已有评分维度中相对较低。\n\n建议：%3")
+                                 .arg(weakest->name).arg(weakest->value).arg(weakest->advice));
+        } else {
+            addText(details, QStringLiteral("暂无可用评分"), true);
+        }
+        if (!latest.coachComment.trimmed().isEmpty()) {
+            addTitle(details, QStringLiteral("最近教练批注"));
+            addText(details, QStringLiteral("来自人工复核"), true);
+            addText(details, latest.coachComment);
+        }
+        if (!latest.feedback.trimmed().isEmpty()) {
+            addTitle(details, QStringLiteral("最近复盘反馈"));
+            addText(details, latest.feedback);
+        }
     }
-    addSuggestionCard(QStringLiteral("下次训练建议"),
-                      QStringLiteral("均分 %1").arg(averageScore),
-                      nextTrainingText);
+
+    addTitle(details, QStringLiteral("下次训练准备"));
+    const ActionStandard *selectedStandard = nullptr;
+    for (const ActionStandard &standard : std::as_const(m_actionStandards)) {
+        if (standard.id == actionId) { selectedStandard = &standard; break; }
+    }
+    if (selectedStandard) {
+        addText(details, QStringLiteral("现有训练配置"), true);
+        auto *standardGrid = new QGridLayout();
+        addGridRow(standardGrid, 0, QStringLiteral("动作标准"), selectedStandard->name);
+        addGridRow(standardGrid, 0, QStringLiteral("目标次数"), QString::number(selectedStandard->targetReps), 1);
+        addGridRow(standardGrid, 1, QStringLiteral("目标分"), QString::number(selectedStandard->targetScore));
+        addGridRow(standardGrid, 1, QStringLiteral("组数"), QString::number(selectedStandard->setCount), 1);
+        addGridRow(standardGrid, 1, QStringLiteral("休息时间"), QStringLiteral("%1 秒").arg(selectedStandard->restSeconds), 2);
+        details->addLayout(standardGrid);
+    }
+    QStringList checklist;
+    if (selectedStandard) checklist << QStringLiteral("• 继续使用当前动作标准");
+    if (hasLatest && (latest.detectionScore > 0 || latest.symmetryScore > 0 || latest.balanceScore > 0
+                      || latest.stabilityScore > 0 || latest.depthScore > 0)) {
+        checklist << QStringLiteral("• 关注最近低分片段");
+    }
+    if (hasLatest && !latest.coachComment.trimmed().isEmpty()) checklist << QStringLiteral("• 检查已有教练批注");
+    if (hasLatest && (latest.targetReps > 0 || latest.targetScore > 0)) checklist << QStringLiteral("• 根据历史目标完成下一次训练");
+    if (checklist.isEmpty()) {
+        checklist << (actionId.isEmpty() ? QStringLiteral("请选择动作项目查看现有训练配置")
+                                         : QStringLiteral("保存训练后可整理下次训练准备信息"));
+    }
+    addText(details, checklist.join(QLatin1Char('\n')));
+    ui->suggestionListLayout->addWidget(detailsPanel);
+    addText(ui->suggestionListLayout,
+            QStringLiteral("洞察来自历史训练记录和已保存复盘数据，仅用于辅助训练复盘。"), true);
+    ui->suggestionListLayout->addStretch();
 }
 
 void MainWindow::openSessionVideo(const SessionHistoryItem &record,
