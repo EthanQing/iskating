@@ -1290,6 +1290,7 @@ void MainWindow::changeEvent(QEvent *event)
     QMainWindow::changeEvent(event);
     if (event->type() == QEvent::WindowStateChange) {
         refreshFullScreenButton();
+        updateCameraGrid();
     }
 }
 
@@ -2056,7 +2057,7 @@ void MainWindow::rebuildWorkspaceLayout()
     m_cameraTrajectoryLayout->addWidget(m_cameraGridContainer, 1);
     ui->trajectoryCard->setParent(m_cameraTrajectoryRow);
     ui->trajectoryCard->setMinimumWidth(280);
-    ui->trajectoryCard->setMaximumWidth(400);
+    ui->trajectoryCard->setMaximumWidth(360);
     ui->trajectoryCard->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     m_cameraTrajectoryLayout->addWidget(ui->trajectoryCard);
     ui->trajectoryCard->show();
@@ -2230,16 +2231,11 @@ void MainWindow::updateCameraGrid()
     }
     if (m_cameraTrajectoryRow) {
         const int rowWidth = m_cameraTrajectoryRow->contentsRect().width();
-        const int trajectoryWidth = std::clamp(qRound(rowWidth * 0.28), 280, 400);
+        const int trajectoryWidth = std::clamp(qRound(rowWidth * 0.24), 280, 360);
         if (ui->trajectoryCard->width() != trajectoryWidth) {
             ui->trajectoryCard->setFixedWidth(trajectoryWidth);
         }
     }
-    const int columns = m_cameraGridContainer->contentsRect().width() >= 840 ? 6 : 4;
-    const int rows = (m_cameraButtons.size() + columns - 1) / columns;
-    const int availableWidth = std::max(0, m_cameraGridContainer->contentsRect().width()
-                                           - (columns - 1) * 8);
-    int tileWidth = columns > 0 ? availableWidth / columns : 0;
     const QMargins margins = ui->leftCardLayout->contentsMargins();
     const int layoutSpacing = ui->leftCardLayout->spacing()
                               * std::max(0, ui->leftCardLayout->count() - 1);
@@ -2249,6 +2245,16 @@ void MainWindow::updateCameraGrid()
     // 两种列数都限制网格高度，为主视频保留空间。
     const int preferredHeight = ui->leftCard->height() * 35 / 100;
     const int heightLimit = std::min(preferredHeight, remainingHeight);
+    const int gridWidth = m_cameraGridContainer->contentsRect().width();
+    int columns = 4;
+    // 最大化和全屏始终三行；普通矮窗口才退回两行，并保留可读的画面宽度。
+    if (!isMaximized() && !isFullScreen() && heightLimit < 3 * 90 + 2 * 8
+        && gridWidth >= 840) {
+        columns = 6;
+    }
+    const int rows = (m_cameraButtons.size() + columns - 1) / columns;
+    const int availableWidth = std::max(0, gridWidth - (columns - 1) * 8);
+    int tileWidth = columns > 0 ? availableWidth / columns : 0;
     const int maxTileHeight = std::max(0, heightLimit - (rows - 1) * 8)
                                / std::max(1, rows);
     int tileHeight = qRound(tileWidth * 9.0 / 16.0);
@@ -2259,16 +2265,9 @@ void MainWindow::updateCameraGrid()
     const QSize tileSize(tileWidth, tileHeight);
     const int naturalGridHeight = rows * tileHeight + std::max(0, rows - 1) * 8;
     const int rowHeight = std::min(std::max(naturalGridHeight, 210), heightLimit);
-    if (m_cameraGridContainer->height() != rowHeight
-        || m_cameraGridContainer->minimumHeight() != rowHeight
-        || m_cameraGridContainer->maximumHeight() != rowHeight) {
-        m_cameraGridContainer->setFixedHeight(rowHeight);
-    }
-    if (m_cameraTrajectoryRow && m_cameraTrajectoryRow->height() != rowHeight) {
+    if (m_cameraTrajectoryRow && (m_cameraTrajectoryRow->minimumHeight() != rowHeight
+                                  || m_cameraTrajectoryRow->maximumHeight() != rowHeight)) {
         m_cameraTrajectoryRow->setFixedHeight(rowHeight);
-    }
-    if (ui->trajectoryCard->height() != rowHeight) {
-        ui->trajectoryCard->setFixedHeight(rowHeight);
     }
     const bool columnsChanged = m_cameraGridColumns != columns;
     const bool sizeChanged = m_cameraTileSize != tileSize;
