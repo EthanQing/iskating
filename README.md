@@ -125,7 +125,7 @@ $env:ISKATING_JWT_SECRET = "REPLACE_WITH_A_LONG_RANDOM_SECRET"
 
 当前深色 Design System 已完成视觉收尾并冻结。后续界面复用现有 Palette、按钮状态与导航层级，不再进行配色微调；只有用户明确要求时才重新开启视觉调整。
 
-顶部“任务中心”和“完整分析”保持独立入口，并统一使用 FramelessDialog。任务中心以左侧任务列表、右侧详情查看 AnalysisTaskManager 缓存，状态筛选不发网络请求；taskUpdated 更新时保持当前选择，刷新按钮调用原 refreshTasks。任务类型与状态使用中文，原始输入 JSON 仅在折叠区域显示；暂停、继续、取消和打开输出训练记录均沿用现有接口。显示进度时，完整分析任务的 0～1 转成百分比，离线导入任务直接使用 0～100，已完成统一显示 100%。
+顶部“任务中心”和“完整分析”保持独立入口，并统一使用 FramelessDialog。任务中心以左侧任务列表、右侧详情查看 AnalysisTaskManager 缓存，状态筛选不发网络请求；taskUpdated 更新时保持当前选择，刷新按钮调用原 refreshTasks。任务类型与状态使用中文，原始输入 JSON 仅在折叠区域显示；仅离线视频导入支持暂停和继续；完整分析及未知任务类型不展示这两个操作，取消和打开输出训练记录沿用现有接口。后续 taskUpdated 会清除旧的任务同步提示，单个任务错误仍在详情中展示。显示进度时，完整分析任务的 0～1 转成百分比，离线导入任务直接使用 0～100，已完成统一显示 100%。
 
 完整分析负责配置固定 CAM 01～12、创建批次和管理当前 Run。初始源输入为空，示例只作提示；Manifest 必须包含唯一覆盖 1～12 的 cameraId，整体检查通过后更新表格，创建继续使用 batchFromTable 校验及 enqueueFullRateBatch。保留 nasRoot / lastBatchId 设置、fullRateRunReady / taskUpdated 联动和唯一 2 秒 Run 刷新定时器。取消适用于 queued/running/partial，重试适用于 failed/partial/cancelled，completed 且未激活的 Run 可激活结果。服务连接失败时 Manager 也为尚未分配任务 ID 的作业发出已有 taskError，避免提交界面永久停留在排队提示。
 

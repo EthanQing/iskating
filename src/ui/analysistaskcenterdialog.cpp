@@ -271,7 +271,10 @@ AnalysisTaskCenterDialog::AnalysisTaskCenterDialog(AnalysisTaskManager *manager,
                 emit openSessionRequested(task.outputSessionId);
     });
     connect(
-        m_manager, &AnalysisTaskManager::taskUpdated, this, [this](const QString &) { reload(selectedTaskId()); },
+        m_manager, &AnalysisTaskManager::taskUpdated, this, [this](const QString &) {
+            m_syncStatus->clear();
+            reload(selectedTaskId());
+        },
         Qt::QueuedConnection);
     connect(
         m_manager, &AnalysisTaskManager::taskError, this,
@@ -447,17 +450,20 @@ void AnalysisTaskCenterDialog::showTask(const QString &taskId)
 
 void AnalysisTaskCenterDialog::updateActions()
 {
-    QString status, output;
+    QString type, status, output;
     for (const auto &task : m_visibleTasks)
         if (task.id == selectedTaskId())
         {
+            type = task.type;
             status = task.status;
             output = task.outputSessionId;
             break;
         }
-    const bool canPause = status == QStringLiteral("queued") || status == QStringLiteral("running");
-    const bool canResume = status == QStringLiteral("paused");
-    const bool canCancel = canPause || canResume;
+    const bool supportsPause = type == QStringLiteral("offline_import");
+    const bool active = status == QStringLiteral("queued") || status == QStringLiteral("running");
+    const bool canPause = supportsPause && active;
+    const bool canResume = supportsPause && status == QStringLiteral("paused");
+    const bool canCancel = active || status == QStringLiteral("paused");
     const bool canOpen = status == QStringLiteral("completed") && !output.isEmpty();
     m_pauseButton->setVisible(canPause);
     m_pauseButton->setEnabled(canPause);
