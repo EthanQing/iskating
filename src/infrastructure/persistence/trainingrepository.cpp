@@ -1164,13 +1164,22 @@ bool TrainingRepository::open(QString *errorMessage)
         return false;
     }
 
-    if (m_accessToken.isEmpty() && !login(errorMessage)) {
+    const bool hadAccessToken = !m_accessToken.isEmpty();
+    if (!hadAccessToken && !login(errorMessage)) {
         m_open = false;
         m_lastError = errorMessage ? *errorMessage : QStringLiteral("训练服务登录失败。");
         return false;
     }
 
-    requestArray(QStringLiteral("/athletes"), {}, &ok, errorMessage);
+    int httpStatus = 0;
+    requestArray(QStringLiteral("/athletes"), {}, &ok, errorMessage, &httpStatus);
+    if (!ok && httpStatus == 401 && hadAccessToken) {
+        m_accessToken.clear();
+        settings.remove(QStringLiteral("auth/accessToken"));
+        if (login(errorMessage)) {
+            requestArray(QStringLiteral("/athletes"), {}, &ok, errorMessage);
+        }
+    }
     m_open = ok;
     if (!ok) {
         m_lastError = errorMessage ? *errorMessage : QStringLiteral("训练服务认证失败。");
@@ -1180,6 +1189,9 @@ bool TrainingRepository::open(QString *errorMessage)
     settings.setValue(QStringLiteral("server/baseUrl"), m_baseUrl);
     settings.setValue(QStringLiteral("auth/accessToken"), m_accessToken);
     m_lastError.clear();
+    if (errorMessage) {
+        errorMessage->clear();
+    }
     return true;
 }
 
@@ -1322,8 +1334,12 @@ QJsonObject TrainingRepository::requestObject(const QString &method,
 QJsonArray TrainingRepository::requestArray(const QString &path,
                                             const QVariantMap &query,
                                             bool *ok,
-                                            QString *errorMessage) const
+                                            QString *errorMessage,
+                                            int *httpStatus) const
 {
+    if (httpStatus) {
+        *httpStatus = 0;
+    }
     if (ok) {
         *ok = false;
     }
@@ -1366,6 +1382,9 @@ QJsonArray TrainingRepository::requestArray(const QString &path,
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     const QNetworkReply::NetworkError networkError = reply->error();
     reply->deleteLater();
+    if (httpStatus) {
+        *httpStatus = status;
+    }
 
     QJsonParseError parseError;
     const QJsonDocument document = QJsonDocument::fromJson(bytes, &parseError);

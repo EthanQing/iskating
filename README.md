@@ -65,6 +65,7 @@ call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build
 - “系统设置”配置公共 RTSP 参数、摄像头 IP、场地标定、AI 和存储选项。
 - 桌面端通过 FastAPI 访问训练数据，不直接连接 PostgreSQL。默认服务地址为 `http://127.0.0.1:8000`，可用环境变量 `ISKATING_API_BASE_URL` 覆盖。
 - 保存训练、人员管理和历史查询需要可用的训练服务及数据库。顶部“服务未连接”应检查服务是否启动及地址是否正确。
+- 客户端连接服务时，如果缓存 Token 被 `/athletes` 以 HTTP 401 拒绝，会清除旧 Token，使用已配置账号重新登录并重试一次；403、服务错误和新 Token 再次被拒绝不会触发循环重试。后端密钥变更或 Token 过期后无需手动清理缓存。
 - AI 模型放在 `models/athlete/`，契约见 `models/athlete/athlete_models.json`。ONNX 模型和 TensorRT engine 不随 Git 提交。构建时会复制已有 ONNX；缺少模型时需先准备模型，再重新构建。
 
 模型准备入口（仓库根目录，PowerShell）：
