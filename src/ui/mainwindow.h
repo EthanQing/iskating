@@ -42,6 +42,7 @@ class TrajectoryWidget;
 class AthleteAnalysisManager;
 class AnalysisTaskManager;
 class TrainingRepository;
+class MainWindowChrome;
 
 namespace Ui {
 class MainWindow;
@@ -60,6 +61,7 @@ protected:
     void changeEvent(QEvent *event) override;
     void moveEvent(QMoveEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
+    bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
 
 private:
     void setupUiState();
@@ -175,6 +177,7 @@ private:
 
 private:
     Ui::MainWindow *ui = nullptr;
+    MainWindowChrome *m_windowChrome = nullptr;
 
     QVector<QPushButton *> m_navButtons;
     QVector<VideoOpenGLWidget *> m_cameraButtons;

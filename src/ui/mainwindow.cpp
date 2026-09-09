@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "mainwindowchrome.h"
 #include "animatedbutton.h"
 #include "competitionmanagementdialog.h"
 #include "athleteanalysismanager.h"
@@ -975,7 +976,12 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
 {
+    setWindowFlags(Qt::Window | Qt::FramelessWindowHint | Qt::WindowSystemMenuHint
+                   | Qt::WindowMinimizeButtonHint | Qt::WindowMaximizeButtonHint
+                   | Qt::WindowCloseButtonHint);
     ui->setupUi(this);
+    m_windowChrome = new MainWindowChrome(this);
+    m_windowChrome->install();
     m_trajectoryWidget = new TrajectoryWidget(ui->trajectoryCard);
     if (ui->trajectoryCardLayout) {
         ui->trajectoryCardLayout->replaceWidget(ui->trajectoryViewFrame, m_trajectoryWidget);
@@ -1602,6 +1608,12 @@ void MainWindow::installTrainingContextPanel()
     });
     connect(m_targetRepsSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, [this]() { refreshStats(); });
     connect(m_targetScoreSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, [this]() { refreshStats(); });
+}
+
+bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
+{
+    if (m_windowChrome && m_windowChrome->handleNativeEvent(eventType, message, result)) return true;
+    return QMainWindow::nativeEvent(eventType, message, result);
 }
 
 void MainWindow::installHistorySearchPanel()

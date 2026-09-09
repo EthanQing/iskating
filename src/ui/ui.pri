@@ -5,6 +5,7 @@ SOURCES += \
     $$SRC_ROOT/ui/framelessdialog.cpp \
     $$SRC_ROOT/ui/iconutils.cpp \
     $$SRC_ROOT/ui/mainwindow.cpp \
+    $$SRC_ROOT/ui/mainwindowchrome.cpp \
     $$SRC_ROOT/ui/offlineanalysisdialog.cpp \
     $$SRC_ROOT/ui/personmanagementdialog.cpp \
     $$SRC_ROOT/ui/systemsettingsdialog.cpp \
@@ -20,6 +21,7 @@ HEADERS += \
     $$SRC_ROOT/ui/framelessdialog.h \
     $$SRC_ROOT/ui/iconutils.h \
     $$SRC_ROOT/ui/mainwindow.h \
+    $$SRC_ROOT/ui/mainwindowchrome.h \
     $$SRC_ROOT/ui/offlineanalysisdialog.h \
     $$SRC_ROOT/ui/personmanagementdialog.h \
     $$SRC_ROOT/ui/systemsettingsdialog.h \
