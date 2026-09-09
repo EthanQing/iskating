@@ -32,6 +32,7 @@ class QResizeEvent;
 class QPushButton;
 class QScrollArea;
 class QGridLayout;
+class QHBoxLayout;
 class QSplitter;
 class QVariantAnimation;
 class QVBoxLayout;
@@ -141,7 +142,6 @@ private:
     void refreshNavButtons();
     void refreshCameraButtons();
     void refreshStats();
-    void showTrajectorySnapshot();
     void refreshHistory();
     void selectHistorySession(const QString &sessionId);
     void refreshHistorySessionDetail();
@@ -212,6 +212,8 @@ private:
     QScrollArea *m_saveTipScrollArea = nullptr;
     QSplitter *m_workspaceSplitter = nullptr;
     QWidget *m_cameraGridContainer = nullptr;
+    QWidget *m_cameraTrajectoryRow = nullptr;
+    QHBoxLayout *m_cameraTrajectoryLayout = nullptr;
     QGridLayout *m_cameraGridLayout = nullptr;
     int m_cameraGridColumns = 0;
     QSize m_cameraTileSize;

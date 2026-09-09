@@ -814,13 +814,13 @@
                <property name="minimumSize">
                 <size>
                  <width>0</width>
-                 <height>160</height>
+                 <height>0</height>
                 </size>
                </property>
                <property name="maximumSize">
                 <size>
                  <width>16777215</width>
-                 <height>210</height>
+                 <height>16777215</height>
                 </size>
                </property>
                <layout class="QVBoxLayout" name="trajectoryCardLayout">
@@ -849,6 +849,20 @@
                    </widget>
                   </item>
                   <item>
+                   <spacer name="trajectorySpacer">
+                    <property name="orientation">
+                     <enum>Qt::Horizontal</enum>
+                    </property>
+                   </spacer>
+                  </item>
+                 </layout>
+                </item>
+                <item>
+                 <layout class="QHBoxLayout" name="trajectorySubtitleLayout">
+                  <property name="spacing">
+                   <number>3</number>
+                  </property>
+                  <item>
                    <widget class="QLabel" name="legendTitleLabel">
                     <property name="text">
                      <string>当前运动员</string>
@@ -860,10 +874,13 @@
                     <property name="text">
                      <string>未选择</string>
                     </property>
+                    <property name="textInteractionFlags">
+                     <set>Qt::NoTextInteraction</set>
+                    </property>
                    </widget>
                   </item>
                   <item>
-                   <spacer name="trajectorySpacer">
+                   <spacer name="trajectorySubtitleSpacer">
                     <property name="orientation">
                      <enum>Qt::Horizontal</enum>
                     </property>
@@ -874,41 +891,6 @@
                      </size>
                     </property>
                    </spacer>
-                  </item>
-                  <item>
-                   <widget class="AnimatedButton" name="expandTrajectoryButton">
-                    <property name="text">
-                     <string>展开</string>
-                    </property>
-                    <property name="role" stdset="0">
-                     <string>ghost</string>
-                    </property>
-                    <property name="minimumSize">
-                     <size>
-                      <width>64</width>
-                      <height>30</height>
-                     </size>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="AnimatedButton" name="collapseTrajectoryButton">
-                    <property name="text">
-                     <string>收起</string>
-                    </property>
-                    <property name="role" stdset="0">
-                     <string>ghost</string>
-                    </property>
-                    <property name="visible">
-                     <bool>false</bool>
-                    </property>
-                    <property name="minimumSize">
-                     <size>
-                      <width>64</width>
-                      <height>30</height>
-                     </size>
-                    </property>
-                   </widget>
                   </item>
                  </layout>
                 </item>

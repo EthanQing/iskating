@@ -4,6 +4,7 @@
 #include <QFont>
 #include <QFontMetrics>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPaintEvent>
 #include <QPen>
 #include <QRectF>
@@ -113,7 +114,7 @@ void drawEmptyState(QPainter *painter, const QRectF &rect, bool hasSamples)
     const QRectF hintRect = rect.adjusted(8, 0, -8, 0);
     const int hintTop = titleTop + titleHeight + 4;
     const QString hint = hasSamples
-                             ? QStringLiteral("已收到运动员位置，完成场地标定后，\n轨迹将在这里实时显示。")
+                             ? QStringLiteral("已收到运动员位置，\n完成场地标定后将显示米制轨迹。")
                              : QStringLiteral("运动员识别并完成场地标定后，\n轨迹将在这里实时显示。");
     painter->drawText(QRectF(hintRect.left(), hintTop, hintRect.width(), hintHeight),
                       Qt::AlignHCenter | Qt::AlignVCenter | Qt::TextWordWrap,
@@ -157,6 +158,15 @@ void TrajectoryWidget::setTrackPoints(const QVector<TrackPoint> &points)
     update();
 }
 
+void TrajectoryWidget::setAwaitingCalibration(bool awaiting)
+{
+    if (m_awaitingCalibration == awaiting) {
+        return;
+    }
+    m_awaitingCalibration = awaiting;
+    update();
+}
+
 void TrajectoryWidget::paintEvent(QPaintEvent *event)
 {
     Q_UNUSED(event);
@@ -168,71 +178,75 @@ void TrajectoryWidget::paintEvent(QPaintEvent *event)
     painter.fillRect(viewRect, QColor(QStringLiteral("#111A24")));
 
     const bool fieldMode = hasFieldSamples(m_samples);
-    const QRectF bounds = fieldMode ? fieldBounds(m_cameraSegments, m_samples) : QRectF();
-    const QRectF plotRect = viewRect.adjusted(28.0, 22.0, -20.0, -24.0);
-    if (!fieldMode || !bounds.isValid() || plotRect.width() <= 0.0 || plotRect.height() <= 0.0) {
-        drawEmptyState(&painter, viewRect, !m_samples.isEmpty());
+    const QRectF bounds = fieldBounds(m_cameraSegments, m_samples);
+    const QRectF plotRect = viewRect.adjusted(12.0, 8.0, -12.0, -22.0);
+    const QRectF trackRect = plotRect.adjusted(3.0, 17.0, -3.0, -8.0);
+    if (trackRect.width() <= 0.0 || trackRect.height() <= 0.0) {
         return;
     }
 
-    painter.fillRect(plotRect, QColor(QStringLiteral("#0D131B")));
-    painter.setPen(QPen(QColor(QStringLiteral("#243244")), 1.0));
-    for (int column = 0; column <= 8; ++column) {
-        const qreal x = plotRect.left() + plotRect.width() * column / 8.0;
-        painter.drawLine(QPointF(x, plotRect.top()), QPointF(x, plotRect.bottom()));
-    }
-    for (int row = 0; row <= 4; ++row) {
-        const qreal y = plotRect.top() + plotRect.height() * row / 4.0;
-        painter.drawLine(QPointF(plotRect.left(), y), QPointF(plotRect.right(), y));
-    }
+    QPainterPath icePath;
+    icePath.addRoundedRect(trackRect, trackRect.height() * 0.5, trackRect.height() * 0.5);
+    painter.setPen(QPen(QColor(QStringLiteral("#31445A")), 1.5));
+    painter.setBrush(QColor(QStringLiteral("#162230")));
+    painter.drawPath(icePath);
 
-    const QVector<QColor> segmentColors = {
-        QColor(56, 189, 248, 22),
-        QColor(50, 213, 131, 18),
-        QColor(253, 176, 34, 18),
-    };
-    QFont segmentFont = painter.font();
-    segmentFont.setPixelSize(12);
-    painter.setFont(segmentFont);
-    for (int index = 0; index < m_cameraSegments.size(); ++index) {
-        const CameraSegment &segment = m_cameraSegments.at(index);
-        if (!segment.enabled || segment.fieldEndM <= segment.fieldStartM) {
-            continue;
-        }
-        const qreal x0 = mapFieldToView(QPointF(segment.fieldStartM, bounds.center().y()), bounds, plotRect).x();
-        const qreal x1 = mapFieldToView(QPointF(segment.fieldEndM, bounds.center().y()), bounds, plotRect).x();
-        QRectF band(QPointF(std::min(x0, x1), plotRect.top()),
-                    QPointF(std::max(x0, x1), plotRect.bottom()));
-        if (band.width() < 2.0) {
-            continue;
-        }
-        painter.fillRect(band, segmentColors.at(index % segmentColors.size()));
-        painter.setPen(QColor(QStringLiteral("#B6C2D0")));
-        painter.drawText(band.adjusted(4.0, 3.0, -4.0, -3.0),
-                         Qt::AlignLeft | Qt::AlignTop,
-                         QStringLiteral("CAM %1").arg(segment.cameraId, 2, 10, QLatin1Char('0')));
-    }
-
-    painter.setPen(QPen(QColor(QStringLiteral("#31445A")), 1.0));
     painter.setBrush(Qt::NoBrush);
-    painter.drawRect(plotRect);
+    painter.setPen(QPen(QColor(QStringLiteral("#243244")), 1.0));
+    for (qreal inset : {7.0, 14.0}) {
+        const QRectF laneRect = trackRect.adjusted(inset, inset, -inset, -inset);
+        if (laneRect.width() > 0.0 && laneRect.height() > 0.0) {
+            QPainterPath lanePath;
+            lanePath.addRoundedRect(laneRect, laneRect.height() * 0.5, laneRect.height() * 0.5);
+            painter.drawPath(lanePath);
+        }
+    }
 
-    QFont axisFont = painter.font();
-    axisFont.setPixelSize(12);
-    axisFont.setWeight(QFont::Normal);
-    painter.setFont(axisFont);
-    painter.setPen(QColor(QStringLiteral("#7E8FA3")));
-    const QString startLabel = QStringLiteral("%1 m").arg(bounds.left(), 0, 'f', 1);
-    const QString endLabel = QStringLiteral("%1 m").arg(bounds.right(), 0, 'f', 1);
-    painter.drawText(QRectF(plotRect.left(), plotRect.bottom() + 4.0, plotRect.width() * 0.5, 14.0),
-                     Qt::AlignLeft | Qt::AlignTop,
-                     startLabel);
-    painter.drawText(QRectF(plotRect.left() + plotRect.width() * 0.5,
-                            plotRect.bottom() + 4.0,
-                            plotRect.width() * 0.5,
-                            14.0),
-                     Qt::AlignRight | Qt::AlignTop,
-                     endLabel);
+    if (bounds.isValid()) {
+        QFont segmentFont = painter.font();
+        segmentFont.setPixelSize(10);
+        painter.setFont(segmentFont);
+        const QFontMetrics metrics(segmentFont);
+        qreal lastLabelRight = plotRect.left() - 4.0;
+        painter.setPen(QPen(QColor(QStringLiteral("#7E8FA3")), 1.0));
+        for (const CameraSegment &segment : m_cameraSegments) {
+            if (!segment.enabled || segment.fieldEndM <= segment.fieldStartM) {
+                continue;
+            }
+            const qreal x0 = mapFieldToView(QPointF(segment.fieldStartM, bounds.center().y()),
+                                            bounds,
+                                            plotRect).x();
+            const qreal x1 = mapFieldToView(QPointF(segment.fieldEndM, bounds.center().y()),
+                                            bounds,
+                                            plotRect).x();
+            painter.drawLine(QPointF(x0, trackRect.top() - 3.0), QPointF(x0, trackRect.top() + 4.0));
+            painter.drawLine(QPointF(x1, trackRect.top() - 3.0), QPointF(x1, trackRect.top() + 4.0));
+            const QString label = QStringLiteral("CAM %1").arg(segment.cameraId, 2, 10, QLatin1Char('0'));
+            const qreal labelLeft = std::min(x0, x1) + 3.0;
+            const qreal labelWidth = metrics.horizontalAdvance(label);
+            if (labelLeft > lastLabelRight + 4.0 && labelLeft + labelWidth <= plotRect.right()) {
+                painter.drawText(QPointF(labelLeft, trackRect.top() - 5.0), label);
+                lastLabelRight = labelLeft + labelWidth;
+            }
+        }
+
+        QFont axisFont = painter.font();
+        axisFont.setPixelSize(10);
+        painter.setFont(axisFont);
+        painter.setPen(QColor(QStringLiteral("#7E8FA3")));
+        painter.drawText(QRectF(plotRect.left(), plotRect.bottom() + 4.0, plotRect.width() * 0.5, 13.0),
+                         Qt::AlignLeft | Qt::AlignTop,
+                         QStringLiteral("%1 m").arg(bounds.left(), 0, 'f', 1));
+        painter.drawText(QRectF(plotRect.center().x(), plotRect.bottom() + 4.0,
+                                plotRect.width() * 0.5, 13.0),
+                         Qt::AlignRight | Qt::AlignTop,
+                         QStringLiteral("%1 m").arg(bounds.right(), 0, 'f', 1));
+    }
+
+    if (!fieldMode || !bounds.isValid()) {
+        drawEmptyState(&painter, trackRect, m_awaitingCalibration || !m_samples.isEmpty());
+        return;
+    }
 
     QVector<QPointF> samples;
     samples.reserve(m_samples.size());
@@ -243,7 +257,7 @@ void TrajectoryWidget::paintEvent(QPaintEvent *event)
     }
 
     if (samples.isEmpty()) {
-        drawEmptyState(&painter, plotRect, true);
+        drawEmptyState(&painter, trackRect, true);
         return;
     }
 
@@ -262,14 +276,6 @@ void TrajectoryWidget::paintEvent(QPaintEvent *event)
     painter.setBrush(QColor(QStringLiteral("#38BDF8")));
     painter.drawEllipse(samples.last(), 2.5, 2.5);
 
-    QFont labelFont = painter.font();
-    labelFont.setPixelSize(12);
-    labelFont.setWeight(QFont::DemiBold);
-    painter.setFont(labelFont);
-    painter.setPen(QColor(QStringLiteral("#B6C2D0")));
-    painter.drawText(viewRect.adjusted(28.0, 7.0, -20.0, 0.0),
-                     Qt::AlignLeft | Qt::AlignTop,
-                     QStringLiteral("二维滑行轨迹"));
 }
 
 void TrajectoryWidget::trimHistory(qint64 latestTimestampMs)

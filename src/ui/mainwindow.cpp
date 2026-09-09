@@ -1276,7 +1276,8 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                && watched->property("showTipTextOnHover").toBool()
                && qobject_cast<QPushButton *>(watched)) {
         repolish(qobject_cast<QWidget *>(watched));
-    } else if (watched == m_cameraGridContainer && event->type() == QEvent::Resize) {
+    } else if ((watched == m_cameraGridContainer || watched == m_cameraTrajectoryRow)
+               && event->type() == QEvent::Resize) {
         updateCameraGrid();
     }
 
@@ -1428,9 +1429,6 @@ void MainWindow::setupConnections()
     });
     connect(ui->manualIdentityButton, &QPushButton::clicked, this, [this]() {
         editManualIdentityBindings();
-    });
-    connect(ui->expandTrajectoryButton, &QPushButton::clicked, this, [this]() {
-        showTrajectorySnapshot();
     });
     connect(ui->advancedSettingsButton, &QPushButton::clicked, this, [this]() {
         m_settingsExpanded ? closeTrainingSettings() : openTrainingSettings();
@@ -2037,24 +2035,40 @@ void MainWindow::rebuildWorkspaceLayout()
 
     const int cameraAreaIndex = ui->leftCardLayout->indexOf(ui->cameraScrollArea);
     ui->cameraScrollArea->hide();
-    m_cameraGridContainer = new QWidget(ui->leftCard);
+    ui->leftCardLayout->removeWidget(ui->trajectoryCard);
+    m_cameraTrajectoryRow = new QWidget(ui->leftCard);
+    m_cameraTrajectoryRow->setObjectName(QStringLiteral("cameraTrajectoryRow"));
+    m_cameraTrajectoryRow->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    m_cameraTrajectoryRow->installEventFilter(this);
+    m_cameraTrajectoryLayout = new QHBoxLayout(m_cameraTrajectoryRow);
+    m_cameraTrajectoryLayout->setContentsMargins(0, 0, 0, 0);
+    m_cameraTrajectoryLayout->setSpacing(12);
+
+    m_cameraGridContainer = new QWidget(m_cameraTrajectoryRow);
     m_cameraGridContainer->setObjectName(QStringLiteral("cameraGridContainer"));
-    m_cameraGridContainer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    m_cameraGridContainer->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     m_cameraGridContainer->installEventFilter(this);
     m_cameraGridLayout = new QGridLayout(m_cameraGridContainer);
     m_cameraGridLayout->setContentsMargins(0, 0, 0, 0);
     m_cameraGridLayout->setHorizontalSpacing(8);
     m_cameraGridLayout->setVerticalSpacing(8);
-    m_cameraGridLayout->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
-    ui->leftCardLayout->insertWidget(std::max(0, cameraAreaIndex), m_cameraGridContainer);
-    updateCameraGrid();
+    m_cameraGridLayout->setAlignment(Qt::AlignHCenter | Qt::AlignVCenter);
+    m_cameraTrajectoryLayout->addWidget(m_cameraGridContainer, 1);
+    ui->trajectoryCard->setParent(m_cameraTrajectoryRow);
+    ui->trajectoryCard->setMinimumWidth(280);
+    ui->trajectoryCard->setMaximumWidth(400);
+    ui->trajectoryCard->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    m_cameraTrajectoryLayout->addWidget(ui->trajectoryCard);
+    ui->trajectoryCard->show();
+    ui->leftCardLayout->insertWidget(std::max(0, cameraAreaIndex), m_cameraTrajectoryRow);
 
-    ui->trajectoryCard->setMinimumHeight(112);
-    ui->trajectoryCard->setMaximumHeight(190);
-    ui->trajectoryCardLayout->setContentsMargins(12, 4, 12, 4);
-    ui->trajectoryCardLayout->setSpacing(4);
-    ui->trajectoryTitleLabel->setText(QStringLiteral("轨迹"));
+    ui->trajectoryCard->setMinimumHeight(0);
+    ui->trajectoryCard->setMaximumHeight(QWIDGETSIZE_MAX);
+    ui->trajectoryCardLayout->setContentsMargins(12, 8, 12, 10);
+    ui->trajectoryCardLayout->setSpacing(5);
+    ui->trajectoryTitleLabel->setText(QStringLiteral("二维滑行轨迹"));
     ui->legendTitleLabel->setText(QStringLiteral("当前运动员："));
+    updateCameraGrid();
 
     ui->athleteSectionLabel->setText(QStringLiteral("当前运动员"));
     ui->athleteIdentityLabel->setText(QStringLiteral("—"));
@@ -2214,18 +2228,25 @@ void MainWindow::updateCameraGrid()
     if (!m_cameraGridLayout || !m_cameraGridContainer) {
         return;
     }
-    const int columns = m_cameraGridContainer->width() >= 840 ? 6 : 4;
+    if (m_cameraTrajectoryRow) {
+        const int rowWidth = m_cameraTrajectoryRow->contentsRect().width();
+        const int trajectoryWidth = std::clamp(qRound(rowWidth * 0.28), 280, 400);
+        if (ui->trajectoryCard->width() != trajectoryWidth) {
+            ui->trajectoryCard->setFixedWidth(trajectoryWidth);
+        }
+    }
+    const int columns = m_cameraGridContainer->contentsRect().width() >= 840 ? 6 : 4;
     const int rows = (m_cameraButtons.size() + columns - 1) / columns;
-    const int availableWidth = std::max(0, m_cameraGridContainer->width() - (columns - 1) * 8);
+    const int availableWidth = std::max(0, m_cameraGridContainer->contentsRect().width()
+                                           - (columns - 1) * 8);
     int tileWidth = columns > 0 ? availableWidth / columns : 0;
     const QMargins margins = ui->leftCardLayout->contentsMargins();
     const int layoutSpacing = ui->leftCardLayout->spacing()
                               * std::max(0, ui->leftCardLayout->count() - 1);
     const int remainingHeight = std::max(0, ui->leftCard->height()
         - margins.top() - margins.bottom() - layoutSpacing
-        - ui->mainImageLabel->minimumHeight()
-        - std::max(ui->trajectoryCard->minimumHeight(), ui->trajectoryCard->sizeHint().height()));
-    // 两种列数都限制网格高度，为主视频和轨迹保留空间。
+        - ui->mainImageLabel->minimumHeight());
+    // 两种列数都限制网格高度，为主视频保留空间。
     const int preferredHeight = ui->leftCard->height() * 35 / 100;
     const int heightLimit = std::min(preferredHeight, remainingHeight);
     const int maxTileHeight = std::max(0, heightLimit - (rows - 1) * 8)
@@ -2236,11 +2257,18 @@ void MainWindow::updateCameraGrid()
         tileHeight = qRound(tileWidth * 9.0 / 16.0);
     }
     const QSize tileSize(tileWidth, tileHeight);
-    const int gridHeight = rows * tileHeight + std::max(0, rows - 1) * 8;
-    if (m_cameraGridContainer->height() != gridHeight
-        || m_cameraGridContainer->minimumHeight() != gridHeight
-        || m_cameraGridContainer->maximumHeight() != gridHeight) {
-        m_cameraGridContainer->setFixedHeight(gridHeight);
+    const int naturalGridHeight = rows * tileHeight + std::max(0, rows - 1) * 8;
+    const int rowHeight = std::min(std::max(naturalGridHeight, 210), heightLimit);
+    if (m_cameraGridContainer->height() != rowHeight
+        || m_cameraGridContainer->minimumHeight() != rowHeight
+        || m_cameraGridContainer->maximumHeight() != rowHeight) {
+        m_cameraGridContainer->setFixedHeight(rowHeight);
+    }
+    if (m_cameraTrajectoryRow && m_cameraTrajectoryRow->height() != rowHeight) {
+        m_cameraTrajectoryRow->setFixedHeight(rowHeight);
+    }
+    if (ui->trajectoryCard->height() != rowHeight) {
+        ui->trajectoryCard->setFixedHeight(rowHeight);
     }
     const bool columnsChanged = m_cameraGridColumns != columns;
     const bool sizeChanged = m_cameraTileSize != tileSize;
@@ -2253,6 +2281,9 @@ void MainWindow::updateCameraGrid()
             delete item;
         }
         m_cameraGridColumns = columns;
+        for (int row = 0; row < 3; ++row) {
+            m_cameraGridLayout->setRowStretch(row, row < rows ? 1 : 0);
+        }
         for (int index = 0; index < m_cameraButtons.size(); ++index) {
             VideoOpenGLWidget *camera = m_cameraButtons.at(index);
             if (camera->parentWidget() != m_cameraGridContainer) {
@@ -2263,7 +2294,10 @@ void MainWindow::updateCameraGrid()
             if (!camera->isVisible()) {
                 camera->show();
             }
-            m_cameraGridLayout->addWidget(camera, index / columns, index % columns);
+            m_cameraGridLayout->addWidget(camera,
+                                          index / columns,
+                                          index % columns,
+                                          Qt::AlignHCenter | Qt::AlignVCenter);
         }
     }
 
@@ -3784,10 +3818,6 @@ void MainWindow::resizeEvent(QResizeEvent *event)
     }
     const bool compactHeight = height() < 820;
     ui->mainImageLabel->setMinimumHeight(compactHeight ? 200 : 280);
-    ui->trajectoryCard->setMinimumHeight(compactHeight ? 112 : 126);
-    if (m_trajectoryWidget) {
-        m_trajectoryWidget->setMinimumHeight(compactHeight ? 64 : 100);
-    }
     updateCameraGrid();
 }
 
@@ -4413,69 +4443,6 @@ void MainWindow::refreshTrajectoryView()
         }
     }
     m_trajectoryWidget->setTrackPoints(points);
-}
-
-void MainWindow::showTrajectorySnapshot()
-{
-    FramelessDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("轨迹详情"));
-    dialog.setDialogTitle(QStringLiteral("轨迹详情"));
-    dialog.resize(1040, 680);
-    dialog.setMinimumSize(820, 520);
-    dialog.setSizeGripEnabled(true);
-    auto *layout = dialog.contentLayout();
-    layout->setSpacing(12);
-
-    const QString athleteName = m_athleteComboBox && m_athleteComboBox->currentIndex() >= 0
-                                    ? m_athleteComboBox->currentText()
-                                    : QStringLiteral("未选择运动员");
-    const QString primaryParticipantId = selectedAthleteId();
-    QVector<TrackPoint> points;
-    for (const TrackPoint &point : std::as_const(m_currentTrackPoints)) {
-        if (primaryParticipantId.isEmpty() || point.participantId == primaryParticipantId) {
-            points.append(point);
-        }
-    }
-    QString timeRange = QStringLiteral("暂无数据");
-    if (!points.isEmpty()) {
-        const auto [minimum, maximum] = std::minmax_element(points.cbegin(), points.cend(),
-                                                            [](const TrackPoint &left, const TrackPoint &right) {
-                                                                return left.timestampMs < right.timestampMs;
-                                                            });
-        timeRange = QStringLiteral("%1 — %2")
-                        .arg(formatMilliseconds(static_cast<int>(minimum->timestampMs)),
-                             formatMilliseconds(static_cast<int>(maximum->timestampMs)));
-    }
-    auto *contextLabel = new QLabel(QStringLiteral("当前运动员：%1    时间范围：%2")
-                                        .arg(athleteName, timeRange),
-                                    &dialog);
-    contextLabel->setProperty("role", "muted");
-    contextLabel->setWordWrap(true);
-    layout->addWidget(contextLabel);
-
-    auto *trajectory = new TrajectoryWidget(&dialog);
-    QVector<TrajectoryWidget::CameraSegment> segments;
-    segments.reserve(m_cameraSlotSettings.size());
-    for (int index = 0; index < m_cameraSlotSettings.size(); ++index) {
-        const CameraSlotSettings &slot = m_cameraSlotSettings.at(index);
-        TrajectoryWidget::CameraSegment segment;
-        segment.cameraId = index + 1;
-        segment.enabled = slot.trajectoryEnabled;
-        segment.role = slot.role;
-        segment.fieldStartM = slot.fieldStartM;
-        segment.fieldEndM = slot.fieldEndM;
-        segments.append(segment);
-    }
-    trajectory->setCameraSegments(segments);
-    trajectory->setTrackPoints(points);
-    layout->addWidget(trajectory, 1);
-
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
-    buttons->button(QDialogButtonBox::Close)->setText(QStringLiteral("关闭"));
-    layout->addWidget(buttons);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    dialog.exec();
 }
 
 void MainWindow::importOfflineVideo()
@@ -5537,6 +5504,18 @@ void MainWindow::refreshStats()
             selectedInstance = &instance;
             break;
         }
+    }
+    bool awaitingCalibration = false;
+    if (selectedInstance
+        && m_lastAthleteFrame.cameraId > 0
+        && m_lastAthleteFrame.cameraId <= m_cameraSlotSettings.size()) {
+        QPointF fieldPoint;
+        const QPointF iceContact(selectedInstance->box.center().x(), selectedInstance->box.bottom());
+        awaitingCalibration = !mapImagePointToField(
+            m_cameraSlotSettings.at(m_lastAthleteFrame.cameraId - 1), iceContact, &fieldPoint);
+    }
+    if (m_trajectoryWidget) {
+        m_trajectoryWidget->setAwaitingCalibration(awaitingCalibration);
     }
     if (m_lastAthleteFrame.instances.isEmpty()) {
         ui->athleteIdentityLabel->setText(QStringLiteral("● 尚未识别"));
