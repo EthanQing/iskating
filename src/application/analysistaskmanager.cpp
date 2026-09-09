@@ -171,7 +171,7 @@ void AnalysisTaskManager::run()
             job = m_queue.dequeue();
         }
         if (!repository.isOpen() && !repository.open(&error)) {
-            if (!job.task.id.isEmpty()) emit taskError(job.task.id, error);
+            emit taskError(job.task.id, error);
             continue;
         }
         runJob(job, repository);

@@ -125,6 +125,10 @@ $env:ISKATING_JWT_SECRET = "REPLACE_WITH_A_LONG_RANDOM_SECRET"
 
 当前深色 Design System 已完成视觉收尾并冻结。后续界面复用现有 Palette、按钮状态与导航层级，不再进行配色微调；只有用户明确要求时才重新开启视觉调整。
 
+顶部“任务中心”和“完整分析”保持独立入口，并统一使用 FramelessDialog。任务中心以左侧任务列表、右侧详情查看 AnalysisTaskManager 缓存，状态筛选不发网络请求；taskUpdated 更新时保持当前选择，刷新按钮调用原 refreshTasks。任务类型与状态使用中文，原始输入 JSON 仅在折叠区域显示；暂停、继续、取消和打开输出训练记录均沿用现有接口。显示进度时，完整分析任务的 0～1 转成百分比，离线导入任务直接使用 0～100，已完成统一显示 100%。
+
+完整分析负责配置固定 CAM 01～12、创建批次和管理当前 Run。初始源输入为空，示例只作提示；Manifest 必须包含唯一覆盖 1～12 的 cameraId，整体检查通过后更新表格，创建继续使用 batchFromTable 校验及 enqueueFullRateBatch。保留 nasRoot / lastBatchId 设置、fullRateRunReady / taskUpdated 联动和唯一 2 秒 Run 刷新定时器。取消适用于 queued/running/partial，重试适用于 failed/partial/cancelled，completed 且未激活的 Run 可激活结果。服务连接失败时 Manager 也为尚未分配任务 ID 的作业发出已有 taskError，避免提交界面永久停留在排队提示。
+
 比赛管理由 `CompetitionManagementDialog` 承担，复用 FramelessDialog 和现有 Design System，以左侧比赛列表、右侧滚动详情维护比赛 → 场次 → 参赛运动员三级关系。搜索仅本地匹配比赛名称、地点和类型；父级保存后才能维护下级，切换父级重新加载下级，优先恢复指定记录，否则默认选中第一条；没有下级记录时显示空状态，只有点击新增按钮才进入新增编辑。参赛运动员从已有档案选择并排除场次内重复人员，移出仅归档参赛关系。日期、计划时间和成绩保留原有未设置语义，所有读写继续通过 TrainingRepository。成功保存、归档或移出后 `changed()` 通知 MainWindow 刷新训练上下文及历史筛选，并恢复仍可用的比赛和场次选择；服务未连接时禁止编辑和写入。
 
 `FramelessDialog` 自动安装模态遮罩；普通管理弹窗可通过 `installModalScrim()` 复用。遮罩仅在弹窗实际模态显示时出现，使用独立透明工具窗口覆盖原生视频子窗口，随所属窗口移动、缩放，并在弹窗隐藏或销毁时清理。非模态训练设置 Drawer 不显示遮罩；不要将工作区提升为原生窗口，也不要为遮罩加入截图、模糊或图形特效。

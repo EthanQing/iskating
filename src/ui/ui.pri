@@ -13,6 +13,7 @@ SOURCES += \
     $$SRC_ROOT/ui/videoopenglwidget.cpp
 
 HEADERS += \
+    $$SRC_ROOT/ui/analysisuipresentation.h \
     $$SRC_ROOT/ui/analysistaskcenterdialog.h \
     $$SRC_ROOT/ui/animatedbutton.h \
     $$SRC_ROOT/ui/competitionmanagementdialog.h \
