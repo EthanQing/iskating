@@ -16,7 +16,6 @@ class QEvent;
 class QKeyEvent;
 class QLabel;
 class QMouseEvent;
-class QMoveEvent;
 class QPaintEvent;
 class QToolButton;
 class QTimer;
@@ -82,7 +81,6 @@ protected:
     void enterEvent(QEnterEvent *event) override;
     void leaveEvent(QEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
-    void moveEvent(QMoveEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
     void keyReleaseEvent(QKeyEvent *event) override;
     void contextMenuEvent(QContextMenuEvent *event) override;

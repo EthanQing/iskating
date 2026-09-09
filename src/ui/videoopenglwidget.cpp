@@ -129,6 +129,8 @@ VideoOpenGLWidget::VideoOpenGLWidget(QWidget *parent)
     // Keep the native video surface and overlays local to this widget; otherwise
     // Qt promotes the surrounding workspace to native windows during creation.
     setAttribute(Qt::WA_DontCreateNativeAncestors);
+    // Anchor native overlays to the video host, not the moving workspace's backing store.
+    setAttribute(Qt::WA_NativeWindow);
     m_videoSurface = new D3DVideoSurface(this);
     setAutoFillBackground(false);
     setAttribute(Qt::WA_OpaquePaintEvent, true);
@@ -1030,14 +1032,6 @@ void VideoOpenGLWidget::resizeEvent(QResizeEvent *event)
     layoutOverlayControls();
     refreshAthleteLabels();
     refreshSourceOverlay();
-    // Native overlay windows can leave preserved pixels behind during layout changes.
-    update();
-}
-
-void VideoOpenGLWidget::moveEvent(QMoveEvent *event)
-{
-    QWidget::moveEvent(event);
-    update();
 }
 
 void VideoOpenGLWidget::keyPressEvent(QKeyEvent *event)
