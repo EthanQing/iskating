@@ -67,7 +67,6 @@ private:
     void installTrainingContextPanel();
     void installHistorySearchPanel();
     void rebuildWorkspaceLayout();
-    void updateCameraGrid();
     void openTrainingSettings();
     void closeTrainingSettings();
     void applyStyleSheet();
@@ -211,12 +210,6 @@ private:
     QLabel *m_identityAvailabilityLabel = nullptr;
     QScrollArea *m_saveTipScrollArea = nullptr;
     QSplitter *m_workspaceSplitter = nullptr;
-    QWidget *m_cameraGridContainer = nullptr;
-    QWidget *m_cameraTrajectoryRow = nullptr;
-    QHBoxLayout *m_cameraTrajectoryLayout = nullptr;
-    QGridLayout *m_cameraGridLayout = nullptr;
-    int m_cameraGridColumns = 0;
-    QSize m_cameraTileSize;
     bool m_compactWorkspace = false;
     FramelessDialog *m_trainingSettingsDialog = nullptr;
     QWidget *m_historySearchPanel = nullptr;
