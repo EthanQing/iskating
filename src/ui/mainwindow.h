@@ -23,6 +23,7 @@ class QDateEdit;
 class QDateTime;
 class QThread;
 class QLineEdit;
+class QListWidget;
 class QSpinBox;
 class QPlainTextEdit;
 class QEvent;
@@ -142,6 +143,10 @@ private:
     void refreshStats();
     void showTrajectorySnapshot();
     void refreshHistory();
+    void selectHistorySession(const QString &sessionId);
+    void refreshHistorySessionDetail();
+    const SessionHistoryItem *historySessionById(const QString &sessionId) const;
+    bool historySessionHasPlayableVideo(const SessionHistoryItem &record) const;
     void refreshSuggestions();
     void openSessionVideo(const SessionHistoryItem &record,
                           int offsetMs = 0,
@@ -229,6 +234,31 @@ private:
     QLabel *m_historyPageLabel = nullptr;
     QPushButton *m_historyPreviousPageButton = nullptr;
     QPushButton *m_historyNextPageButton = nullptr;
+    QListWidget *m_historySessionList = nullptr;
+    QSplitter *m_historyWorkspace = nullptr;
+    QWidget *m_historyDetailContent = nullptr;
+    QWidget *m_historyDetailEmptyState = nullptr;
+    QLabel *m_historyDetailAthleteLabel = nullptr;
+    QLabel *m_historyDetailTimeLabel = nullptr;
+    QLabel *m_historyDetailSourceLabel = nullptr;
+    QLabel *m_historyDetailSummaryLabel = nullptr;
+    QLabel *m_historyDetailTrainingInfoLabel = nullptr;
+    QLabel *m_historyDetailSourceInfoLabel = nullptr;
+    QLabel *m_historyDetailCommentLabel = nullptr;
+    QLabel *m_historyEmptyTitleLabel = nullptr;
+    QLabel *m_historyEmptyBodyLabel = nullptr;
+    QPushButton *m_historyEmptyResetButton = nullptr;
+    QPushButton *m_historyPlayButton = nullptr;
+    QPushButton *m_historyReviewButton = nullptr;
+    QPushButton *m_historyTrackButton = nullptr;
+    QPushButton *m_historyCommentButton = nullptr;
+    QPushButton *m_historyExportButton = nullptr;
+    QPushButton *m_historySearchButton = nullptr;
+    QPushButton *m_historyRepetitionSearchButton = nullptr;
+    QPushButton *m_historyCompetitionManagementButton = nullptr;
+    QPushButton *m_historyReportCenterButton = nullptr;
+    QString m_selectedHistorySessionId;
+    bool m_historyServiceAvailable = false;
 
     QTimer m_timer;
     QTimer m_statusTimer;

@@ -761,6 +761,11 @@ QTableWidget#competitionTable::item:selected {
     color: #F4F7FA;
     border-left: 3px solid #38BDF8;
 }
+QListWidget#historySessionList::item:selected {
+    background-color: #1D3042;
+    color: #F4F7FA;
+    border-left: 3px solid #38BDF8;
+}
 QDialog#framelessDialog QWidget#settingsBody QHeaderView::section {
     min-height: 34px;
     padding: 4px 7px;
