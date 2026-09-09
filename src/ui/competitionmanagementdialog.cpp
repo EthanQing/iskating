@@ -192,6 +192,10 @@ void CompetitionManagementDialog::buildUi()
     m_competitionTable = new QTableWidget(0, 1, m_competitionStack);
     m_competitionTable->setObjectName(QStringLiteral("competitionTable"));
     configureTable(m_competitionTable);
+    m_competitionTable->setStyleSheet(QStringLiteral(
+        "QTableWidget#competitionTable::item:selected {"
+        " background-color: #1D3042; color: #F4F7FA;"
+        " border-left: 3px solid #38BDF8; }"));
     m_competitionTable->horizontalHeader()->hide();
     m_competitionTable->verticalHeader()->setDefaultSectionSize(68);
     m_competitionTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
