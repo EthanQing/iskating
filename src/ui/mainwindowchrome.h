@@ -16,6 +16,7 @@ class MainWindowChrome : public QObject
 public:
     explicit MainWindowChrome(QMainWindow *window);
     void install();
+    void setSidebarButton(QWidget *button);
     bool handleNativeEvent(const QByteArray &eventType, void *message, qintptr *result);
 
 protected:
@@ -30,6 +31,7 @@ private:
     QFrame *m_frame = nullptr;
     QWidget *m_titleBar = nullptr;
     QWidget *m_controls = nullptr;
+    QWidget *m_sidebarButton = nullptr;
     QWidget *m_maximizeButton = nullptr;
     bool m_updatingNativeStyle = false;
 };

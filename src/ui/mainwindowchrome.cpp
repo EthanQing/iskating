@@ -5,7 +5,6 @@
 #include <QEvent>
 #include <QFrame>
 #include <QHBoxLayout>
-#include <QLabel>
 #include <QMainWindow>
 #include <QMouseEvent>
 #include <QPainter>
@@ -86,16 +85,8 @@ void MainWindowChrome::install()
     m_titleBar->setFixedHeight(32);
     m_titleBar->setStyleSheet(QStringLiteral("#mainWindowTitleBar { background: #0D131B; border-bottom: 1px solid #243244; }"));
     auto *bar = new QHBoxLayout(m_titleBar);
-    bar->setContentsMargins(9, 0, 0, 0);
+    bar->setContentsMargins(0, 0, 0, 0);
     bar->setSpacing(8);
-    auto *badge = new QLabel(QStringLiteral("IS"), m_titleBar);
-    badge->setFixedSize(22, 18);
-    badge->setAlignment(Qt::AlignCenter);
-    badge->setStyleSheet(QStringLiteral("background:#172333; color:#D7E0EA; border:1px solid #31445A; font-size:10px; font-weight:600;"));
-    auto *title = new QLabel(QStringLiteral("iSkating · 训练工作站"), m_titleBar);
-    title->setStyleSheet(QStringLiteral("color:#B7C4D3; border:none; font-size:12px;"));
-    bar->addWidget(badge);
-    bar->addWidget(title);
     bar->addStretch();
 
     m_controls = new QWidget(m_titleBar);
@@ -121,6 +112,12 @@ void MainWindowChrome::install()
     m_window->installEventFilter(this);
     m_titleBar->installEventFilter(this);
     syncWindowState();
+}
+
+void MainWindowChrome::setSidebarButton(QWidget *button)
+{
+    m_sidebarButton = button;
+    static_cast<QHBoxLayout *>(m_titleBar->layout())->insertWidget(0, button);
 }
 
 void MainWindowChrome::syncWindowState()
@@ -156,7 +153,8 @@ bool MainWindowChrome::pointIsInTitleBar(const QPoint &globalPoint) const
 {
     if (!m_titleBar->isVisible() || !m_window->isEnabled()) return false;
     const QPoint local = m_titleBar->mapFromGlobal(globalPoint);
-    return m_titleBar->rect().contains(local) && !m_controls->geometry().contains(local);
+    return m_titleBar->rect().contains(local) && !m_controls->geometry().contains(local)
+           && (!m_sidebarButton || !m_sidebarButton->geometry().contains(local));
 }
 
 bool MainWindowChrome::eventFilter(QObject *watched, QEvent *event)
@@ -175,7 +173,8 @@ bool MainWindowChrome::eventFilter(QObject *watched, QEvent *event)
     }
     if (watched == m_titleBar && event->type() == QEvent::MouseButtonPress) {
         auto *mouse = static_cast<QMouseEvent *>(event);
-        if (mouse->button() == Qt::LeftButton && !m_window->isMaximized() && m_window->windowHandle())
+        if (mouse->button() == Qt::LeftButton && pointIsInTitleBar(mouse->globalPosition().toPoint())
+            && !m_window->isMaximized() && m_window->windowHandle())
             return m_window->windowHandle()->startSystemMove();
     }
 #endif
@@ -205,7 +204,8 @@ bool MainWindowChrome::handleNativeEvent(const QByteArray &, void *message, qint
                 const int logicalX = qRound(static_cast<qreal>(client.x) / dpr);
                 const int logicalY = qRound(static_cast<qreal>(client.y) / dpr);
                 const QPoint titlePoint = m_titleBar->mapFrom(m_window, QPoint(logicalX, logicalY));
-                if (m_titleBar->rect().contains(titlePoint) && !m_controls->geometry().contains(titlePoint)) *result = HTCAPTION;
+                if (m_titleBar->rect().contains(titlePoint) && !m_controls->geometry().contains(titlePoint)
+                    && (!m_sidebarButton || !m_sidebarButton->geometry().contains(titlePoint))) *result = HTCAPTION;
                 else *result = HTCLIENT;
             }
             return true;
@@ -216,7 +216,8 @@ bool MainWindowChrome::handleNativeEvent(const QByteArray &, void *message, qint
             const int logicalX = qRound(static_cast<qreal>(client.x) / dpr);
             const int logicalY = qRound(static_cast<qreal>(client.y) / dpr);
             const QPoint titlePoint = m_titleBar->mapFrom(m_window, QPoint(logicalX, logicalY));
-            if (m_titleBar->rect().contains(titlePoint) && !m_controls->geometry().contains(titlePoint)) { *result = HTCAPTION; return true; }
+            if (m_titleBar->rect().contains(titlePoint) && !m_controls->geometry().contains(titlePoint)
+                && (!m_sidebarButton || !m_sidebarButton->geometry().contains(titlePoint))) { *result = HTCAPTION; return true; }
         }
         *result = HTCLIENT;
         return true;

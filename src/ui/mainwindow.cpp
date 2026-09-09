@@ -1102,7 +1102,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_fullScreenButton = new AnimatedButton(ui->toggleSidebarButton->parentWidget());
     m_fullScreenButton->setObjectName(QStringLiteral("fullScreenButton"));
     m_fullScreenButton->setProperty("role", "icon");
-    configureStableButton(ui->toggleSidebarButton, 36, 36, QSize(20, 20));
+    configureStableButton(ui->toggleSidebarButton, 46, 32, QSize(20, 20));
     configureStableButton(m_fullScreenButton, 36, 36, QSize(20, 20));
     ui->toggleSidebarButton->installEventFilter(this);
     m_fullScreenButton->installEventFilter(this);
@@ -1114,6 +1114,8 @@ MainWindow::MainWindow(QWidget *parent)
     } else {
         ui->topbarLayout->addWidget(m_fullScreenButton);
     }
+    ui->topbarLayout->removeWidget(ui->toggleSidebarButton);
+    m_windowChrome->setSidebarButton(ui->toggleSidebarButton);
 
     auto *importVideoButton = new AnimatedButton(ui->leftCard);
     importVideoButton->setIconSource(QStringLiteral(":/icons/video.svg"));
@@ -7165,7 +7167,7 @@ void MainWindow::refreshSidebarButton()
     ui->toggleSidebarButton->setToolTip(label);
     ui->toggleSidebarButton->setStatusTip(label);
     ui->toggleSidebarButton->setAccessibleName(label);
-    configureStableButton(ui->toggleSidebarButton, 36, 36, QSize(20, 20));
+    configureStableButton(ui->toggleSidebarButton, 46, 32, QSize(20, 20));
 }
 
 // 根据当前窗口状态刷新顶部全屏图标按钮，并同步无障碍提示。

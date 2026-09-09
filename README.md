@@ -119,7 +119,7 @@ $env:ISKATING_JWT_SECRET = "REPLACE_WITH_A_LONG_RANDOM_SECRET"
 
 视频画面和覆盖层的原生窗口应限制在 VideoOpenGLWidget 内，避免将外层页面、分隔区和侧栏提升为原生窗口，增加布局动画的窗口调整开销。尚未创建交换链时，清空画面不初始化图形资源；实际视频帧到达后再创建渲染资源。
 
-MainWindow 的外层框架由 `src/ui/mainwindowchrome.h/.cpp` 管理：32px 自定义标题栏横跨原有工作区，普通窗口显示 1px 边框，最大化去掉边框，全屏同时隐藏标题栏。Windows 使用原生非客户区命中测试处理标题栏拖动、双击和 6px（随 DPI 缩放）的八方向缩放，保留系统窗口操作；三个窗口按钮沿用 Qt 最小化、最大化／还原和正常关闭流程。框架容器保持非原生 QWidget，不改动视频祖先属性；现有 Modal Scrim 覆盖包含标题栏的整个窗口，模态期间禁止底层框架拖动。
+MainWindow 的外层框架由 `src/ui/mainwindowchrome.h/.cpp` 管理：32px 自定义标题栏横跨原有工作区，左上角复用侧栏展开／折叠按钮，不重复显示应用图标和标题；普通窗口显示 1px 边框，最大化去掉边框，全屏同时隐藏标题栏。Windows 使用原生非客户区命中测试处理标题栏拖动、双击和 6px（随 DPI 缩放）的八方向缩放，保留系统窗口操作；三个窗口按钮沿用 Qt 最小化、最大化／还原和正常关闭流程。框架容器保持非原生 QWidget，不改动视频祖先属性；现有 Modal Scrim 覆盖包含标题栏的整个窗口，模态期间禁止底层框架拖动。
 
 界面颜色以 `resources/styles/iskating.qss` 为主：应用背景、普通面板、弹窗和交互控件分别使用 Background / Surface / Elevated / Interactive 层级。`AnimatedButton` 与轨迹手工绘制使用相同语义配色；普通文字操作使用 `secondary` 或 `subtle`，`ghost` 仅用于次要工具动作。FramelessDialog 和系统设置的结构样式统一放在全局 QSS，不再覆盖一套本地控件主题。
 
