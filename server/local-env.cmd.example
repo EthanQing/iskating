@@ -1,0 +1,9 @@
+@echo off
+rem Copy this file to local-env.cmd and enter your local test database URL.
+rem Use URL encoding for special characters in the database password.
+rem In CMD files, a literal percent sign must be written as two percent signs.
+set "ISKATING_DATABASE_URL=postgresql+psycopg://iskating:YOUR_PASSWORD@127.0.0.1:5432/iskating"
+
+rem Optional: set a stable secret to keep login tokens valid after restarts.
+rem When omitted, start-backend.cmd generates a random secret for each launch.
+rem set "ISKATING_JWT_SECRET=YOUR_LOCAL_TEST_SECRET"

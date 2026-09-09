@@ -78,6 +78,8 @@ python tools\check_athlete_models.py
 
 服务使用 Python / FastAPI / PostgreSQL，依赖清单为 `server/requirements.txt`。以下命令用于启动服务，前提是已准备好 PostgreSQL 数据库及项目表结构；示例账号、密码和密钥需要替换。
 
+本地测试也可双击仓库根目录的 `start-backend.cmd`：先将 `server/local-env.cmd.example` 复制为 `server/local-env.cmd`，填入测试数据库连接。此本地配置已被 Git 忽略；已有环境变量也可直接使用。脚本从仓库根目录运行，复用或创建 `server/.venv`，缺少依赖时安装，随后在 `127.0.0.1:8000` 启动服务并监视 `server/app` 自动重载。按 Ctrl+C 停止；启动错误会保留在窗口中。未配置 `ISKATING_JWT_SECRET` 时，每次启动生成随机密钥，因此重启后需要重新登录。脚本不创建或重置数据库表，服务仍执行现有的默认数据初始化逻辑。
+
 在仓库根目录打开 PowerShell：
 
 ```powershell

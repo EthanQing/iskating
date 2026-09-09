@@ -96,6 +96,7 @@ coverage/
 __pycache__/
 *.py[cod]
 .venv/
+server/local-env.cmd
 venv/
 .pytest_cache/
 .mypy_cache/
