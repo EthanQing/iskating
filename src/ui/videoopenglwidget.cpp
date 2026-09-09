@@ -1030,6 +1030,14 @@ void VideoOpenGLWidget::resizeEvent(QResizeEvent *event)
     layoutOverlayControls();
     refreshAthleteLabels();
     refreshSourceOverlay();
+    // Native overlay windows can leave preserved pixels behind during layout changes.
+    update();
+}
+
+void VideoOpenGLWidget::moveEvent(QMoveEvent *event)
+{
+    QWidget::moveEvent(event);
+    update();
 }
 
 void VideoOpenGLWidget::keyPressEvent(QKeyEvent *event)
