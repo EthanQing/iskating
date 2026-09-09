@@ -2056,8 +2056,8 @@ void MainWindow::rebuildWorkspaceLayout()
     m_cameraGridLayout->setAlignment(Qt::AlignHCenter | Qt::AlignVCenter);
     m_cameraTrajectoryLayout->addWidget(m_cameraGridContainer, 1);
     ui->trajectoryCard->setParent(m_cameraTrajectoryRow);
-    ui->trajectoryCard->setMinimumWidth(280);
-    ui->trajectoryCard->setMaximumWidth(360);
+    ui->trajectoryCard->setMinimumWidth(340);
+    ui->trajectoryCard->setMaximumWidth(380);
     ui->trajectoryCard->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     m_cameraTrajectoryLayout->addWidget(ui->trajectoryCard);
     ui->trajectoryCard->show();
@@ -2231,7 +2231,7 @@ void MainWindow::updateCameraGrid()
     }
     if (m_cameraTrajectoryRow) {
         const int rowWidth = m_cameraTrajectoryRow->contentsRect().width();
-        const int trajectoryWidth = std::clamp(qRound(rowWidth * 0.24), 280, 360);
+        const int trajectoryWidth = std::clamp(qRound(rowWidth * 0.28), 340, 380);
         if (ui->trajectoryCard->width() != trajectoryWidth) {
             ui->trajectoryCard->setFixedWidth(trajectoryWidth);
         }

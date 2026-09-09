@@ -179,26 +179,39 @@ void TrajectoryWidget::paintEvent(QPaintEvent *event)
 
     const bool fieldMode = hasFieldSamples(m_samples);
     const QRectF bounds = fieldBounds(m_cameraSegments, m_samples);
-    const QRectF plotRect = viewRect.adjusted(12.0, 8.0, -12.0, -22.0);
-    const QRectF trackRect = plotRect.adjusted(3.0, 17.0, -3.0, -8.0);
-    if (trackRect.width() <= 0.0 || trackRect.height() <= 0.0) {
+    const QRectF availableRect = viewRect.adjusted(15.0, 25.0, -15.0, -30.0);
+    if (availableRect.width() <= 0.0 || availableRect.height() <= 0.0) {
         return;
     }
 
-    QPainterPath icePath;
-    icePath.addRoundedRect(trackRect, trackRect.height() * 0.5, trackRect.height() * 0.5);
+    constexpr qreal trackAspectRatio = 2.6;
+    const qreal trackWidth = std::min(availableRect.width(), availableRect.height() * trackAspectRatio);
+    const QSizeF trackSize(trackWidth, trackWidth / trackAspectRatio);
+    const QRectF trackRect(availableRect.center() - QPointF(trackSize.width() * 0.5,
+                                                          trackSize.height() * 0.5), trackSize);
+    const QRectF plotRect = trackRect.adjusted(4.0, 4.0, -4.0, -4.0);
+    auto stadiumPath = [](const QRectF &area) {
+        const qreal diameter = area.height();
+        const qreal radius = diameter * 0.5;
+        QPainterPath path;
+        path.moveTo(area.left() + radius, area.top());
+        path.lineTo(area.right() - radius, area.top());
+        path.arcTo(QRectF(area.right() - diameter, area.top(), diameter, diameter), 90.0, -180.0);
+        path.lineTo(area.left() + radius, area.bottom());
+        path.arcTo(QRectF(area.left(), area.top(), diameter, diameter), 270.0, -180.0);
+        path.closeSubpath();
+        return path;
+    };
     painter.setPen(QPen(QColor(QStringLiteral("#31445A")), 1.5));
     painter.setBrush(QColor(QStringLiteral("#162230")));
-    painter.drawPath(icePath);
+    painter.drawPath(stadiumPath(trackRect));
 
     painter.setBrush(Qt::NoBrush);
     painter.setPen(QPen(QColor(QStringLiteral("#243244")), 1.0));
     for (qreal inset : {7.0, 14.0}) {
         const QRectF laneRect = trackRect.adjusted(inset, inset, -inset, -inset);
         if (laneRect.width() > 0.0 && laneRect.height() > 0.0) {
-            QPainterPath lanePath;
-            lanePath.addRoundedRect(laneRect, laneRect.height() * 0.5, laneRect.height() * 0.5);
-            painter.drawPath(lanePath);
+            painter.drawPath(stadiumPath(laneRect));
         }
     }
 
@@ -234,10 +247,10 @@ void TrajectoryWidget::paintEvent(QPaintEvent *event)
         axisFont.setPixelSize(10);
         painter.setFont(axisFont);
         painter.setPen(QColor(QStringLiteral("#7E8FA3")));
-        painter.drawText(QRectF(plotRect.left(), plotRect.bottom() + 4.0, plotRect.width() * 0.5, 13.0),
+        painter.drawText(QRectF(plotRect.left(), trackRect.bottom() + 6.0, plotRect.width() * 0.5, 13.0),
                          Qt::AlignLeft | Qt::AlignTop,
                          QStringLiteral("%1 m").arg(bounds.left(), 0, 'f', 1));
-        painter.drawText(QRectF(plotRect.center().x(), plotRect.bottom() + 4.0,
+        painter.drawText(QRectF(plotRect.center().x(), trackRect.bottom() + 6.0,
                                 plotRect.width() * 0.5, 13.0),
                          Qt::AlignRight | Qt::AlignTop,
                          QStringLiteral("%1 m").arg(bounds.right(), 0, 'f', 1));
