@@ -19,7 +19,8 @@ QString probeMetadata(const OfflineVideoProbeResult &probe)
         {QStringLiteral("resolution"), probe.resolution},
         {QStringLiteral("durationMs"), static_cast<double>(probe.durationMs)},
         {QStringLiteral("seekable"), probe.seekable},
-        {QStringLiteral("d3d11vaReady"), probe.d3d11vaReady}
+        {QStringLiteral("d3d11vaReady"), probe.d3d11vaReady},
+        {QStringLiteral("decodeMode"), probe.d3d11vaReady ? QStringLiteral("d3d11va") : QStringLiteral("software")}
     }).toJson(QJsonDocument::Compact));
 }
 

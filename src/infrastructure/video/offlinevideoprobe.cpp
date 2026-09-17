@@ -2,6 +2,7 @@
 #include "d3d11videodevice.h"
 
 #include <QElapsedTimer>
+#include <QDebug>
 #include <QFileInfo>
 
 #include <algorithm>
@@ -14,6 +15,7 @@ extern "C" {
 #include <libavutil/hwcontext.h>
 #include <libavutil/mathematics.h>
 #include <libavutil/pixfmt.h>
+#include <libavutil/pixdesc.h>
 #include <libavutil/rational.h>
 }
 
@@ -142,29 +144,9 @@ bool timedOut(const ProbeContext &context)
     return context.timer.isValid() && context.timer.elapsed() > context.timeoutMs;
 }
 
-} // namespace
-
-OfflineVideoProbeResult OfflineVideoProbe::probe(const QString &filePath, int timeoutMs)
+OfflineVideoProbeResult attemptDecode(OfflineVideoProbeResult result, int timeoutMs,
+                                      bool hardware, bool *decodeAttempted)
 {
-    OfflineVideoProbeResult result;
-    const QFileInfo fileInfo(filePath);
-    result.filePath = fileInfo.absoluteFilePath();
-    result.fileSize = fileInfo.exists() ? fileInfo.size() : 0;
-    result.lastModified = fileInfo.exists() ? fileInfo.lastModified() : QDateTime();
-
-    if (!fileInfo.exists() || !fileInfo.isFile()) {
-        setFailure(&result, QStringLiteral("找不到所选视频文件。"));
-        return result;
-    }
-    if (!fileInfo.isReadable()) {
-        setFailure(&result, QStringLiteral("视频文件不可读取，请检查文件权限。"));
-        return result;
-    }
-    if (fileInfo.size() <= 0) {
-        setFailure(&result, QStringLiteral("视频文件为空。"));
-        return result;
-    }
-
     ProbeContext probeContext;
     probeContext.timeoutMs = std::max(1000, timeoutMs);
     probeContext.timer.start();
@@ -224,14 +206,15 @@ OfflineVideoProbeResult OfflineVideoProbe::probe(const QString &filePath, int ti
         return result;
     }
     result.codecName = QString::fromLatin1(codec->name);
-    if (!codecSupportsD3D11(codec)) {
+    *decodeAttempted = true;
+    if (hardware && !codecSupportsD3D11(codec)) {
         setFailure(&result, QStringLiteral("当前解码器不支持 D3D11VA 硬解：%1。").arg(result.codecName));
         return result;
     }
 
     QString hwError;
-    AvBufferRefPtr hwDevice(D3D11VideoDevice::createFfmpegHwDevice(&hwError));
-    if (!hwDevice.get()) {
+    AvBufferRefPtr hwDevice(hardware ? D3D11VideoDevice::createFfmpegHwDevice(&hwError) : nullptr);
+    if (hardware && !hwDevice.get()) {
         setFailure(&result, QStringLiteral("D3D11VA 不可用：%1").arg(hwError));
         return result;
     }
@@ -254,11 +237,13 @@ OfflineVideoProbeResult OfflineVideoProbe::probe(const QString &filePath, int ti
     }
 
     codecContext->thread_count = 1;
-    codecContext->get_format = d3d11GetFormat;
-    codecContext->hw_device_ctx = av_buffer_ref(hwDevice.get());
-    if (!codecContext->hw_device_ctx) {
-        setFailure(&result, QStringLiteral("复制 D3D11VA 上下文失败。"));
-        return result;
+    if (hardware) {
+        codecContext->get_format = d3d11GetFormat;
+        codecContext->hw_device_ctx = av_buffer_ref(hwDevice.get());
+        if (!codecContext->hw_device_ctx) {
+            setFailure(&result, QStringLiteral("复制 D3D11VA 上下文失败。"));
+            return result;
+        }
     }
 
     AVDictionary *codecOptions = nullptr;
@@ -266,7 +251,7 @@ OfflineVideoProbeResult OfflineVideoProbe::probe(const QString &filePath, int ti
     rc = avcodec_open2(codecContext.get(), codec, &codecOptions);
     av_dict_free(&codecOptions);
     if (rc < 0) {
-        setFailure(&result, QStringLiteral("打开 D3D11VA 解码器失败：%1").arg(avError(rc)));
+        setFailure(&result, QStringLiteral("打开%1解码器失败：%2").arg(hardware ? QStringLiteral("硬件") : QStringLiteral("软件"), avError(rc)));
         return result;
     }
 
@@ -279,6 +264,20 @@ OfflineVideoProbeResult OfflineVideoProbe::probe(const QString &filePath, int ti
         return result;
     }
 
+    auto receiveFrame = [&]() {
+        const int received = avcodec_receive_frame(codecContext.get(), frame.get());
+        if (received < 0) return received;
+        const AVPixFmtDescriptor *pixelFormat = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(frame->format));
+        const bool validFormat = hardware ? frame->format == AV_PIX_FMT_D3D11
+                                         : pixelFormat && !(pixelFormat->flags & AV_PIX_FMT_FLAG_HWACCEL);
+        if (!validFormat || frame->width <= 0 || frame->height <= 0) return AVERROR_INVALIDDATA;
+        result.resolution = QStringLiteral("%1x%2").arg(frame->width).arg(frame->height);
+        result.d3d11vaReady = hardware;
+        result.success = true;
+        result.message = QStringLiteral("视频文件校验通过。");
+        return 0;
+    };
+
     int packetsRead = 0;
     while (packetsRead < 180) {
         if (timedOut(probeContext)) {
@@ -286,42 +285,74 @@ OfflineVideoProbeResult OfflineVideoProbe::probe(const QString &filePath, int ti
             return result;
         }
         rc = av_read_frame(format.get(), packet.get());
-        if (rc < 0) {
-            setFailure(&result, QStringLiteral("读取首帧失败：%1").arg(avError(rc)));
+        const bool eof = rc == AVERROR_EOF;
+        if (rc < 0 && !eof) {
+            setFailure(&result, timedOut(probeContext) ? QStringLiteral("读取视频信息超时。")
+                                                      : QStringLiteral("读取首帧失败：%1").arg(avError(rc)));
             return result;
         }
-        if (packet->stream_index != streamIndex) {
+        if (!eof && packet->stream_index != streamIndex) {
             av_packet_unref(packet.get());
             continue;
         }
-        ++packetsRead;
-        rc = avcodec_send_packet(codecContext.get(), packet.get());
+        if (!eof) ++packetsRead;
+        // Keep the packet until accepted; EAGAIN requires draining before resending.
+        do {
+            rc = avcodec_send_packet(codecContext.get(), eof ? nullptr : packet.get());
+            if (rc == AVERROR(EAGAIN)) {
+                const int received = receiveFrame();
+                if (result.success) return result;
+                // FFmpeg guarantees send and receive cannot both return EAGAIN.
+                if (received < 0) {
+                    setFailure(&result, QStringLiteral("读取解码帧失败：%1").arg(avError(received)));
+                    return result;
+                }
+            }
+        } while (rc == AVERROR(EAGAIN));
         av_packet_unref(packet.get());
-        if (rc < 0 && rc != AVERROR(EAGAIN)) {
+        if (rc < 0) {
             setFailure(&result, QStringLiteral("送入解码器失败：%1").arg(avError(rc)));
             return result;
         }
-        while (true) {
-            rc = avcodec_receive_frame(codecContext.get(), frame.get());
-            if (rc == AVERROR(EAGAIN) || rc == AVERROR_EOF) {
-                break;
-            }
-            if (rc < 0) {
-                setFailure(&result, QStringLiteral("读取解码帧失败：%1").arg(avError(rc)));
-                return result;
-            }
-            if (frame->format != AV_PIX_FMT_D3D11) {
-                setFailure(&result, QStringLiteral("解码器没有输出 D3D11 硬件帧。"));
-                return result;
-            }
-            result.d3d11vaReady = true;
-            result.success = true;
-            result.message = QStringLiteral("视频文件校验通过。");
-            av_frame_unref(frame.get());
+        rc = receiveFrame();
+        if (result.success) return result;
+        if (rc != AVERROR(EAGAIN) && rc != AVERROR_EOF) {
+            setFailure(&result, QStringLiteral("读取解码帧失败：%1").arg(avError(rc)));
             return result;
         }
+        if (eof) break;
     }
-
     setFailure(&result, QStringLiteral("未能在视频开头读取到可解码画面。"));
     return result;
+}
+
+} // namespace
+
+OfflineVideoProbeResult OfflineVideoProbe::probe(const QString &filePath, int timeoutMs)
+{
+    OfflineVideoProbeResult result;
+    const QFileInfo fileInfo(filePath);
+    result.filePath = fileInfo.absoluteFilePath();
+    result.fileSize = fileInfo.exists() ? fileInfo.size() : 0;
+    result.lastModified = fileInfo.exists() ? fileInfo.lastModified() : QDateTime();
+
+    if (!fileInfo.exists() || !fileInfo.isFile()) {
+        setFailure(&result, QStringLiteral("找不到所选视频文件。"));
+        return result;
+    }
+    if (!fileInfo.isReadable()) {
+        setFailure(&result, QStringLiteral("视频文件不可读取，请检查文件权限。"));
+        return result;
+    }
+    if (fileInfo.size() <= 0) {
+        setFailure(&result, QStringLiteral("视频文件为空。"));
+        return result;
+    }
+
+    bool decodeAttempted = false;
+    OfflineVideoProbeResult hardware = attemptDecode(result, timeoutMs, true, &decodeAttempted);
+    if (hardware.success || !decodeAttempted) return hardware;
+    qInfo().noquote() << "D3D11VA unavailable, falling back to software decoder:" << hardware.message;
+    // Reopen from the beginning, with fresh codec state and an independent time budget.
+    return attemptDecode(result, timeoutMs, false, &decodeAttempted);
 }
