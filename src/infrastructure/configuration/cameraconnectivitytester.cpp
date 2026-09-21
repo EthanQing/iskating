@@ -5,6 +5,7 @@
 #include <QHostAddress>
 #include <QHostInfo>
 #include <QMetaType>
+#include <QThread>
 #include <QUrl>
 
 #include <utility>
@@ -133,6 +134,9 @@ struct ProbeContext
 
 int interruptProbe(void *opaque)
 {
+    if (QThread::currentThread()->isInterruptionRequested()) {
+        return 1;
+    }
     auto *context = static_cast<ProbeContext *>(opaque);
     if (!context || !context->timer.isValid()) {
         return 0;
@@ -233,6 +237,9 @@ void CameraConnectivityTester::run()
     QVector<CameraConnectivityResult> results;
     results.reserve(m_cameraSettings.size());
     for (int i = 0; i < m_cameraSettings.size(); ++i) {
+        if (QThread::currentThread()->isInterruptionRequested()) {
+            break;
+        }
         CameraConnectivityResult result = testCamera(i, m_cameraSettings.at(i));
         results.append(result);
         emit progress(i + 1, m_cameraSettings.size(), result);
@@ -293,6 +300,9 @@ CameraConnectivityResult CameraConnectivityTester::testCamera(int cameraIndex, c
     ProbeFailure openFailure;
     result.transport = QStringLiteral("UDP");
     if (!openInputWithTransport(url, "udp", &probeContext, &format, &openFailure)) {
+        if (QThread::currentThread()->isInterruptionRequested()) {
+            return result;
+        }
         qWarning() << "[CameraConnectivityTester] udp failed, retry tcp"
                    << safeCameraTestUrlForLog(url)
                    << "camera=" << cameraIndex + 1

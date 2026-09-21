@@ -187,7 +187,8 @@ private:
     QJsonArray requestArray(const QString &path,
                             const QVariantMap &query = {},
                             bool *ok = nullptr,
-                            QString *errorMessage = nullptr) const;
+                            QString *errorMessage = nullptr,
+                            int *httpStatus = nullptr) const;
     QString ensureId(const QString &id = QString()) const;
 
     mutable QNetworkAccessManager m_network;

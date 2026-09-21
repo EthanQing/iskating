@@ -1,21 +1,23 @@
 #ifndef OFFLINEANALYSISDIALOG_H
 #define OFFLINEANALYSISDIALOG_H
 
+#include "framelessdialog.h"
 #include "trainingdomain.h"
 
-#include <QDialog>
 #include <QTimer>
+#include <QSet>
 #include <QVector>
 
 class QLabel;
 class QLineEdit;
+class QPlainTextEdit;
 class QProgressBar;
 class QPushButton;
 class QTableWidget;
 class TrainingRepository;
 class AnalysisTaskManager;
 
-class OfflineAnalysisDialog : public QDialog
+class OfflineAnalysisDialog : public FramelessDialog
 {
 public:
     OfflineAnalysisDialog(TrainingRepository *repository,
@@ -34,6 +36,7 @@ private:
     void activateRun();
     void setBatch(const OfflineAnalysisBatch &batch);
     void setRun(const OfflineAnalysisRun &run);
+    void updateRunPresentation();
     OfflineAnalysisBatch batchFromTable(QString *errorMessage) const;
 
     TrainingRepository *m_repository = nullptr;
@@ -41,7 +44,19 @@ private:
     QVector<QString> m_athleteIds;
     QTableWidget *m_sourcesTable = nullptr;
     QLineEdit *m_nasRootEdit = nullptr;
-    QLabel *m_statusLabel = nullptr;
+    QLabel *m_inlineStatus = nullptr;
+    QLabel *m_emptyRunLabel = nullptr;
+    QWidget *m_runDetails = nullptr;
+    QLabel *m_runStatus = nullptr;
+    QLabel *m_progressText = nullptr;
+    QLabel *m_batchIdLabel = nullptr;
+    QLabel *m_runIdLabel = nullptr;
+    QLabel *m_modelLabel = nullptr;
+    QLabel *m_startedAtLabel = nullptr;
+    QLabel *m_framesLabel = nullptr;
+    QLabel *m_throughputLabel = nullptr;
+    QLabel *m_etaLabel = nullptr;
+    QPlainTextEdit *m_errorText = nullptr;
     QProgressBar *m_progressBar = nullptr;
     QPushButton *m_createButton = nullptr;
     QPushButton *m_cancelButton = nullptr;
@@ -50,6 +65,8 @@ private:
     QTimer m_refreshTimer;
     OfflineAnalysisBatch m_batch;
     OfflineAnalysisRun m_run;
+    bool m_submissionPending = false;
+    QSet<QString> m_tasksBeforeSubmission;
 };
 
 #endif // OFFLINEANALYSISDIALOG_H

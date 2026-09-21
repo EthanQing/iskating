@@ -3,9 +3,142 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMouseEvent>
+#include <QPainter>
+#include <QPointer>
 #include <QPushButton>
 #include <QShowEvent>
 #include <QVBoxLayout>
+
+namespace {
+
+class ModalScrim final : public QWidget
+{
+public:
+    explicit ModalScrim(QWidget *owner)
+        : QWidget(owner, Qt::Tool | Qt::FramelessWindowHint | Qt::WindowDoesNotAcceptFocus
+                             | Qt::WindowTransparentForInput)
+    {
+        setObjectName(QStringLiteral("modalScrim"));
+        setAttribute(Qt::WA_ShowWithoutActivating);
+        setAttribute(Qt::WA_TranslucentBackground);
+        setFocusPolicy(Qt::NoFocus);
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override
+    {
+        QPainter painter(this);
+        painter.fillRect(rect(), QColor(0, 0, 0, 105));
+    }
+};
+
+class ModalScrimController final : public QObject
+{
+public:
+    explicit ModalScrimController(QDialog *dialog)
+        : QObject(dialog)
+        , m_dialog(dialog)
+    {
+        dialog->installEventFilter(this);
+    }
+
+    ~ModalScrimController() override
+    {
+        hideScrim();
+    }
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        if (watched == m_dialog) {
+            if (event->type() == QEvent::Show && m_dialog->isModal()) {
+                showScrim();
+            } else if (event->type() == QEvent::Hide) {
+                hideScrim();
+            }
+        } else if (watched == m_owner) {
+            switch (event->type()) {
+            case QEvent::Move:
+            case QEvent::Resize:
+            case QEvent::WindowStateChange:
+                updateGeometry();
+                break;
+            case QEvent::Show:
+                if (m_scrim && m_dialog && m_dialog->isVisible()) {
+                    updateGeometry();
+                    m_scrim->show();
+                    m_dialog->raise();
+                }
+                break;
+            case QEvent::Hide:
+                if (m_scrim) {
+                    m_scrim->hide();
+                }
+                break;
+            default:
+                break;
+            }
+        }
+        return QObject::eventFilter(watched, event);
+    }
+
+private:
+    void showScrim()
+    {
+        QWidget *owner = m_dialog && m_dialog->parentWidget()
+                             ? m_dialog->parentWidget()->window()
+                             : nullptr;
+        if (!owner || owner == m_dialog) {
+            return;
+        }
+        if (m_owner != owner) {
+            hideScrim();
+            m_owner = owner;
+            m_owner->installEventFilter(this);
+        }
+        if (!m_scrim) {
+            m_scrim = new ModalScrim(owner);
+        }
+        updateGeometry();
+        m_scrim->show();
+        m_scrim->raise();
+        m_dialog->raise();
+    }
+
+    void hideScrim()
+    {
+        if (m_owner) {
+            m_owner->removeEventFilter(this);
+        }
+        if (m_scrim) {
+            m_scrim->hide();
+            m_scrim->deleteLater();
+        }
+        m_scrim.clear();
+        m_owner.clear();
+    }
+
+    void updateGeometry()
+    {
+        if (m_owner && m_scrim) {
+            m_scrim->setGeometry(m_owner->frameGeometry());
+        }
+    }
+
+    QPointer<QDialog> m_dialog;
+    QPointer<QWidget> m_owner;
+    QPointer<QWidget> m_scrim;
+};
+
+} // namespace
+
+void installModalScrim(QDialog *dialog)
+{
+    if (dialog && !dialog->property("modalScrimInstalled").toBool()) {
+        dialog->setProperty("modalScrimInstalled", true);
+        new ModalScrimController(dialog);
+    }
+}
 
 FramelessDialog::FramelessDialog(QWidget *parent)
     : QDialog(parent)
@@ -14,6 +147,7 @@ FramelessDialog::FramelessDialog(QWidget *parent)
     setWindowFlags((windowFlags() | Qt::Dialog | Qt::FramelessWindowHint)
                    & ~Qt::WindowContextHelpButtonHint);
     setModal(true);
+    installModalScrim(this);
 
     auto *rootLayout = new QVBoxLayout(this);
     rootLayout->setContentsMargins(1, 1, 1, 1);
@@ -45,80 +179,6 @@ FramelessDialog::FramelessDialog(QWidget *parent)
     m_contentLayout->setSpacing(14);
     rootLayout->addWidget(contentWidget);
 
-    setStyleSheet(QStringLiteral(R"QSS(
-QDialog#framelessDialog {
-    background: #0f141d;
-    border: 1px solid #2b3447;
-    color: #e7edf7;
-    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
-}
-QWidget#dialogTitleBar {
-    background: #111d31;
-    border-bottom: 1px solid #1d2737;
-}
-QLabel#dialogTitleLabel {
-    color: #7fb6ff;
-    font-size: 14px;
-    font-weight: 700;
-    background: transparent;
-}
-QWidget#dialogContent {
-    background: #0f141d;
-}
-QDialog#framelessDialog QLabel {
-    color: #8c8c8c;
-    font-size: 13px;
-    background: transparent;
-}
-QDialog#framelessDialog QLineEdit {
-    min-height: 30px;
-    border: 1px solid #2b3447;
-    border-radius: 0;
-    background: #101623;
-    color: #e7edf7;
-    padding: 6px 8px;
-    selection-background-color: #15335c;
-}
-QDialog#framelessDialog QLineEdit:hover,
-QDialog#framelessDialog QLineEdit:focus {
-    border-color: #3b8dff;
-    background: #111d31;
-}
-QDialog#framelessDialog QPushButton {
-    min-width: 76px;
-    min-height: 30px;
-    border: none;
-    border-radius: 0;
-    background: #101623;
-    color: #8c8c8c;
-    padding: 6px 14px;
-}
-QDialog#framelessDialog QPushButton:hover {
-    background: #172338;
-    color: #e7edf7;
-}
-QDialog#framelessDialog QPushButton:default {
-    background: #15335c;
-    color: #ffffff;
-}
-QDialog#framelessDialog QPushButton:pressed {
-    background: #0d1420;
-}
-QPushButton#dialogCloseButton {
-    min-width: 28px;
-    min-height: 24px;
-    max-width: 28px;
-    max-height: 24px;
-    background: transparent;
-    color: #8c8c8c;
-    font-size: 18px;
-    padding: 0;
-}
-QPushButton#dialogCloseButton:hover {
-    background: #7a1f2b;
-    color: #ffffff;
-}
-)QSS"));
 }
 
 QVBoxLayout *FramelessDialog::contentLayout() const

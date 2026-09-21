@@ -1,10 +1,10 @@
 #ifndef PERSONMANAGEMENTDIALOG_H
 #define PERSONMANAGEMENTDIALOG_H
 
+#include "framelessdialog.h"
 #include "trainingdomain.h"
 #include "tensortrtathletebackend.h"
 
-#include <QDialog>
 #include <QByteArray>
 #include <QString>
 #include <QVector>
@@ -14,16 +14,18 @@ class QLabel;
 class QLineEdit;
 class QListWidget;
 class QPlainTextEdit;
+class QPushButton;
+class QScrollArea;
+class QStackedWidget;
 class QTableWidget;
 class QDoubleSpinBox;
-class QPushButton;
+class QWidget;
 class TrainingRepository;
 
-class PersonManagementDialog : public QDialog
+class PersonManagementDialog : public FramelessDialog
 {
 public:
     explicit PersonManagementDialog(TrainingRepository *repository, QWidget *parent = nullptr);
-
     bool changed() const;
 
 private:
@@ -34,6 +36,11 @@ private:
     void populateAthleteTable();
     void populateCoachTable();
     void populateCoachAthleteList(const QVector<QString> &checkedAthleteIds = {});
+    void applyAthleteFilter();
+    void applyCoachFilter();
+    void updateIdentityActions();
+    void updateCoachAthleteCount();
+    void updateRepositoryAvailability();
     void selectAthleteRow(int row);
     void selectCoachRow(int row);
     void newAthlete();
@@ -61,9 +68,17 @@ private:
     QString m_currentAthleteId;
     QString m_currentCoachId;
 
+    QStackedWidget *m_pages = nullptr;
+    QLabel *m_serviceWarningLabel = nullptr;
     QLabel *m_statusLabel = nullptr;
 
+    QLineEdit *m_athleteSearchEdit = nullptr;
+    QLabel *m_athleteCountLabel = nullptr;
+    QStackedWidget *m_athleteListStack = nullptr;
     QTableWidget *m_athleteTable = nullptr;
+    QWidget *m_athleteDetailContent = nullptr;
+    QScrollArea *m_athleteDetailScroll = nullptr;
+    QLabel *m_athleteDetailTitle = nullptr;
     QLineEdit *m_athleteNameEdit = nullptr;
     QLineEdit *m_athleteCodeEdit = nullptr;
     QLineEdit *m_ageGroupEdit = nullptr;
@@ -75,19 +90,35 @@ private:
     QLineEdit *m_takeoffFootEdit = nullptr;
     QPlainTextEdit *m_injuryNotesEdit = nullptr;
     QPlainTextEdit *m_goalsEdit = nullptr;
+    QLabel *m_identitySampleCountLabel = nullptr;
     QTableWidget *m_identitySampleTable = nullptr;
+    QPushButton *m_newAthleteButton = nullptr;
+    QPushButton *m_emptyNewAthleteButton = nullptr;
+    QPushButton *m_saveAthleteButton = nullptr;
+    QPushButton *m_archiveAthleteButton = nullptr;
     QPushButton *m_addIdentitySampleButton = nullptr;
     QPushButton *m_deleteIdentitySampleButton = nullptr;
     std::unique_ptr<TensorRtAthleteBackend> m_identityBackend;
     bool m_identityBackendInitialized = false;
 
+    QLineEdit *m_coachSearchEdit = nullptr;
+    QLabel *m_coachCountLabel = nullptr;
+    QStackedWidget *m_coachListStack = nullptr;
     QTableWidget *m_coachTable = nullptr;
+    QWidget *m_coachDetailContent = nullptr;
+    QScrollArea *m_coachDetailScroll = nullptr;
+    QLabel *m_coachDetailTitle = nullptr;
     QLineEdit *m_coachNameEdit = nullptr;
     QLineEdit *m_coachCodeEdit = nullptr;
     QLineEdit *m_specialtyEdit = nullptr;
     QLineEdit *m_phoneEdit = nullptr;
     QPlainTextEdit *m_coachNotesEdit = nullptr;
+    QLabel *m_coachAthleteCountLabel = nullptr;
     QListWidget *m_coachAthleteList = nullptr;
+    QPushButton *m_newCoachButton = nullptr;
+    QPushButton *m_emptyNewCoachButton = nullptr;
+    QPushButton *m_saveCoachButton = nullptr;
+    QPushButton *m_archiveCoachButton = nullptr;
 };
 
 #endif // PERSONMANAGEMENTDIALOG_H

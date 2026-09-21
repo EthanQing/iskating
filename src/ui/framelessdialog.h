@@ -10,6 +10,8 @@ class QPushButton;
 class QShowEvent;
 class QVBoxLayout;
 
+void installModalScrim(QDialog *dialog);
+
 class FramelessDialog : public QDialog
 {
 public:

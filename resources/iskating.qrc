@@ -11,10 +11,19 @@
         <file alias="fullscreen.svg">icons/fullscreen.svg</file>
         <file alias="save.svg">icons/save.svg</file>
         <file alias="settings.svg">icons/settings.svg</file>
+        <file alias="system-status.svg">icons/system-status.svg</file>
         <file alias="sidebar.svg">icons/sidebar.svg</file>
         <file alias="start_cap.svg">icons/start_cap.svg</file>
         <file alias="stop.svg">icons/stop.svg</file>
         <file alias="suspend.svg">icons/suspend.svg</file>
         <file alias="video.svg">icons/video.svg</file>
+        <file alias="live.svg">icons/live.svg</file>
+        <file alias="history.svg">icons/history.svg</file>
+        <file alias="suggestion.svg">icons/suggestion.svg</file>
+        <file alias="person.svg">icons/person.svg</file>
+        <file alias="competition.svg">icons/competition.svg</file>
+        <file alias="chevron-down.svg">icons/chevron-down.svg</file>
+        <file alias="chevron-up.svg">icons/chevron-up.svg</file>
+        <file alias="check.svg">icons/check.svg</file>
     </qresource>
 </RCC>

@@ -29,6 +29,7 @@ public:
 
     void setCameraSegments(const QVector<CameraSegment> &segments);
     void setTrackPoints(const QVector<TrackPoint> &points);
+    void setAwaitingCalibration(bool awaiting);
 
     struct TrajectorySample
     {
@@ -46,6 +47,7 @@ private:
 
     QVector<TrajectorySample> m_samples;
     QVector<CameraSegment> m_cameraSegments;
+    bool m_awaitingCalibration = false;
 };
 
 #endif // TRAJECTORYWIDGET_H

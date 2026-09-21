@@ -5,6 +5,7 @@
 #include "systemsettingsdialog.h"
 #include "trainingdomain.h"
 #include "offlinevideoprobe.h"
+#include "cameraconnectivitytester.h"
 
 #include <QHash>
 #include <QMainWindow>
@@ -19,18 +20,29 @@ class QLabel;
 class QCheckBox;
 class QComboBox;
 class QDateEdit;
+class QDateTime;
+class QThread;
 class QLineEdit;
+class QListWidget;
 class QSpinBox;
 class QPlainTextEdit;
 class QEvent;
-class QProgressBar;
+class QMoveEvent;
+class QResizeEvent;
 class QPushButton;
+class QScrollArea;
+class QGridLayout;
+class QHBoxLayout;
+class QSplitter;
+class QVariantAnimation;
 class QVBoxLayout;
+class FramelessDialog;
 class VideoOpenGLWidget;
 class TrajectoryWidget;
 class AthleteAnalysisManager;
 class AnalysisTaskManager;
 class TrainingRepository;
+class MainWindowChrome;
 
 namespace Ui {
 class MainWindow;
@@ -47,20 +59,31 @@ public:
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
     void changeEvent(QEvent *event) override;
+    void moveEvent(QMoveEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
+    bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
 
 private:
     void setupUiState();
     void setupConnections();
-    void installMetricBars();
     void installTrainingContextPanel();
     void installHistorySearchPanel();
-    void installStaticImages();
+    void rebuildWorkspaceLayout();
+    void openTrainingSettings();
+    void closeTrainingSettings();
     void applyStyleSheet();
     void loadCameraSettings();
+    void refreshCameraConfigurationStatus();
+    void refreshCameraRuntimeStatus();
+    void startEnvironmentCheck();
+    void invalidateCameraConnectivityResults();
+    void refreshCameraConnectivityStatus();
+    void refreshAiCapabilityStatus();
     void saveCameraSettings();
     void saveCameraSetting(int cameraIndex);
     void loadTrainingRecords();
     void initializeTrainingRepository();
+    void refreshTrainingServiceStatus(const QDateTime &checkedAt);
     void reloadTrainingContext();
     void reloadHistorySearchOptions();
     SessionSearchFilters currentHistorySearchFilters() const;
@@ -99,6 +122,8 @@ private:
     void persistSystemSettings() const;
     CapturePreferenceSettings capturePreferenceSettingsFromUi() const;
     QString videoStorageRootDir() const;
+    void refreshVideoStorageStatus();
+    void refreshAnalysisTaskStatus();
     QString videoStorageStatusSummary(const VideoStorageSettings &settings) const;
     QVector<VideoFileCleanupCandidate> videoCleanupCandidates(const VideoStorageSettings &settings,
                                                               qint64 *existingBytes = nullptr) const;
@@ -119,7 +144,12 @@ private:
     void refreshCameraButtons();
     void refreshStats();
     void refreshHistory();
+    void selectHistorySession(const QString &sessionId);
+    void refreshHistorySessionDetail();
+    const SessionHistoryItem *historySessionById(const QString &sessionId) const;
+    bool historySessionHasPlayableVideo(const SessionHistoryItem &record) const;
     void refreshSuggestions();
+    void prepareSuggestionContext(bool resetToDefault);
     void openSessionVideo(const SessionHistoryItem &record,
                           int offsetMs = 0,
                           int endOffsetMs = -1,
@@ -147,12 +177,11 @@ private:
 
 private:
     Ui::MainWindow *ui = nullptr;
+    MainWindowChrome *m_windowChrome = nullptr;
 
     QVector<QPushButton *> m_navButtons;
     QVector<VideoOpenGLWidget *> m_cameraButtons;
     QVector<QLabel *> m_summaryValues;
-    QVector<QProgressBar *> m_metricBars;
-    QVector<QLabel *> m_metricValueLabels;
     QPushButton *m_fullScreenButton = nullptr;
     QPushButton *m_importVideoButton = nullptr;
     QPushButton *m_fullRateAnalysisButton = nullptr;
@@ -162,6 +191,7 @@ private:
     std::unique_ptr<TrainingRepository> m_trainingRepository;
     QWidget *m_trainingContextPanel = nullptr;
     QComboBox *m_athleteComboBox = nullptr;
+    QComboBox *m_drawerAthleteComboBox = nullptr;
     QComboBox *m_coachComboBox = nullptr;
     QComboBox *m_competitionComboBox = nullptr;
     QComboBox *m_competitionEventComboBox = nullptr;
@@ -177,6 +207,14 @@ private:
     QPlainTextEdit *m_trainingNotesEdit = nullptr;
     QLabel *m_standardDetailLabel = nullptr;
     QLabel *m_trainingTargetLabel = nullptr;
+    QLabel *m_trainingStateLabel = nullptr;
+    QLabel *m_speedStatusLabel = nullptr;
+    QLabel *m_athleteNameLabel = nullptr;
+    QLabel *m_identityAvailabilityLabel = nullptr;
+    QScrollArea *m_saveTipScrollArea = nullptr;
+    QSplitter *m_workspaceSplitter = nullptr;
+    bool m_compactWorkspace = false;
+    FramelessDialog *m_trainingSettingsDialog = nullptr;
     QWidget *m_historySearchPanel = nullptr;
     QComboBox *m_historyAthleteComboBox = nullptr;
     QComboBox *m_historyCoachComboBox = nullptr;
@@ -195,8 +233,37 @@ private:
     QLabel *m_historyPageLabel = nullptr;
     QPushButton *m_historyPreviousPageButton = nullptr;
     QPushButton *m_historyNextPageButton = nullptr;
+    QListWidget *m_historySessionList = nullptr;
+    QSplitter *m_historyWorkspace = nullptr;
+    QWidget *m_historyDetailContent = nullptr;
+    QWidget *m_historyDetailEmptyState = nullptr;
+    QLabel *m_historyDetailAthleteLabel = nullptr;
+    QLabel *m_historyDetailTimeLabel = nullptr;
+    QLabel *m_historyDetailSourceLabel = nullptr;
+    QLabel *m_historyDetailSummaryLabel = nullptr;
+    QLabel *m_historyDetailTrainingInfoLabel = nullptr;
+    QLabel *m_historyDetailSourceInfoLabel = nullptr;
+    QLabel *m_historyDetailCommentLabel = nullptr;
+    QLabel *m_historyEmptyTitleLabel = nullptr;
+    QLabel *m_historyEmptyBodyLabel = nullptr;
+    QPushButton *m_historyEmptyResetButton = nullptr;
+    QPushButton *m_historyPlayButton = nullptr;
+    QPushButton *m_historyReviewButton = nullptr;
+    QPushButton *m_historyTrackButton = nullptr;
+    QPushButton *m_historyCommentButton = nullptr;
+    QPushButton *m_historyExportButton = nullptr;
+    QPushButton *m_historySearchButton = nullptr;
+    QPushButton *m_historyRepetitionSearchButton = nullptr;
+    QPushButton *m_historyCompetitionManagementButton = nullptr;
+    QPushButton *m_historyReportCenterButton = nullptr;
+    QString m_selectedHistorySessionId;
+    bool m_historyServiceAvailable = false;
+    SessionHistoryItem m_suggestionLatestRecord;
+    bool m_hasSuggestionLatestRecord = false;
+    bool m_refreshingSuggestions = false;
 
     QTimer m_timer;
+    QTimer m_statusTimer;
     QTimer m_analysisOverlayTimer;
     QVector<SessionHistoryItem> m_records;
     QVector<AthleteProfile> m_athletes;
@@ -211,6 +278,7 @@ private:
     QHash<QString, TrackPoint> m_latestTrackPoints;
     TrajectoryWidget *m_trajectoryWidget = nullptr;
     AthleteFrameResult m_lastAthleteFrame;
+    qint64 m_lastSelectedFrameReceivedAtMsec = 0;
     QVector<AthleteIdentityBinding> m_manualIdentityBindings;
     QString m_lastSavedAt;
     int m_historyPageNumber = 1;
@@ -219,14 +287,22 @@ private:
 
     int m_activePage = 0;
     bool m_sidebarVisible = true;
-    bool m_sidebarMetricsCaptured = false;
-    QMargins m_sidebarLayoutMargins;
-    int m_sidebarLayoutSpacing = 10;
-    int m_sidebarNormalMinimumWidth = 0;
-    int m_sidebarNormalMaximumWidth = QWIDGETSIZE_MAX;
-    int m_middleLayoutNormalSpacing = 14;
-    int m_middleLayoutNormalStretch0 = 0;
-    int m_middleLayoutNormalStretch1 = 0;
+    QVariantAnimation *m_sidebarAnimation = nullptr;
+    QVariantAnimation *m_settingsAnimation = nullptr;
+    bool m_settingsExpanded = false;
+    bool m_aiAnalysisReady = false;
+    bool m_aiModelFailed = false;
+    QString m_lastModelStatusText;
+    QPushButton *m_environmentCheckButton = nullptr;
+    QLabel *m_environmentCheckLabel = nullptr;
+    QThread *m_environmentCheckThread = nullptr;
+    QVector<CameraConnectivityResult> m_lastCameraConnectivityResults;
+    QDateTime m_lastEnvironmentCheckAt;
+    int m_cameraConfigurationRevision = 0;
+    bool m_cameraConnectivityChecked = false;
+    bool m_cameraConnectivityInvalidated = false;
+    bool m_identityRecognitionKnown = false;
+    bool m_identityRecognitionAvailable = false;
     int m_cameraGridNormalSpacing = 10;
     int m_selectedCamera = 1;
     bool m_isRecording = false;
