@@ -1,4 +1,4 @@
-QT += core widgets testlib
+QT += core widgets testlib qml quick quickwidgets
 
 TEMPLATE = app
 TARGET = client-tests
@@ -39,3 +39,7 @@ CONFIG(release, debug|release) {
     OBJECTS_DIR = $$PROJECT_ROOT/x64/Debug/tests/obj
     MOC_DIR = $$PROJECT_ROOT/x64/Debug/tests/moc
 }
+
+SOURCES += $$SRC_ROOT/ui/mainwindowpresentation.cpp $$SRC_ROOT/ui/quickpanelhost.cpp
+HEADERS += $$SRC_ROOT/ui/mainwindowpresentation.h $$SRC_ROOT/ui/quickpanelhost.h
+RESOURCES += $$PROJECT_ROOT/resources/iskating.qrc

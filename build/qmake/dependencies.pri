@@ -1,4 +1,4 @@
-QT += core gui widgets svg network printsupport
+QT += core gui widgets svg network printsupport qml quick quickwidgets
 
 QXLSX_PARENTPATH = $$PROJECT_ROOT/third_party/QXlsx/QXlsx/../
 QXLSX_HEADERPATH = $$PROJECT_ROOT/third_party/QXlsx/QXlsx/header/

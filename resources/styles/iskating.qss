@@ -910,3 +910,12 @@ QDialog#trainingSettingsDrawer QScrollArea#trainingSettingsScroll > QWidget > QW
     background: #111A24;
     border: none;
 }
+
+/* QML partitions meet the retained native video/trajectory workspace at opaque edges. */
+QWidget#quickPanelHost {
+    background: #151B25;
+    border: none;
+}
+QFrame#opsCard {
+    background: #151B25;
+}

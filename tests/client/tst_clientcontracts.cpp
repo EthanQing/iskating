@@ -1,3 +1,8 @@
+#include "mainwindowpresentation.h"
+#include "quickpanelhost.h"
+#include <QQuickWidget>
+#include <QQuickItem>
+#include <QQmlEngine>
 #include "athletedetectionroi.h"
 #include "athletetracker.h"
 #include "cameraconfigtemplate.h"
@@ -19,6 +24,10 @@ class ClientContractsTest final : public QObject
     Q_OBJECT
 
 private slots:
+    void qmlPanelsLoad();
+    void qmlHeaderRequests();
+    void qmlTrainingRequests();
+    void qmlNavigationAndSelection();
     void cameraTemplateRoundTrip();
     void detectionRoiScalesFootPoint();
     void athleteTrackerKeepsOneToOneTracks();
@@ -172,6 +181,173 @@ void ClientContractsTest::videoStoragePlanUsesStableLayout()
     QCOMPARE(metadata.value(QStringLiteral("status")).toString(), QStringLiteral("planned"));
     QCOMPARE(metadata.value(QStringLiteral("camera")).toInt(), 3);
     QCOMPARE(metadata.value(QStringLiteral("durationMs")).toInt(), 12000);
+}
+
+void ClientContractsTest::qmlPanelsLoad()
+{
+    MainWindowPresentation presentation;
+    for (const QString &name : {QStringLiteral("NavigationPanel"), QStringLiteral("WorkspaceHeader"), QStringLiteral("TrainingPanel")}) {
+        QuickPanelHost host(&presentation, QUrl(QStringLiteral("qrc:/qml/%1.qml").arg(name)));
+        host.resize(420, 900);
+        QCOMPARE(host.view()->status(), QQuickWidget::Ready);
+        QVERIFY(host.view()->rootObject());
+    }
+}
+
+namespace {
+QQuickItem *panelItem(QQuickItem *parent, const QString &name)
+{
+    if (parent->objectName() == name) return parent;
+    for (QQuickItem *child : parent->childItems()) {
+        if (auto *found = panelItem(child, name)) return found;
+    }
+    return nullptr;
+}
+void clickPanelItem(QQuickWidget *view, QQuickItem *item)
+{
+    QTest::mouseClick(view, Qt::LeftButton, Qt::NoModifier,
+                      item->mapToScene(QPointF(item->width() / 2, item->height() / 2)).toPoint());
+}
+}
+
+void ClientContractsTest::qmlHeaderRequests()
+{
+    MainWindowPresentation presentation;
+    QuickPanelHost host(&presentation, QUrl(QStringLiteral("qrc:/qml/WorkspaceHeader.qml")));
+    host.resize(750, 112);
+    host.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&host));
+    QSignalSpy importSpy(&presentation, &MainWindowPresentation::importVideoRequested);
+    QSignalSpy analysisSpy(&presentation, &MainWindowPresentation::offlineAnalysisRequested);
+    QSignalSpy tasksSpy(&presentation, &MainWindowPresentation::taskCenterRequested);
+    QSignalSpy fullScreenSpy(&presentation, &MainWindowPresentation::toggleFullScreenRequested);
+    QSignalSpy checkSpy(&presentation, &MainWindowPresentation::checkRequested);
+    for (const QString &name : {QStringLiteral("importVideo"), QStringLiteral("offlineAnalysis"),
+                                QStringLiteral("taskCenter"), QStringLiteral("toggleFullScreen")}) {
+        auto *button = panelItem(host.view()->rootObject(), name);
+        QVERIFY(button);
+        clickPanelItem(host.view(), button);
+    }
+    QCOMPARE(importSpy.count(), 1);
+    QCOMPARE(analysisSpy.count(), 1);
+    QCOMPARE(tasksSpy.count(), 1);
+    QCOMPARE(fullScreenSpy.count(), 1);
+    auto *check = panelItem(host.view()->rootObject(), QStringLiteral("environmentCheck"));
+    QVERIFY(check && !check->isVisible());
+    presentation.setActivePage(3);
+    presentation.setPageTitle(QStringLiteral("系统状态"));
+    QTRY_VERIFY(check->isVisible());
+    QCoreApplication::processEvents();
+    clickPanelItem(host.view(), check);
+    QCOMPARE(checkSpy.count(), 1);
+    presentation.setCanCheck(false);
+    clickPanelItem(host.view(), check);
+    QCOMPARE(checkSpy.count(), 1);
+    auto *title = panelItem(host.view()->rootObject(), QStringLiteral("pageTitle"));
+    QVERIFY(title);
+    QCOMPARE(title->property("text").toString(), QStringLiteral("系统状态"));
+}
+
+void ClientContractsTest::qmlTrainingRequests()
+{
+    MainWindowPresentation presentation;
+    presentation.setStartText(QStringLiteral("开始训练"));
+    QuickPanelHost host(&presentation, QUrl(QStringLiteral("qrc:/qml/TrainingPanel.qml")));
+    host.resize(360, 1000);
+    host.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&host));
+    auto *start = panelItem(host.view()->rootObject(), QStringLiteral("startTraining"));
+    auto *pause = panelItem(host.view()->rootObject(), QStringLiteral("pauseTraining"));
+    auto *stop = panelItem(host.view()->rootObject(), QStringLiteral("stopTraining"));
+    auto *save = panelItem(host.view()->rootObject(), QStringLiteral("saveTraining"));
+    QVERIFY(start && pause && stop && save);
+    QSignalSpy startSpy(&presentation, &MainWindowPresentation::startRequested);
+    QSignalSpy pauseSpy(&presentation, &MainWindowPresentation::pauseRequested);
+    QSignalSpy stopSpy(&presentation, &MainWindowPresentation::stopRequested);
+    QSignalSpy saveSpy(&presentation, &MainWindowPresentation::saveRequested);
+    clickPanelItem(host.view(), start);
+    QCOMPARE(startSpy.count(), 1);
+    clickPanelItem(host.view(), pause);
+    clickPanelItem(host.view(), stop);
+    clickPanelItem(host.view(), save);
+    QCOMPARE(pauseSpy.count(), 0);
+    QCOMPARE(stopSpy.count(), 0);
+    QCOMPARE(saveSpy.count(), 0);
+    presentation.setCanStart(false);
+    presentation.setCanPause(true);
+    presentation.setCanStop(true);
+    presentation.setCanSave(true);
+    QTRY_VERIFY(!start->isEnabled());
+    clickPanelItem(host.view(), start);
+    QCOMPARE(startSpy.count(), 1);
+    clickPanelItem(host.view(), pause);
+    clickPanelItem(host.view(), stop);
+    clickPanelItem(host.view(), save);
+    QCOMPARE(pauseSpy.count(), 1);
+    QCOMPARE(stopSpy.count(), 1);
+    QCOMPARE(saveSpy.count(), 1);
+    presentation.setStartText(QStringLiteral("继续训练"));
+    QCOMPARE(start->property("text").toString(), QStringLiteral("继续训练"));
+    presentation.setSaveTip(QStringLiteral("保存失败：服务未连接"));
+    auto *tip = panelItem(host.view()->rootObject(), QStringLiteral("saveTip"));
+    QVERIFY(tip);
+    QCOMPARE(tip->property("text").toString(), presentation.saveTip());
+}
+
+void ClientContractsTest::qmlNavigationAndSelection()
+{
+    MainWindowPresentation presentation;
+    QuickPanelHost nav(&presentation, QUrl(QStringLiteral("qrc:/qml/NavigationPanel.qml")));
+    nav.resize(220, 750);
+    nav.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&nav));
+    connect(&presentation, &MainWindowPresentation::pageRequested,
+            &presentation, &MainWindowPresentation::setActivePage);
+    QSignalSpy pageSpy(&presentation, &MainWindowPresentation::pageRequested);
+    for (int page : {1, 3, 0}) {
+        auto *button = panelItem(nav.view()->rootObject(), QStringLiteral("navigation%1").arg(page));
+        QVERIFY(button);
+        clickPanelItem(nav.view(), button);
+        QCOMPARE(presentation.activePage(), page);
+        QVERIFY(button->property("selected").toBool());
+    }
+    QCOMPARE(pageSpy.count(), 3);
+    presentation.navigate(2); // The legacy insights page is not a public navigation entry.
+    QCOMPARE(pageSpy.count(), 3);
+    presentation.setSidebarExpanded(false);
+    nav.resize(64, 750);
+    auto *history = panelItem(nav.view()->rootObject(), QStringLiteral("navigation1"));
+    QTRY_VERIFY2(history->width() <= 44, qPrintable(QStringLiteral("host %1 view %2 item %3").arg(nav.width()).arg(nav.view()->width()).arg(history->width())));
+    clickPanelItem(nav.view(), history);
+    QCOMPARE(presentation.activePage(), 1);
+
+    presentation.setAthletes({QVariantMap{{"id", "a"}, {"name", "同名运动员"}},
+                              QVariantMap{{"id", "b"}, {"name", "同名运动员"}}});
+    presentation.setSelectedAthleteId(QStringLiteral("a"));
+    QuickPanelHost training(&presentation, QUrl(QStringLiteral("qrc:/qml/TrainingPanel.qml")));
+    training.resize(360, 900);
+    training.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&training));
+    auto *selector = panelItem(training.view()->rootObject(), QStringLiteral("athleteSelector"));
+    QVERIFY(selector);
+    QCOMPARE(selector->property("currentIndex").toInt(), 0);
+    connect(&presentation, &MainWindowPresentation::athleteSelected,
+            &presentation, &MainWindowPresentation::setSelectedAthleteId);
+    QSignalSpy selectionSpy(&presentation, &MainWindowPresentation::athleteSelected);
+    selector->forceActiveFocus();
+    QTest::keyClick(training.view(), Qt::Key_Down);
+    QTRY_COMPARE(presentation.selectedAthleteId(), QStringLiteral("b"));
+    QCOMPARE(selectionSpy.count(), 1);
+    presentation.setSelectedAthleteId(QStringLiteral("a"));
+    QCOMPARE(selector->property("currentIndex").toInt(), 0);
+    presentation.selectAthlete(QStringLiteral("missing"));
+    QCOMPARE(presentation.selectedAthleteId(), QStringLiteral("a"));
+    presentation.setAthletes({QVariantMap{{"id", "b"}, {"name", "同名运动员"}},
+                              QVariantMap{{"id", "a"}, {"name", "同名运动员"}}});
+    QCOMPARE(selector->property("currentIndex").toInt(), 1);
+    presentation.setAthletes({});
+    presentation.setSelectedAthleteId(QString());
+    QCOMPARE(selector->property("currentIndex").toInt(), -1);
 }
 
 QTEST_MAIN(ClientContractsTest)

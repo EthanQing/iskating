@@ -26,4 +26,11 @@
         <file alias="chevron-up.svg">icons/chevron-up.svg</file>
         <file alias="check.svg">icons/check.svg</file>
     </qresource>
+    <qresource prefix="/qml">
+        <file alias="Theme.qml">../src/ui/qml/Theme.qml</file>
+        <file alias="ActionButton.qml">../src/ui/qml/ActionButton.qml</file>
+        <file alias="NavigationPanel.qml">../src/ui/qml/NavigationPanel.qml</file>
+        <file alias="WorkspaceHeader.qml">../src/ui/qml/WorkspaceHeader.qml</file>
+        <file alias="TrainingPanel.qml">../src/ui/qml/TrainingPanel.qml</file>
+    </qresource>
 </RCC>

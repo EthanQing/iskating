@@ -72,7 +72,7 @@ QMAKE_EXTRA_TARGETS += windows_platform_plugin
 POST_TARGETDEPS += windows_platform_plugin
 
 CONFIG(release, debug|release) {
-    QMAKE_POST_LINK += $$escape_expand(\\n\\t) $$shell_quote($$shell_path($$QT_BIN_DIR/windeployqt.exe)) --release --no-translations $$shell_quote($$shell_path($$DESTDIR/$${TARGET}.exe))
+    QMAKE_POST_LINK += $$escape_expand(\\n\\t) $$shell_quote($$shell_path($$QT_BIN_DIR/windeployqt.exe)) --release --no-translations --qmldir $$shell_quote($$shell_path($$SRC_ROOT/ui/qml)) $$shell_quote($$shell_path($$DESTDIR/$${TARGET}.exe))
 }
 
 # Release builds keep PDB output beside the executable for field diagnostics.

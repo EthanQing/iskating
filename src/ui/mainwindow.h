@@ -33,6 +33,7 @@ class QPushButton;
 class QScrollArea;
 class QGridLayout;
 class QHBoxLayout;
+class QBoxLayout;
 class QSplitter;
 class QVariantAnimation;
 class QVBoxLayout;
@@ -43,6 +44,8 @@ class AthleteAnalysisManager;
 class AnalysisTaskManager;
 class TrainingRepository;
 class MainWindowChrome;
+class MainWindowPresentation;
+class QuickPanelHost;
 
 namespace Ui {
 class MainWindow;
@@ -69,6 +72,7 @@ private:
     void installTrainingContextPanel();
     void installHistorySearchPanel();
     void rebuildWorkspaceLayout();
+    void updateWorkspaceLayout();
     void openTrainingSettings();
     void closeTrainingSettings();
     void applyStyleSheet();
@@ -101,6 +105,7 @@ private:
     void openRepetitionSearchDialog();
     ActionStandard selectedActionStandard() const;
     QString selectedAthleteId() const;
+    void selectAthlete(const QString &id);
     QString selectedCoachId() const;
     QString selectedCompetitionId() const;
     QString selectedCompetitionEventId() const;
@@ -179,18 +184,14 @@ private:
     Ui::MainWindow *ui = nullptr;
     MainWindowChrome *m_windowChrome = nullptr;
 
-    QVector<QPushButton *> m_navButtons;
+    MainWindowPresentation *m_presentation = nullptr;
+    QVector<QuickPanelHost *> m_quickPanels;
     QVector<VideoOpenGLWidget *> m_cameraButtons;
     QVector<QLabel *> m_summaryValues;
-    QPushButton *m_fullScreenButton = nullptr;
-    QPushButton *m_importVideoButton = nullptr;
-    QPushButton *m_fullRateAnalysisButton = nullptr;
-    QPushButton *m_taskCenterButton = nullptr;
     std::unique_ptr<AthleteAnalysisManager> m_athleteAnalysisManager;
     std::unique_ptr<AnalysisTaskManager> m_analysisTaskManager;
     std::unique_ptr<TrainingRepository> m_trainingRepository;
     QWidget *m_trainingContextPanel = nullptr;
-    QComboBox *m_athleteComboBox = nullptr;
     QComboBox *m_drawerAthleteComboBox = nullptr;
     QComboBox *m_coachComboBox = nullptr;
     QComboBox *m_competitionComboBox = nullptr;
@@ -207,12 +208,12 @@ private:
     QPlainTextEdit *m_trainingNotesEdit = nullptr;
     QLabel *m_standardDetailLabel = nullptr;
     QLabel *m_trainingTargetLabel = nullptr;
-    QLabel *m_trainingStateLabel = nullptr;
-    QLabel *m_speedStatusLabel = nullptr;
-    QLabel *m_athleteNameLabel = nullptr;
-    QLabel *m_identityAvailabilityLabel = nullptr;
-    QScrollArea *m_saveTipScrollArea = nullptr;
     QSplitter *m_workspaceSplitter = nullptr;
+    QScrollArea *m_workspaceScroll = nullptr;
+    QBoxLayout *m_cameraTrajectoryLayout = nullptr;
+    QGridLayout *m_cameraGridLayout = nullptr;
+    QWidget *m_cameraGridContainer = nullptr;
+    int m_cameraColumns = 3;
     bool m_compactWorkspace = false;
     FramelessDialog *m_trainingSettingsDialog = nullptr;
     QWidget *m_historySearchPanel = nullptr;
@@ -287,14 +288,11 @@ private:
 
     int m_activePage = 0;
     bool m_sidebarVisible = true;
-    QVariantAnimation *m_sidebarAnimation = nullptr;
     QVariantAnimation *m_settingsAnimation = nullptr;
     bool m_settingsExpanded = false;
     bool m_aiAnalysisReady = false;
     bool m_aiModelFailed = false;
     QString m_lastModelStatusText;
-    QPushButton *m_environmentCheckButton = nullptr;
-    QLabel *m_environmentCheckLabel = nullptr;
     QThread *m_environmentCheckThread = nullptr;
     QVector<CameraConnectivityResult> m_lastCameraConnectivityResults;
     QDateTime m_lastEnvironmentCheckAt;

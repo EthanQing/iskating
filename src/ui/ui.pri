@@ -31,3 +31,6 @@ HEADERS += \
 
 FORMS += \
     $$SRC_ROOT/ui/mainwindow.ui
+
+SOURCES += $$SRC_ROOT/ui/mainwindowpresentation.cpp $$SRC_ROOT/ui/quickpanelhost.cpp
+HEADERS += $$SRC_ROOT/ui/mainwindowpresentation.h $$SRC_ROOT/ui/quickpanelhost.h
